@@ -9,6 +9,7 @@ import DeviceLanguage from '../../components/DeviceLanguage';
 import { timeOf } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
 import { lineKey, photo, tint } from './onlineShared';
+import { modsWords, serviceWords } from '../till/tillBill';
 import './online.css';
 
 // Ordering from the table (online.starbartema.com/q/<the table's code>,
@@ -161,8 +162,24 @@ export default function TableShop({ code }) {
         <details className="tb-bill">
           <summary><span aria-hidden="true">🧾</span><strong>{tr('Your table so far')}</strong><b>{money(data.bill.total)}</b></summary>
           <ul className="on-lines is-plain">
-            {data.bill.items.map((l, i) => <li key={i}><span className="on-line-text"><strong>{l.qty}× {l.name}</strong></span><i>{money(l.lineTotal)}</i></li>)}
+            {data.bill.items.map((l, i) => (
+              <li key={i}>
+                <span className="on-line-text"><strong>{l.qty}× {l.name}</strong>
+                  {(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}
+                  {l.compReason ? <small className="on-line-off">🎁 {tr('On the house')}</small> : l.discount > 0 ? <small className="on-line-off">−{money(l.discount)}</small> : null}
+                </span>
+                <i>{money(l.lineTotal)}</i>
+              </li>
+            ))}
           </ul>
+          {(data.bill.serviceCharge > 0 || (data.bill.taxes || []).length > 0) && (
+            <div className="on-total tb-bill-sums">
+              {data.bill.serviceCharge > 0 && <div><span>{serviceWords(data.bill.serviceName, tr)}</span><b>{money(data.bill.serviceCharge)}</b></div>}
+              {(data.bill.taxes || []).filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
+              <div className="is-total"><span>{tr('Total')}</span><strong>{money(data.bill.total)}</strong></div>
+              {(data.bill.taxes || []).some((t) => t.included) && <p className="on-hint">{tr('Includes {taxes}.', { taxes: data.bill.taxes.filter((t) => t.included).map((t) => t.name + ' ' + money(t.amount)).join(', ') })}</p>}
+            </div>
+          )}
         </details>
       )}
 
@@ -236,7 +253,7 @@ function SendSheet({ code, table, straight, basket, subtotal, setQty, onClose, o
       try { localStorage.setItem('bamboo.table.name', name.trim()); } catch { /* not kept */ }
       onSent(await posFetch('POST', '/pos/table/' + encodeURIComponent(code) + '/orders', null, {
         name: name.trim(), note: note.trim(), website: website.current ? website.current.value : '',
-        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined }))
+        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) }))
       }));
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
@@ -250,7 +267,7 @@ function SendSheet({ code, table, straight, basket, subtotal, setQty, onClose, o
         <ul className="on-lines">
           {basket.map((l) => (
             <li key={lineKey(l)}>
-              <span className="on-line-text"><strong>{l.name}</strong>{l.note && <small>{l.note}</small>}</span>
+              <span className="on-line-text"><strong>{l.name}</strong>{(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}{l.note && <small>{l.note}</small>}</span>
               <span className="on-qty"><button type="button" onClick={() => setQty(lineKey(l), l.qty - 1)} aria-label={tr('One less')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(lineKey(l), l.qty + 1)} aria-label={tr('One more')}>+</button></span>
               <i>{money(l.qty * l.price)}</i>
             </li>

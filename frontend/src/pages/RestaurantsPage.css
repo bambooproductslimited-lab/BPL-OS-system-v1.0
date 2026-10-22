@@ -184,3 +184,6 @@
 .rs-bar-col.is-weekend .rs-bar-track { border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 .rs-bars-avg { position: absolute; left: 0; right: 0; bottom: calc(18px + (100% - 36px) * var(--a)); z-index: 2; border-top: 2px dashed color-mix(in srgb, var(--color-text) 45%, transparent); pointer-events: none; }
 .rs-bars-avg span { position: absolute; right: 0; bottom: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg); font-size: 11px; font-weight: 700; color: var(--color-text-muted); white-space: nowrap; }
+.rs-lines li > span:nth-child(2) small { display: block; margin-top: 2px; font-size: 12px; color: var(--color-text-muted); }
+.rs-lines li > span:nth-child(2) small.rs-off { color: var(--color-danger); }
+.rs-lines .rs-sum { color: var(--color-text-muted); font-size: 13px; }

@@ -46,6 +46,11 @@ var STEP = 15, RIDE_MINUTES = 20, LEAD_SPARE = 15, START_SPARE = 5;
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function cleanText(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
+// A dish's add-ons as a customer's phone sends them (restaurantTillCheck
+// pickMods checks them against the menu): [{ id, how }].
+function modsFrom(list) {
+  return (Array.isArray(list) ? list.slice(0, 30) : []).map(function (m) { return { id: String((m && m.id) || ''), how: m && ['no', 'extra', 'side'].indexOf(m.how) >= 0 ? m.how : undefined }; });
+}
 function hash(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
 function pos() { return require('./restaurantPos.service'); }
 function ref(n) { return 'W-' + String(n).padStart(4, '0'); }
@@ -165,6 +170,9 @@ async function menuItems(companyId, online) {
   });
   await tillMenu.tileStock(companyId, items);
   items.forEach(function (i) { i.soldOut = !!(i.stock && i.stock.soldOut); delete i.stock; });
+  // Each dish's add-ons (restaurantTillCheck), picked on the dish's sheet.
+  var groups = await require('./restaurantTillCheck.service').groupsFor(pool, items.map(function (i) { return i.id; }));
+  items.forEach(function (i) { i.addOns = groups.get(i.id) || []; });
   var categories = [];
   items.forEach(function (i) { if (categories.indexOf(i.category) < 0) categories.push(i.category); });
   return { categories: categories, items: items };
@@ -175,7 +183,21 @@ async function menuItems(companyId, online) {
 async function menu(code) {
   var co = await shopOf(code);
   var m = await menuItems(co.id, true);
-  return { restaurant: shopOut(co), categories: m.categories, items: m.items };
+  return { restaurant: Object.assign(shopOut(co), { bill: billRules(await access.settingsOf(co.id)) }), categories: m.categories, items: m.items };
+}
+// The service charge (on the order types it is charged on) and the taxes,
+// for a customer's phone to show the same total the restaurant charges
+// (restaurantTillCheck compute).
+function billRules(settings) {
+  return { serviceCharge: settings.serviceCharge, tax: settings.tax };
+}
+// A website order's bill: the dishes, the delivery fee, and any service
+// charge and tax added on top; { total, charges }.
+async function chargesOf(companyId, lines, fee, fulfillment) {
+  var settings = await access.settingsOf(companyId);
+  var all = lines.concat(fee > 0 ? [{ name: pos().FEE_NAME, qty: 1, unitPrice: fee, lineTotal: fee, custom: true, fee: true, modifiers: [] }] : []);
+  var b = require('./restaurantTillCheck.service').compute(all, {}, settings, fulfillment, null);
+  return { total: b.total, charges: b.serviceCharge > 0 || b.taxes.length ? { serviceCharge: b.serviceCharge, serviceName: b.serviceName, serviceRate: b.serviceRate, taxes: b.taxes, taxTotal: b.taxTotal } : {} };
 }
 
 function throttle(ip) {
@@ -222,7 +244,7 @@ async function place(code, p, ip) {
   var items = p.items.map(function (i) {
     var qty = Math.round(Number(i && i.qty));
     if (!(qty >= 1 && qty <= MAX_QTY)) fail('invalid', 'Choose between 1 and ' + MAX_QTY + ' of each dish.');
-    return { menuItemId: String(i.menuItemId || ''), variationId: i.variationId || undefined, qty: qty, note: cleanText(i.note, 140) };
+    return { menuItemId: String(i.menuItemId || ''), variationId: i.variationId || undefined, qty: qty, note: cleanText(i.note, 140), modifiers: modsFrom(i.modifiers) };
   });
   var priced = await pos().priceLines(pool, co.id, items, false);
   await tillMenu.checkOrder(pool, co.id, priced.lines, null, null);
@@ -238,18 +260,19 @@ async function place(code, p, ip) {
   throttle(ip);
 
   var token = crypto.randomBytes(24).toString('base64url');
+  var bill = await chargesOf(co.id, priced.lines, q.fee, fulfillment);
   var saved = await withTransaction(async function (client) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('online:' || $1))", [co.id]);
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_online_orders WHERE company_id = $1', [co.id])).rows[0].n;
-    var lines = priced.lines.map(function (l, i) { return { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '' }; });
+    var lines = priced.lines.map(function (l, i) { return { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }; });
     var row = (await client.query(
-      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *',
+      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *',
       [co.id, number, hash(token), fulfillment, name, phone, address, landmark, point ? point.lat : null, point ? point.lng : null, cleanText(p.note, 300), payMethod, JSON.stringify(lines),
-        priced.subtotal, q.fee, round2(priced.subtotal + q.fee), q.distanceKm, String(ip || '').slice(0, 60), scheduledFor])).rows[0];
+        priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges)])).rows[0];
     await activity.log(client, { companyId: co.id, employeeId: null, app: 'online', action: 'online.placed',
-      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + round2(priced.subtotal + q.fee).toFixed(2) + '.',
-      amount: round2(priced.subtotal + q.fee), refType: 'online', refId: row.id });
+      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + bill.total.toFixed(2) + '.',
+      amount: bill.total, refType: 'online', refId: row.id });
     return row;
   });
   return { ref: ref(saved.number), token: token, trackUrl: config.onlineSiteUrl + '/t/' + token, order: await trackOut(saved) };
@@ -288,7 +311,7 @@ async function trackOut(o) {
   return {
     ref: ref(o.number), status: o.status, stage: stage, fulfillment: o.fulfillment,
     customer: { name: o.customer_name, phone: o.customer_phone, address: o.address, landmark: o.landmark, lat: o.lat, lng: o.lng },
-    items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total),
+    items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total), charges: o.charges || {},
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), readyMinutes: o.ready_minutes, rejectReason: o.reject_reason,
     placedAt: o.created_at, decidedAt: o.decided_at, scheduledFor: o.scheduled_for, canCancel: canCancel(o),
     restaurant: { code: r.code, name: r.name, phone: r.phone, location: r.location },
@@ -332,7 +355,7 @@ function staffOut(o) {
 // The open order on the till for a website order, sent to the kitchen: its
 // dishes at today's prices, the delivery fee a line of its own.
 function openTab(session, o) {
-  var items = o.items.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '' }; });
+  var items = o.items.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: modsFrom(l.modifiers) }; });
   if (Number(o.delivery_fee) > 0) items.push({ custom: { name: pos().FEE_NAME, price: Number(o.delivery_fee), fee: true }, qty: 1 });
   return pos().saveTabFor(session, {
     label: ref(o.number) + ' ' + o.customer_name, fulfillment: o.fulfillment, customerName: o.customer_name, customerPhone: o.customer_phone,
@@ -455,6 +478,7 @@ async function reject(token, id, p) {
 }
 
 module.exports = {
+  modsFrom: modsFrom,
   categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, cancel: cancel, accept: accept, reject: reject, start: start,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP
 };

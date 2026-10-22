@@ -3,6 +3,7 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
 import { tr } from '../../lib/i18n.jsx';
+import { modsWords, serviceWords } from '../till/tillBill';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
@@ -171,12 +172,15 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
       <div className="on-card on-receipt">
         <h2>{tr('Your order')}</h2>
         <ul className="on-lines is-plain">
-          {o.items.map((l, i) => <li key={i}><span className="on-line-text"><strong>{l.qty}× {l.name}</strong>{l.note && <small>{l.note}</small>}</span><i>{money(l.lineTotal)}</i></li>)}
+          {o.items.map((l, i) => <li key={i}><span className="on-line-text"><strong>{l.qty}× {l.name}</strong>{(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}{l.note && <small>{l.note}</small>}</span><i>{money(l.lineTotal)}</i></li>)}
         </ul>
         <div className="on-total">
           <div><span>{tr('Food')}</span><b>{money(o.subtotal)}</b></div>
           {o.fulfillment === 'delivery' && <div><span>{tr('Delivery')}</span><b>{o.deliveryFee ? money(o.deliveryFee) : tr('Free')}</b></div>}
+          {(o.charges || {}).serviceCharge > 0 && <div><span>{serviceWords(o.charges.serviceName, tr)} {o.charges.serviceRate}%</span><b>{money(o.charges.serviceCharge)}</b></div>}
+          {((o.charges || {}).taxes || []).filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(o.total)}</strong></div>
+          {((o.charges || {}).taxes || []).some((t) => t.included) && <p className="on-hint">{tr('Includes {taxes}.', { taxes: o.charges.taxes.filter((t) => t.included).map((t) => t.name + ' ' + money(t.amount)).join(', ') })}</p>}
           <p className="on-hint">{o.fulfillment === 'delivery' ? tr('Pay the rider: {method}.', { method: payName(o.payMethod) }) : tr('Pay at the counter: {method}.', { method: payName(o.payMethod) })}</p>
         </div>
         {o.fulfillment === 'delivery' && <p className="on-hint">📍 {o.customer.address}{o.customer.landmark ? ' · ' + o.customer.landmark : ''}</p>}

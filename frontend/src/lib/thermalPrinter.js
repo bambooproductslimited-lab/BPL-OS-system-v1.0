@@ -90,13 +90,24 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(line(new Array(width + 1).join('-')));
   (order.items || []).forEach(function (it) {
     out = out.concat(line(it.qty + ' x ' + it.name));
+    if (it.modifiers && it.modifiers.length) out = out.concat(line('   + ' + modsEn(it.modifiers)));
     if (it.note) out = out.concat(line('   * ' + it.note));
+    if (it.compReason) out = out.concat(line('   On the house: ' + it.compReason));
+    else if (it.discount > 0 && it.discountName) out = out.concat(line('   ' + it.discountName + ' -' + Number(it.discount).toFixed(2)));
     out = out.concat(line(twoColumn('', money2(it.lineTotal), width)));
   });
   out = out.concat(line(new Array(width + 1).join('-')));
+  // The dishes, their discounts, the service charge and taxes added on top.
+  if (order.discountTotal > 0 || order.serviceCharge > 0 || (order.taxes || []).some(function (t) { return !t.included; })) {
+    out = out.concat(line(twoColumn('Dishes', money2(order.itemsGross != null ? order.itemsGross : order.subtotal), width)));
+    if (order.discountTotal > 0) out = out.concat(line(twoColumn('Discounts', '-' + money2(order.discountTotal), width)));
+    if (order.serviceCharge > 0) out = out.concat(line(twoColumn((order.serviceName || 'Service charge') + (order.serviceRate ? ' ' + order.serviceRate + '%' : ''), money2(order.serviceCharge), width)));
+    (order.taxes || []).filter(function (t) { return !t.included; }).forEach(function (t) { out = out.concat(line(twoColumn(t.name + ' ' + t.rate + '%', money2(t.amount), width))); });
+  }
   out = out.concat(BOLD_ON);
   out = out.concat(line(twoColumn('TOTAL', money2(order.total), width)));
   out = out.concat(BOLD_OFF);
+  (order.taxes || []).filter(function (t) { return t.included; }).forEach(function (t) { out = out.concat(line('incl. ' + t.name + ' ' + t.rate + '%: ' + money2(t.amount))); });
   (order.refunds || []).forEach(function (r) {
     out = out.concat(line(twoColumn('Refunded ' + new Date(r.createdAt).toLocaleDateString(), '-' + money2(r.amount), width)));
   });
@@ -126,6 +137,10 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   return out;
 }
 function money2(n) { return 'GHS ' + Number(n || 0).toFixed(2); }
+// A dish's add-ons in English, as printers print them (no other script).
+function modsEn(mods) {
+  return mods.map(function (m) { return m.how === 'no' ? 'No ' + m.name : m.how === 'extra' ? 'Extra ' + m.name : m.how === 'side' ? m.name + ' on the side' : m.name; }).join(', ');
+}
 var FULFILLMENT_EN = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
 var METHOD_EN = { cash: 'Cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'Other', split: 'Split payment' };
 
@@ -154,6 +169,7 @@ export function buildRunnerTicketBytes(ticket, companyName, opts) {
   out = out.concat(line(rule));
   (ticket.items || []).forEach(function (it) {
     out = out.concat(BOLD_ON, line(it.qty + ' x ' + it.name), BOLD_OFF);
+    if (it.mods && it.mods.length) out = out.concat(line('   + ' + modsEn(it.mods)));
     if (it.note) out = out.concat(line('   * ' + it.note));
   });
   if (ticket.note) out = out.concat(line(rule), line('Note: ' + ticket.note));

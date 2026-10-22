@@ -3,7 +3,7 @@ import { posFetch } from '../../lib/posApi';
 import { Icon } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { msg, tr } from '../../lib/i18n.jsx';
-import { FulfillmentIcon, QUICK_NOTES, fulfillmentName, lineKey } from './tillShared';
+import { FulfillmentIcon, QUICK_NOTES, fulfillmentName, kitchenKey as lineKey } from './tillShared';
 
 // The till's small dialogs around an order (RestaurantPosPage.jsx): a note
 // on one dish, a dish that is not on the menu, where a delivery goes, the
@@ -134,7 +134,7 @@ export function DeliveryDialog({ value, customer, pickup, onSave, onClose, onPic
 // Before an order goes to the kitchen: what goes now, for whom and where.
 // What went before (an open order's earlier rounds) is listed apart, and a
 // dish taken off is called out — the kitchen stops it.
-export function SendConfirmDialog({ cart, sent, fulfillment, where, customer, waiter, delivery, kitchenNote, busy, error, onConfirm, onClose }) {
+export function SendConfirmDialog({ cart, sent, total: billTotal, fulfillment, where, customer, waiter, delivery, kitchenNote, busy, error, onConfirm, onClose }) {
   const before = new Map((sent || []).map((l) => [lineKey(l), l.qty]));
   const now = new Map(cart.map((l) => [lineKey(l), l]));
   const going = [];
@@ -142,7 +142,8 @@ export function SendConfirmDialog({ cart, sent, fulfillment, where, customer, wa
   const off = [];
   (sent || []).forEach((l) => { const left = now.get(lineKey(l)); const less = l.qty - (left ? left.qty : 0); if (less > 0) off.push({ ...l, qty: less }); });
   const already = (sent || []).reduce((n, l) => n + Math.min(l.qty, (now.get(lineKey(l)) || { qty: 0 }).qty), 0);
-  const total = cart.reduce((s, l) => s + l.price * l.qty, 0);
+  // The bill so far, with its discounts, service charge and taxes (till/tillBill).
+  const total = billTotal != null ? billTotal : cart.reduce((s, l) => s + l.price * l.qty, 0);
   return (
     <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
       <div className="dialog tl-dialog tl-send" role="dialog" aria-modal="true" aria-labelledby="tl-send-title" onClick={(e) => e.stopPropagation()}>

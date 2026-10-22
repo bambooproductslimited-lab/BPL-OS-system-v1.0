@@ -464,6 +464,13 @@ async function refundsOf(db, orderId) {
   });
 }
 
+// What a dish refunded gives back for each cedi it was paid: its share of
+// the service charge and of any tax added on top (migration 0168) too.
+function refundFactor(o, items) {
+  var net = items.reduce(function (a, i) { return a + Number(i.line_total); }, 0);
+  return net > 0 && Number(o.total) > net ? Number(o.total) / net : 1;
+}
+
 async function saleForRefund(db, companyId, orderId) {
   var o = (await db.query(
     'SELECT o.*, t.name AS table_name, g.name AS guest_name, ce.first_name AS cashier_first, ce.last_name AS cashier_last FROM restaurant_orders o ' +
@@ -478,7 +485,7 @@ async function saleForRefund(db, companyId, orderId) {
     out: {
       id: o.id, orderNo: o.order_no, status: o.status, total: round2(o.total), refunded: round2(o.refunded_total), paymentMethod: o.payment_method,
       createdAt: o.created_at, tableName: o.table_name || null, guestName: o.guest_name || null, cashierName: fullName(o, 'cashier'),
-      iouPaid: !!o.iou_paid_at, methods: refundMethodsFor(o, (await paymentsOf(db, [o.id])).get(o.id)),
+      iouPaid: !!o.iou_paid_at, methods: refundMethodsFor(o, (await paymentsOf(db, [o.id])).get(o.id)), refundFactor: refundFactor(o, items),
       payments: (await paymentsOf(db, [o.id])).get(o.id) || [],
       items: items.map(function (i) {
         return { id: i.id, name: i.name, qty: Number(i.qty), unitPrice: round2(i.unit_price), lineTotal: round2(i.line_total), refundedQty: Number(i.refunded_qty) };
@@ -518,6 +525,7 @@ async function refundSale(token, orderId, p, ip) {
       'SELECT i.*, coalesce((SELECT sum(ri.qty) FROM restaurant_refund_items ri WHERE ri.order_item_id = i.id), 0) AS refunded_qty FROM restaurant_order_items i WHERE i.order_id = $1',
       [o.id])).rows;
     var lines = [];
+    var factor = refundFactor(o, items);
     wanted.forEach(function (w) {
       var it = items.find(function (i) { return i.id === w.id; });
       if (!it) fail('invalid', 'One of the dishes is not on this sale.');
@@ -525,7 +533,7 @@ async function refundSale(token, orderId, p, ip) {
       if (!(qty > 0)) return;
       var left = round2(Number(it.qty) - Number(it.refunded_qty));
       if (qty > left) fail('invalid', left > 0 ? 'Only ' + left + ' × ' + it.name + ' is left to refund.' : it.name + ' has already been refunded.');
-      lines.push({ item: it, qty: qty, amount: round2(Number(it.line_total) * qty / Number(it.qty)) });
+      lines.push({ item: it, qty: qty, amount: round2(Number(it.line_total) * qty / Number(it.qty) * factor) });
     });
     if (!lines.length) fail('invalid', 'Pick what to refund.');
     var amount = round2(lines.reduce(function (s, l) { return s + l.amount; }, 0));

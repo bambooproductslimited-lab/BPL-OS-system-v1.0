@@ -96,6 +96,7 @@ var ALLOWED = {
   'POST /api/pos/online/:code/orders': 'a customer orders on the website; held for the restaurant to accept, limited per address and per phone',
   'GET /api/pos/online/track/:token': 'a customer\'s order link; the token is the credential',
   'POST /api/pos/online/track/:token/cancel': 'a customer\'s order link; the token is the credential, and only while it waits',
+  'GET /api/pos/receipt/:token': 'a sale\'s receipt, sent to its customer: the long random link is the key; no phone or address on it',
   'GET /api/pos/table/:code': 'a table\'s QR menu: public by design, the code printed on the table is the key',
   'POST /api/pos/table/:code/orders': 'ordering from the table: the printed code is the key; waits for the till to accept it, limited per table and per address',
   'POST /api/pos/table/:code/call': 'calling the waiter from the table: the printed code is the key, once until answered, limited per address',

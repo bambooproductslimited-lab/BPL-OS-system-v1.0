@@ -1,0 +1,76 @@
+// The bill as the till shows it while an order is taken: the same sums as
+// the server's (backend restaurantTillCheck compute) — add-ons priced into
+// each dish, discounts and dishes on the house, the bill-wide discount
+// shared over the dishes (not a delivery fee), the service charge on the
+// order types the manager picked, and the taxes, included in the prices or
+// added on top (a compound one on the ones before it). The server prices
+// the order again when it is sent; this is what the cashier sees meanwhile,
+// and what a receipt taken without the internet shows.
+
+// To the pesewa, after floating-point dust (as the server does).
+export function r2(n) { return Math.round(Number(Number(n || 0).toPrecision(12)) * 100) / 100; }
+
+// A dish's add-ons in words, in the till's language: tr is lib/i18n's.
+export function modsWords(mods, tr) {
+  return (mods || []).map((m) => (m.how === 'no' ? tr('No {name}', { name: m.name })
+    : m.how === 'extra' ? tr('Extra {name}', { name: m.name })
+      : m.how === 'side' ? tr('{name} on the side', { name: m.name }) : m.name)).join(', ');
+}
+// The service charge's name: the till's own, or the usual words in the
+// reader's language.
+export function serviceWords(name, tr) { return !name || name === 'Service charge' ? tr('Service charge') : name; }
+export function modsPrice(mods) { return r2((mods || []).reduce((a, m) => a + (m.how === 'no' ? 0 : Number(m.price || 0)), 0)); }
+
+// lines: [{ price (unit, with add-ons), qty, fee, discountSpec, comp }];
+// adjust: { discount, serviceOff }; settings: the till's (discounts,
+// serviceCharge, tax).
+export function billOf(lines, adjust, settings, fulfillment) {
+  adjust = adjust || {};
+  settings = settings || {};
+  const presets = settings.discounts || [];
+  const specOf = (d) => {
+    if (!d) return null;
+    const p = d.presetId && presets.find((x) => x.id === d.presetId);
+    return p ? { kind: p.kind, value: p.value, name: p.name } : d.kind ? d : null;
+  };
+  const out = lines.map((l) => {
+    const gross = r2(l.price * l.qty);
+    let discount = 0;
+    const d = specOf(l.discountSpec);
+    if (l.comp) discount = gross;
+    else if (d) discount = Math.min(gross, d.kind === 'percent' ? r2(gross * d.value / 100) : Number(d.value));
+    return { ...l, gross, discount, net: r2(gross - discount) };
+  });
+  let billDiscount = 0;
+  const bd = specOf(adjust.discount);
+  if (bd) {
+    const dishes = out.filter((l) => !l.fee && l.net > 0);
+    const base = r2(dishes.reduce((a, l) => a + l.net, 0));
+    billDiscount = Math.min(base, bd.kind === 'percent' ? r2(base * bd.value / 100) : Number(bd.value));
+    let left = billDiscount;
+    dishes.forEach((l, i) => {
+      const share = i === dishes.length - 1 ? left : Math.min(left, r2(billDiscount * l.net / base));
+      l.discount = r2(l.discount + share); l.net = r2(l.net - share);
+      left = r2(left - share);
+    });
+  }
+  const itemsGross = r2(out.reduce((a, l) => a + l.gross, 0));
+  const subtotal = r2(out.reduce((a, l) => a + l.net, 0));
+  const sc = settings.serviceCharge || {};
+  const scOn = !!(sc.on && sc.rate > 0 && (sc.types || {})[fulfillment || 'dine_in']);
+  const service = scOn && !adjust.serviceOff ? r2(out.filter((l) => !l.fee).reduce((a, l) => a + l.net, 0) * sc.rate / 100) : 0;
+  const tx = settings.tax || { included: true, list: [] };
+  const per = [];
+  let running = 0;
+  (tx.list || []).forEach((t) => { const a = (t.rate / 100) * (1 + (t.compound ? running : 0)); per.push(a); running += a; });
+  const taxedOn = r2(subtotal + (sc.taxed !== false ? service : 0));
+  const base0 = tx.included ? taxedOn / (1 + running) : taxedOn;
+  const taxes = (tx.list || []).map((t, i) => ({ name: t.name, rate: t.rate, included: !!tx.included, amount: r2(per[i] * base0) })).filter((t) => t.amount > 0);
+  const taxSum = r2(taxes.reduce((a, t) => a + t.amount, 0));
+  const taxTotal = tx.included ? 0 : taxSum;
+  return {
+    lines: out, itemsGross, discountTotal: r2(itemsGross - subtotal), billDiscount, billDiscountName: bd ? bd.name : null, subtotal,
+    serviceCharge: service, serviceName: sc.name || 'Service charge', serviceRate: service > 0 ? sc.rate : 0, serviceOn: scOn, serviceOff: scOn && !!adjust.serviceOff,
+    taxes, taxTotal, taxIncluded: tx.included ? taxSum : 0, total: r2(subtotal + service + taxTotal)
+  };
+}

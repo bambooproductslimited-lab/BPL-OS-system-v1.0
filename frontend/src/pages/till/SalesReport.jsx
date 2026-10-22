@@ -4,6 +4,7 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import { CURRENCY_LABEL, FULFILLMENT, FulfillmentIcon, MethodGlyph, fmt, fulfillmentName, methodName } from './tillShared';
+import { modsWords } from './tillBill';
 
 // The till settings' sales report (TillSettings.jsx → Sales): every sale and
 // refund of some days, newest first, and what a manager reads off them —
@@ -209,6 +210,45 @@ export default function SalesReport({ token, pin, onFail }) {
                   ))}
                 </ul>
               </div>
+
+              {(t.discounts > 0 || t.serviceCharge > 0 || (data.taxes || []).length > 0 || (data.addOns || []).length > 0 || (data.comps || []).length > 0) && (
+                <div className="sr-card sr-extras">
+                  <h4>{tr('Discounts, service and tax')}</h4>
+                  <div className="sr-x-tiles">
+                    <span className={t.discounts > 0 ? 'is-off' : ''}><b>{t.discounts > 0 ? '−' + money(t.discounts) : money(0)}</b>{t.discounted === 1 ? tr('off 1 sale') : tr('off {n} sales', { n: t.discounted || 0 })}</span>
+                    <span className="is-service"><b>{money(t.serviceCharge)}</b>{t.serviceOff ? tr('service charge · taken off {n}', { n: t.serviceOff }) : tr('service charge')}</span>
+                    {t.taxAdded > 0 && <span className="is-tax"><b>{money(t.taxAdded)}</b>{tr('taxes added')}</span>}
+                  </div>
+                  {(data.discountsBy || []).length > 0 && (
+                    <ul className="sr-x-list is-plain">
+                      {data.discountsBy.map((d) => <li key={d.name}><span className="sr-x-ico" aria-hidden="true">%</span><span>{d.name}<small>{d.sales === 1 ? tr('1 sale') : tr('{n} sales', { n: d.sales })}</small></span><b>−{money(d.amount)}</b></li>)}
+                    </ul>
+                  )}
+                  {(data.comps || []).length > 0 && (
+                    <ul className="sr-x-list is-plain">
+                      {data.comps.map((c) => <li key={c.reason} className="is-comp"><span className="sr-x-ico" aria-hidden="true">🎁</span><span>{tr('On the house: {why}', { why: c.reason })}<small>{c.qty === 1 ? tr('1 dish') : tr('{n} dishes', { n: c.qty })}</small></span><b>{money(c.amount)}</b></li>)}
+                    </ul>
+                  )}
+                  {(data.taxes || []).length > 0 && (
+                    <div className="sr-fx">
+                      {data.taxes.map((x) => <span key={x.name}><b>{money(x.amount)}</b>{x.name} · {x.included ? tr('in the prices') : tr('added')}</span>)}
+                    </div>
+                  )}
+                  {(data.addOns || []).length > 0 && (
+                    <>
+                      <h5 className="sr-x-h">{tr('Add-ons asked for most')}</h5>
+                      <div className="sr-x-addons">
+                        {data.addOns.map((a) => (
+                          <span key={a.name + a.how} className={'is-' + a.how}>
+                            <b>× {a.qty}</b>{modsWords([a], tr)}
+                            {a.amount > 0 && <small>+{money(a.amount)}</small>}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

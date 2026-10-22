@@ -13,10 +13,12 @@ import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, met
 // (opened by a manager); Alipay and WeChat Pay until the RMB rate is set.
 // The server checks it all again (restaurantTillMoney.planPayments) and
 // answers with the sale.
+// By dish (an open order, dishes: { lines, billFor, why }): one guest pays
+// for the dishes they had, and the rest of the order stays open.
 
 const NEEDS_CUSTOMER = { vip: true, iou: true };
 
-export default function PayDialog({ token, title, total, methods, settings, customer, refreshKey, busy, error, onPickCustomer, onTopUp, onCancel, onComplete }) {
+export default function PayDialog({ token, title, total: wholeTotal, methods, settings, customer, refreshKey, busy, error, dishes, onPickCustomer, onTopUp, onCancel, onComplete }) {
   const currencies = liveCurrencies(settings);
   const rateOf = (c) => (currencies.find((x) => x.code === c) || { rate: 1 }).rate;
   const curFor = (m) => methodCurrencies(m, currencies);
@@ -28,7 +30,13 @@ export default function PayDialog({ token, title, total, methods, settings, cust
   const [method, setMethod] = useState(firstOk);
   const [currency, setCurrency] = useState(() => firstCur(firstOk));
   const [given, setGiven] = useState('');
-  const [split, setSplit] = useState(false);
+  const [mode, setMode] = useState('one'); // 'one' | 'split' | 'dish'
+  const split = mode === 'split';
+  const [pick, setPick] = useState({}); // by dish: line key → how many
+  const dishBill = mode === 'dish' && dishes && !dishes.why ? dishes.billFor(pick) : null;
+  const picked = dishBill ? dishBill.lines.reduce((n, l) => n + l.qty, 0) : 0;
+  // What is paid now: the whole bill, or the dishes picked.
+  const total = mode === 'dish' ? (dishBill ? dishBill.total : 0) : wholeTotal;
   const [parts, setParts] = useState([]);
   const [vipBalance, setVipBalance] = useState(null);
 
@@ -60,14 +68,14 @@ export default function PayDialog({ token, title, total, methods, settings, cust
   const iouOver = method === 'iou' && customer && customer.iouLimit != null && customer.iouOwed + total > customer.iouLimit + 0.009;
 
   // ── split ──
-  const paid = round2(parts.reduce((s, p) => s + (Number(p.amount) || 0), 0));
+  const paid = round2(parts.reduce((s2, p) => s2 + (Number(p.amount) || 0), 0));
   const left = round2(total - paid);
   function startSplit(n) {
     const each = Math.floor((total / n) * 100) / 100;
     const list = Array.from({ length: n }, (_, i) => ({ method: i === 0 ? firstOk : 'cash', currency: 'GHS', amount: String(i === n - 1 ? round2(total - each * (n - 1)) : each), tendered: '' }))
       .map((p) => ({ ...p, method: allowed(p.method) && methods.includes(p.method) && p.method !== 'iou' ? p.method : 'cash' }))
       .map((p) => ({ ...p, currency: firstCur(p.method) }));
-    setParts(list); setSplit(true);
+    setParts(list); setMode('split');
   }
   function setPart(i, patch) { setParts((list) => list.map((p, j) => (j === i ? { ...p, ...patch, ...(patch.method && !curFor(patch.method).some((c) => c.code === p.currency) ? { currency: firstCur(patch.method), tendered: '' } : {}) } : p))); }
   const vipSplit = round2(parts.filter((p) => p.method === 'vip').reduce((s, p) => s + (Number(p.amount) || 0), 0));
@@ -83,8 +91,10 @@ export default function PayDialog({ token, title, total, methods, settings, cust
   });
   const splitOk = split && parts.length > 1 && Math.abs(left) < 0.005 && splitProblems.every((x) => !x) && !(vipSplit > 0 && vipBalance !== null && vipBalance < vipSplit);
 
-  const singleOk = !split && allowed(method) && !(method === 'cash' && changeCedis !== null && changeCedis < 0) && !vipShort && !iouOver;
+  const singleOk = !split && allowed(method) && !(method === 'cash' && changeCedis !== null && changeCedis < 0) && !vipShort && !iouOver && !(mode === 'dish' && !(picked > 0));
   function complete() {
+    const one = [{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined }];
+    if (mode === 'dish') { onComplete(one, Object.keys(pick).filter((k) => pick[k] > 0).map((k) => ({ key: k, qty: pick[k] }))); return; }
     if (split) {
       onComplete(parts.map((p) => ({ method: p.method, currency: p.currency, amount: round2(p.amount), tendered: p.method === 'cash' && p.tendered !== '' ? Number(p.tendered) : undefined })));
     } else {
@@ -104,11 +114,35 @@ export default function PayDialog({ token, title, total, methods, settings, cust
           {currencies.length > 1 && <small className="tl-pay-fx">{currencies.filter((c) => c.code !== 'GHS').map((c) => fmt(round2(total / c.rate), c.code)).join(' · ')}</small>}
         </div>
         <div className="dk-segment tl-pay-mode" role="radiogroup" aria-label={tr('How it is paid')}>
-          <button type="button" role="radio" aria-checked={!split} className={!split ? 'is-on' : ''} onClick={() => setSplit(false)}>{tr('One payment')}</button>
-          <button type="button" role="radio" aria-checked={split} className={split ? 'is-on' : ''} onClick={() => (parts.length ? setSplit(true) : startSplit(2))}>{tr('Split the bill')}</button>
+          <button type="button" role="radio" aria-checked={mode === 'one'} className={mode === 'one' ? 'is-on' : ''} onClick={() => setMode('one')}>{tr('One payment')}</button>
+          <button type="button" role="radio" aria-checked={split} className={split ? 'is-on' : ''} onClick={() => (parts.length ? setMode('split') : startSplit(2))}>{tr('Split the bill')}</button>
+          {dishes && <button type="button" role="radio" aria-checked={mode === 'dish'} className={mode === 'dish' ? 'is-on' : ''} onClick={() => setMode('dish')}>{tr('By dish')}</button>}
         </div>
+        {mode === 'dish' && (dishes.why ? <p className="tl-pay-lock"><span>{dishes.why}</span></p> : (
+          <div className="tl-bydish">
+            <p className="dk-muted tl-small">{tr('Pick what this guest had: they pay for it now, and the rest of the order stays open.')}</p>
+            <ul className="tl-bydish-list is-plain">
+              {dishes.lines.map((l) => {
+                const n = pick[l.key] || 0;
+                return (
+                  <li key={l.key} className={n ? 'is-on' : ''}>
+                    <button type="button" className="tl-bydish-name" onClick={() => setPick({ ...pick, [l.key]: n ? 0 : l.qty })}>
+                      <b>{l.qty}×</b><span>{l.name}{l.words && <small>{l.words}</small>}</span>
+                    </button>
+                    <div className="pos-stepper">
+                      <button type="button" disabled={!n} onClick={() => setPick({ ...pick, [l.key]: n - 1 })} aria-label={tr('Decrease')}>−</button>
+                      <span>{n}</span>
+                      <button type="button" disabled={n >= l.qty} onClick={() => setPick({ ...pick, [l.key]: n + 1 })} aria-label={tr('Increase')}>+</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="tl-bydish-sum">{picked ? tr('{n} picked: {amount}', { n: picked, amount: money(total) }) : tr('Nothing picked yet')}</p>
+          </div>
+        ))}
 
-        {!split ? (
+        {mode === 'dish' && (dishes.why || !picked) ? null : !split ? (
           <>
             <div className="pos-methods tl-methods" role="radiogroup" aria-label={tr('Payment method')}>
               {methods.map((k) => {

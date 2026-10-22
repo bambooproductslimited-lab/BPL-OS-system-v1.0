@@ -17,6 +17,7 @@ import RestaurantKitchen from './RestaurantKitchen';
 import Bars from './RestaurantBars';
 import { DishArt, Donut, Glyph, HeatGrid, Jar, Leaderboard, MoreRanks, Podium, RsfBanner, ViewTabs, tableShape, weekdayText } from './RestaurantFun';
 import { moveLabel } from './till/tillShared';
+import { modsWords, serviceWords } from './till/tillBill';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -1374,7 +1375,18 @@ export default function RestaurantsPage() {
                     <button type="button" className="tl-close" onClick={() => setOrderDetail(null)} aria-label={tr('Close')}>×</button>
                   </div>
                   <ul className="rs-lines">
-                    {o.items.map((it, i) => <li key={i}><span className="rs-qty">{qtyText(it.qty)}×</span><span>{it.name}</span><strong>{money(it.lineTotal)}</strong></li>)}
+                    {o.items.map((it, i) => (
+                      <li key={i}><span className="rs-qty">{qtyText(it.qty)}×</span>
+                        <span>{it.name}
+                          {(it.modifiers || []).length > 0 && <small>+ {modsWords(it.modifiers, tr)}</small>}
+                          {it.compReason ? <small className="rs-off">{tr('On the house')} · {it.compReason}</small>
+                            : it.discount > 0 ? <small className="rs-off">{(it.discountName || tr('Discount')) + ' −' + money(it.discount)}</small> : null}
+                        </span>
+                        <strong>{money(it.lineTotal)}</strong></li>
+                    ))}
+                    {o.discountTotal > 0 && <li className="rs-sum"><span /><span>{tr('Discounts')}</span><strong>−{money(o.discountTotal)}</strong></li>}
+                    {o.serviceCharge > 0 && <li className="rs-sum"><span /><span>{serviceWords(o.serviceName, tr) + (o.serviceRate ? ' ' + o.serviceRate + '%' : '')}</span><strong>{money(o.serviceCharge)}</strong></li>}
+                    {(o.taxes || []).map((t) => <li key={t.name} className="rs-sum"><span /><span>{t.name} {t.rate}%{t.included ? ' · ' + tr('included') : ''}</span><strong>{money(t.amount)}</strong></li>)}
                     <li className="rs-total"><span /><span>{tr('Total')}</span><strong>{money(o.total)}</strong></li>
                     {o.refunds && o.refunds.map((r) => (
                       <li key={r.id} className="rs-refund"><span>−</span><span>{tr('Refunded {date}, {way}', { date: when(r.createdAt), way: REFUND_WAY[r.method] ? REFUND_WAY[r.method]() : r.method })}<small>{r.items.map((i) => qtyText(i.qty) + '× ' + i.name).join(', ')} · {tr('“{reason}”', { reason: r.reason })} · {tr('by {name}, approved by {manager}', { name: r.cashierName, manager: r.approvedByName })}</small></span><strong>{money(r.amount)}</strong></li>

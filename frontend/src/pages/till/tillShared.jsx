@@ -87,23 +87,31 @@ export function KitchenTag({ kitchen, compact }) {
   );
 }
 
-// A line on an order: the dish (or one not on the menu, by its name), and
-// its note — the same dish with another note is another line.
+// A line on an order: the dish (or one not on the menu, by its name), its
+// add-ons, its note, and its discount or "on the house" — the same dish with
+// other add-ons, another note or another discount is another line.
+function modsKey(mods) { return (mods || []).map((m) => (m.how || 'add') + ':' + m.id).sort().join(','); }
+function offKey(l) { return l.comp ? 'comp:' + l.comp.reason : l.discountSpec ? 'd:' + l.discountSpec.kind + ':' + l.discountSpec.value + ':' + (l.discountSpec.presetId || '') : ''; }
 export function lineKey(l) {
-  return (l.custom ? 'c:' + String(l.custom.name || l.name).toLowerCase() + ':' + l.price : l.menuItemId + '::' + (l.variationId || '')) + '::' + String(l.note || '').trim().toLowerCase();
+  return (l.custom ? 'c:' + String(l.custom.name || l.name).toLowerCase() + ':' + l.price : l.menuItemId + '::' + (l.variationId || '')) + '::' + modsKey(l.modifiers) + '::' + String(l.note || '').trim().toLowerCase() + '::' + offKey(l);
 }
-// What the server needs for a line.
-// A delivery fee line (custom.fee) stays one: charged, never cooked.
+// The same, as the kitchen sees it: a discount does not change what is cooked.
+export function kitchenKey(l) { return lineKey({ ...l, comp: null, discountSpec: null }); }
+// What the server needs for a line: the add-ons by id and how, the
+// discount or "on the house" as asked (with a manager's approval, if one
+// was needed). A delivery fee line (custom.fee) stays one: charged, never cooked.
 export function lineBody(l) {
+  const off = l.comp ? { comp: l.comp } : l.discountSpec ? { discount: l.discountSpec } : {};
   return l.custom
-    ? { custom: { name: l.custom.name, price: l.custom.price, category: l.custom.category || '', ...(l.custom.fee ? { fee: true } : {}) }, qty: l.qty, note: l.note || undefined }
-    : { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined };
+    ? { custom: { name: l.custom.name, price: l.custom.price, category: l.custom.category || '', ...(l.custom.fee ? { fee: true } : {}) }, qty: l.qty, note: l.note || undefined, ...off }
+    : { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => (m.how && m.how !== 'add' ? { id: m.id, how: m.how } : { id: m.id })), ...off };
 }
-// A line kept on an open order (restaurantPos tabRows), back on the till.
+// A line kept on an open order (restaurantPos lineOut), back on the till.
 export function lineFromTab(l) {
+  const off = { discountSpec: l.discountSpec || null, comp: l.comp || null };
   return l.custom
-    ? { menuItemId: null, variationId: null, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', custom: { name: l.name, price: l.unitPrice, category: l.category || '', ...(l.fee ? { fee: true } : {}) } }
-    : { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '' };
+    ? { menuItemId: null, variationId: null, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', modifiers: [], custom: { name: l.name, price: l.unitPrice, category: l.category || '', ...(l.fee ? { fee: true } : {}) }, ...off }
+    : { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', modifiers: l.modifiers || [], ...off };
 }
 
 // Quick notes a cashier taps instead of typing.

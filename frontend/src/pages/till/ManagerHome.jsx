@@ -16,9 +16,9 @@ const SECTIONS = [
     ['sales', 'up', msg('Sales')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
   ['menu', msg('Menu and stock'), msg('What the till sells, at what price, and what is left.'), [
     ['menu', 'receipt', msg('Menu')], ['stock', 'layers', msg('Stock')]]],
-  ['setup', msg('Setup'), msg('Who does what, how customers pay, the floor and the kitchen screens.'), [
+  ['setup', msg('Setup'), msg('Who does what, how customers pay, the bill\'s discounts and taxes, the floor and the kitchen screens.'), [
     ['people', 'people', msg('People')], ['roles', 'key', msg('What each role can do')], ['screens', 'layers', msg('Kitchen screens')], ['payments', 'cash', msg('Payments')],
-    ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
+    ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['bill', 'percent', msg('Discounts, service and tax')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
 ];
 
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }

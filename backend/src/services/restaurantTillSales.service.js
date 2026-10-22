@@ -95,6 +95,26 @@ async function report(companyId, q) {
     'SELECT i.name, bool_or(i.custom) AS custom, sum(i.qty) AS qty, sum(i.line_total) AS amount FROM restaurant_order_items i WHERE i.order_id IN (SELECT o.id' + COMPLETED + ') ' +
     'GROUP BY i.name ORDER BY 3 DESC, 4 DESC LIMIT 10', args)).rows
     .map(function (r) { return { name: r.name, custom: r.custom, qty: Number(r.qty), amount: round2(r.amount) }; });
+  // Discounts given and dishes on the house (by why), the service charge
+  // and the taxes, and the add-ons sold most (migration 0168).
+  var extras = (await pool.query(
+    'SELECT coalesce(sum(o.discount_total), 0) AS discounts, coalesce(sum(o.service_charge), 0) AS service, coalesce(sum(o.tax_total), 0) AS tax_added, ' +
+    "count(*) FILTER (WHERE o.discount_total > 0)::int AS discounted, count(*) FILTER (WHERE (o.adjustments ? 'serviceOff'))::int AS service_off" + COMPLETED, args)).rows[0];
+  var comps = (await pool.query(
+    'SELECT i.comp_reason AS reason, sum(i.qty) AS qty, sum(i.discount) AS amount FROM restaurant_order_items i WHERE i.comp_reason IS NOT NULL AND i.order_id IN (SELECT o.id' + COMPLETED + ') ' +
+    'GROUP BY 1 ORDER BY 3 DESC', args)).rows.map(function (r) { return { reason: r.reason, qty: Number(r.qty), amount: round2(r.amount) }; });
+  var discountsBy = (await pool.query(
+    'SELECT i.discount_name AS name, count(DISTINCT i.order_id)::int AS n, sum(i.discount) AS amount FROM restaurant_order_items i ' +
+    'WHERE i.discount > 0 AND i.comp_reason IS NULL AND i.order_id IN (SELECT o.id' + COMPLETED + ') GROUP BY 1 ORDER BY 3 DESC LIMIT 10', args)).rows
+    .map(function (r) { return { name: r.name || 'Discount', sales: r.n, amount: round2(r.amount) }; });
+  var taxes = (await pool.query(
+    "SELECT tx->>'name' AS name, bool_or((tx->>'included')::boolean) AS included, sum((tx->>'amount')::numeric) AS amount FROM restaurant_orders o" + JOINS +
+    ", jsonb_array_elements(o.taxes) tx WHERE " + saleWhere.join(' AND ') + " AND o.status = 'completed' GROUP BY 1 ORDER BY 3 DESC", args)).rows
+    .map(function (r) { return { name: r.name, included: !!r.included, amount: round2(r.amount) }; });
+  var addOns = (await pool.query(
+    "SELECT m->>'name' AS name, m->>'how' AS how, sum(i.qty) AS qty, sum(i.qty * (m->>'price')::numeric) AS amount FROM restaurant_order_items i, jsonb_array_elements(i.modifiers) m " +
+    'WHERE i.order_id IN (SELECT o.id' + COMPLETED + ") GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10", args)).rows
+    .map(function (r) { return { name: r.name, how: r.how || 'add', qty: Number(r.qty), amount: round2(r.amount) }; });
   var foreign = (await pool.query(
     "SELECT p.currency, sum(p.foreign_amount) AS foreign_amount, sum(p.amount) AS cedis, count(*)::int AS n FROM restaurant_order_payments p WHERE p.currency <> 'GHS' AND p.order_id IN (SELECT o.id" + COMPLETED + ') GROUP BY 1 ORDER BY 1', args)).rows
     .map(function (r) { return { currency: r.currency, amount: round2(r.foreign_amount), cedis: round2(r.cedis), parts: r.n }; });
@@ -122,8 +142,10 @@ async function report(companyId, q) {
     totals: {
       sales: head.n, gross: gross, refunds: refunds.n, refunded: refunded, net: round2(gross - refunded),
       average: head.n ? round2(gross / head.n) : 0, dishes: Number(dishes.qty), customers: head.customers,
-      voided: voided.n, voidedAmount: round2(voided.amount), iouOpen: head.iou_n, iouOwed: round2(head.iou_owed)
+      voided: voided.n, voidedAmount: round2(voided.amount), iouOpen: head.iou_n, iouOwed: round2(head.iou_owed),
+      discounts: round2(extras.discounts), discounted: extras.discounted, serviceCharge: round2(extras.service), serviceOff: extras.service_off, taxAdded: round2(extras.tax_added)
     },
+    comps: comps, discountsBy: discountsBy, taxes: taxes, addOns: addOns,
     byMethod: byMethod, byFulfillment: byFulfillment, byCashier: byCashier, byHour: byHour, byDay: byDay, topItems: topItems, foreign: foreign,
     rows: rows, more: more, staff: staff
   };

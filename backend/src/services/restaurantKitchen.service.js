@@ -39,11 +39,21 @@ var screens = require('./restaurantKdsScreens.service');
 function norm(c) { return String(c == null ? '' : c).trim().toLowerCase(); }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 // A dish on a ticket: the menu item and its variation, or a dish not on
-// the menu by its name; and its note ("no onions") — the same dish with
-// another note is another line.
-function lineKey(menuItemId, variationId, name, note) {
-  return (menuItemId ? menuItemId + '::' + (variationId || '') : 'custom::' + norm(name)) + '::' + norm(note);
+// the menu by its name; its add-ons (mods: restaurantTillCheck modsKey, as
+// kept on the ticket) and its note ("no onions") — the same dish with other
+// add-ons or another note is another line.
+function lineKey(menuItemId, variationId, name, note, mods) {
+  return (menuItemId ? menuItemId + '::' + (variationId || '') : 'custom::' + norm(name)) + '::' + (mods || '') + '::' + norm(note);
 }
+function modsKey(l) { return require('./restaurantTillCheck.service').modsKey(l.modifiers); }
+// A dish's add-ons on the screen (mods: [{ how, name }]), when it has any.
+function withMods(o, text) { var m = modsOut(text); if (m.length) o.mods = m; return o; }
+// A ticket's add-ons for the screen: [{ how, name }].
+function modsOut(text) {
+  if (!text) return [];
+  try { return JSON.parse(text).map(function (m) { return { how: m[0], name: m[1] }; }); } catch (e) { return []; }
+}
+
 var WHERE_NAME = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
 
 async function activeStations(client, companyId) {
@@ -84,7 +94,7 @@ async function fire(client, companyId, o) {
   var want = new Map();
   // A delivery fee is charged, not cooked (restaurantPos priceLines).
   (o.lines || []).filter(function (l) { return !l.fee; }).forEach(function (l) {
-    var k = lineKey(l.menuItemId, l.variationId, l.name, l.note);
+    var k = lineKey(l.menuItemId, l.variationId, l.name, l.note, modsKey(l));
     var cur = want.get(k);
     if (cur) cur.qty = round2(cur.qty + Number(l.qty)); else want.set(k, { line: l, qty: round2(l.qty) });
   });
@@ -94,7 +104,7 @@ async function fire(client, companyId, o) {
       "SELECT i.* FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
       "WHERE t.company_id = $1 AND t.tab_id = $2 AND i.status <> 'cancelled' ORDER BY i.created_at DESC", [companyId, o.tabId])).rows;
     rows.forEach(function (r) {
-      var k = lineKey(r.menu_item_id, r.variation_id, r.name, r.note);
+      var k = lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods);
       if (!sent.has(k)) sent.set(k, []);
       sent.get(k).push(r);
     });
@@ -113,8 +123,8 @@ async function fire(client, companyId, o) {
       } else {
         await client.query('UPDATE restaurant_kitchen_items SET qty = $2 WHERE id = $1', [it.id, round2(q - take)]);
         await client.query(
-          "INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note) VALUES ($1,$2,$3,$4,$5,$6,$7,'cancelled',$8)",
-          [it.ticket_id, it.station_id, it.menu_item_id, it.variation_id, it.name, it.category, round2(take), it.note || '']);
+          "INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note, mods) VALUES ($1,$2,$3,$4,$5,$6,$7,'cancelled',$8,$9)",
+          [it.ticket_id, it.station_id, it.menu_item_id, it.variation_id, it.name, it.category, round2(take), it.note || '', it.mods || '']);
       }
       touched.add(it.ticket_id);
       less = round2(less - take);
@@ -150,10 +160,74 @@ async function fire(client, companyId, o) {
   for (var j = 0; j < routed.length; j++) {
     var r = routed[j];
     await client.query(
-      'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
-      [ticket.id, r.station.id, r.line.menuItemId || null, r.line.variationId || null, r.line.name, r.category, r.qty, String(r.line.note || '').slice(0, 140)]);
+      'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, note, mods) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+      [ticket.id, r.station.id, r.line.menuItemId || null, r.line.variationId || null, r.line.name, r.category, r.qty, String(r.line.note || '').slice(0, 140), modsKey(r.line)]);
   }
-  return { id: ticket.id, number: ticket.number, dishes: routed.map(function (x) { return x.qty + '× ' + x.line.name + (x.line.note ? ' (' + x.line.note + ')' : ''); }) };
+  return { id: ticket.id, number: ticket.number, dishes: routed.map(function (x) {
+    var mods = require('./restaurantTillCheck.service').modsText(x.line.modifiers);
+    return x.qty + '× ' + x.line.name + (mods ? ' [' + mods + ']' : '') + (x.line.note ? ' (' + x.line.note + ')' : '');
+  }) };
+}
+
+// Dishes leaving an open order for another bill (restaurantPos: paid on
+// their own, moved to another order): what the kitchen has of them goes
+// with them, on a twin of each ticket they were on — the same number and
+// times, the new bill's table and names — so the kitchen keeps cooking
+// them and neither order thinks they were taken off or added. lines:
+// [{ menuItemId, variationId, name, note, modifiers, qty }]; dest: { tabId
+// or orderId, label, tableName, waiterName, guestName }.
+async function moveItems(client, companyId, fromTabId, lines, dest) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('kds:' || $1))", [companyId]);
+  var twins = new Map();
+  var touched = new Set();
+  async function twinOf(ticketId) {
+    if (twins.has(ticketId)) return twins.get(ticketId);
+    var t = (await client.query('SELECT * FROM restaurant_kitchen_tickets WHERE id = $1', [ticketId])).rows[0];
+    var id = (await client.query(
+      'INSERT INTO restaurant_kitchen_tickets (company_id, number, tab_id, order_id, label, table_name, waiter_name, guest_name, note, sent_by, fulfillment, customer_phone, delivery_address, status, created_at, ready_at, served_at, printed_at) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id',
+      [companyId, t.number, dest.tabId || null, dest.orderId || null, String(dest.label || t.label || '').slice(0, 80), dest.tableName !== undefined ? dest.tableName : t.table_name,
+        dest.waiterName !== undefined ? dest.waiterName : t.waiter_name, dest.guestName !== undefined ? dest.guestName : t.guest_name, t.note, t.sent_by, t.fulfillment, t.customer_phone, t.delivery_address,
+        t.status, t.created_at, t.ready_at, t.served_at, t.printed_at])).rows[0].id;
+    twins.set(ticketId, id);
+    return id;
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i];
+    if (l.fee) continue;
+    var key = lineKey(l.menuItemId, l.variationId, l.name, l.note, modsKey(l));
+    var rows = (await client.query(
+      "SELECT i.* FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id WHERE t.company_id = $1 AND t.tab_id = $2 AND i.status <> 'cancelled' ORDER BY i.created_at DESC",
+      [companyId, fromTabId])).rows.filter(function (r) { return lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods) === key; });
+    var left = round2(l.qty);
+    for (var j = 0; j < rows.length && left > 0; j++) {
+      var r = rows[j], q = Number(r.qty), take = Math.min(q, left);
+      var twin = await twinOf(r.ticket_id);
+      if (take >= q) await client.query('UPDATE restaurant_kitchen_items SET ticket_id = $2 WHERE id = $1', [r.id, twin]);
+      else {
+        await client.query('UPDATE restaurant_kitchen_items SET qty = $2 WHERE id = $1', [r.id, round2(q - take)]);
+        await client.query(
+          'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note, mods, done_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+          [twin, r.station_id, r.menu_item_id, r.variation_id, r.name, r.category, round2(take), r.status, r.note || '', r.mods || '', r.done_at, r.created_at]);
+      }
+      touched.add(r.ticket_id);
+      left = round2(left - take);
+    }
+  }
+  // A ticket left with nothing goes (it all moved); the rest show what they hold now.
+  for (var tid of touched) {
+    var n = (await client.query('SELECT count(*)::int AS n FROM restaurant_kitchen_items WHERE ticket_id = $1', [tid])).rows[0].n;
+    if (!n) await client.query('DELETE FROM restaurant_kitchen_tickets WHERE id = $1', [tid]);
+    else await refresh(client, tid);
+  }
+  for (var tw of twins.values()) await refresh(client, tw);
+}
+// A whole open order joined to another, or moved to another table: its
+// tickets now belong to it, and say where its food goes (not yet served).
+async function retarget(client, companyId, fromTabId, toTabId, names) {
+  await client.query('UPDATE restaurant_kitchen_tickets SET tab_id = $3 WHERE company_id = $1 AND tab_id = $2', [companyId, fromTabId, toTabId]);
+  await client.query('UPDATE restaurant_kitchen_tickets SET label = $3, table_name = $4, waiter_name = $5 WHERE company_id = $1 AND tab_id = $2 AND served_at IS NULL',
+    [companyId, toTabId, String(names.label || '').slice(0, 80), names.tableName || null, names.waiterName || null]);
 }
 
 // An open table removed, or a sale voided: what the kitchen has not
@@ -183,9 +257,9 @@ function ticketOut(t, items, stationId, now) {
     status: t.status, createdAt: t.created_at, readyAt: t.ready_at, servedAt: t.served_at, cleared: !!t.served_at,
     waitedMinutes: minutesSince(t.created_at, now),
     items: mine.map(function (i) {
-      return { id: i.id, name: i.name, qty: Number(i.qty), note: i.note || '', status: i.status, stationId: i.station_id, stationName: i.station_name || null, category: i.category, doneAt: i.done_at };
+      return withMods({ id: i.id, name: i.name, qty: Number(i.qty), note: i.note || '', status: i.status, stationId: i.station_id, stationName: i.station_name || null, category: i.category, doneAt: i.done_at }, i.mods);
     }),
-    elsewhere: others.map(function (i) { return { name: i.name, qty: Number(i.qty), note: i.note || '', stationName: i.station_name || null }; })
+    elsewhere: others.map(function (i) { return withMods({ name: i.name, qty: Number(i.qty), note: i.note || '', stationName: i.station_name || null }, i.mods); })
   };
 }
 
@@ -537,6 +611,7 @@ async function removeStation(ctx, id) {
 }
 
 module.exports = {
+  moveItems: moveItems, retarget: retarget,
   fire: fire, cancelForTab: cancelForTab, cancelForOrder: cancelForOrder,
   board: board, setItemDone: setItemDone, finishTicket: finishTicket, serveTicket: serveTicket, recallTicket: recallTicket, printTicket: printTicket, tillSummary: tillSummary,
   statusOf: statusOf,

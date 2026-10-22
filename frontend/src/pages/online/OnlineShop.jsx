@@ -10,6 +10,7 @@ import DeliveryMap from '../delivery/DeliveryMap';
 import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
 import { lineKey, photo, tint } from './onlineShared';
+import { billOf, modsWords, serviceWords } from '../till/tillBill';
 import './online.css';
 
 // The restaurant's website (online.starbartema.com): its menu with photos,
@@ -185,7 +186,7 @@ function Basket({ basket, subtotal, setQty, onCheckout, open, later }) {
       <ul className="on-lines">
         {basket.map((l) => (
           <li key={lineKey(l)}>
-            <span className="on-line-text"><strong>{l.name}</strong>{l.note && <small>{l.note}</small>}</span>
+            <span className="on-line-text"><strong>{l.name}</strong>{(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}{l.note && <small>{l.note}</small>}</span>
             <span className="on-qty">
               <button type="button" onClick={() => setQty(lineKey(l), l.qty - 1)} aria-label={tr('One less')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(lineKey(l), l.qty + 1)} aria-label={tr('One more')}>+</button>
             </span>
@@ -224,6 +225,9 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
   const fee = how === 'delivery' ? (r.fee.freeOver > 0 && subtotal >= r.fee.freeOver ? 0 : Math.round(r.fee.base + (km != null ? r.fee.perKm * km : 0))) : 0;
   const tooFar = how === 'delivery' && km != null && r.maxKm > 0 && km > r.maxKm;
   const short = r.minOrder > 0 && subtotal < r.minOrder;
+  // The service charge and taxes the restaurant adds on this kind of order,
+  // as the server works them out (restaurantOnline chargesOf).
+  const bill = billOf(basket.map((l) => ({ price: l.price, qty: l.qty })).concat(fee > 0 ? [{ price: fee, qty: 1, fee: true }] : []), {}, r.bill || {}, how);
   // For later: the days with a time left for delivery (or pickup), the one chosen, its times.
   const days = later ? later.days.filter((d) => d.from[how]) : [];
   const dayRow = days.find((d) => d.date === day) || days[0] || null;
@@ -246,7 +250,7 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
       const res = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/orders', null, {
         name, phone, fulfillment: how, address, landmark, lat: how === 'delivery' && pin ? pin.lat : null, lng: how === 'delivery' && pin ? pin.lng : null,
         payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined,
-        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined }))
+        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) }))
       });
       onPlaced(res);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
@@ -262,7 +266,7 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
         <ul className="on-lines">
           {basket.map((l) => (
             <li key={lineKey(l)}>
-              <span className="on-line-text"><strong>{l.name}</strong>{l.note && <small>{l.note}</small>}</span>
+              <span className="on-line-text"><strong>{l.name}</strong>{(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}{l.note && <small>{l.note}</small>}</span>
               <span className="on-qty"><button type="button" onClick={() => setQty(lineKey(l), l.qty - 1)} aria-label={tr('One less')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(lineKey(l), l.qty + 1)} aria-label={tr('One more')}>+</button></span>
               <i>{money(l.qty * l.price)}</i>
             </li>
@@ -352,13 +356,16 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
         <div className="on-total">
           <div><span>{tr('Food')}</span><b>{money(subtotal)}</b></div>
           {how === 'delivery' && <div><span>{tr('Delivery')}{km != null ? ' · ' + kmText(km) : ''}</span><b>{fee ? money(fee) : tr('Free')}</b></div>}
-          <div className="is-total"><span>{tr('Total')}</span><strong>{money(subtotal + fee)}</strong></div>
+          {bill.serviceCharge > 0 && <div><span>{serviceWords(bill.serviceName, tr)} {bill.serviceRate}%</span><b>{money(bill.serviceCharge)}</b></div>}
+          {bill.taxes.filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
+          <div className="is-total"><span>{tr('Total')}</span><strong>{money(bill.total)}</strong></div>
+          {bill.taxIncluded > 0 && <p className="on-hint">{tr('Includes {taxes}.', { taxes: bill.taxes.map((t) => t.name + ' ' + money(t.amount)).join(', ') })}</p>}
           {scheduledFor && <p className="on-when-sum">🗓️ {how === 'pickup' ? tr('Pickup {when}', { when: laterText(scheduledFor) }) : tr('Delivery {when}', { when: laterText(scheduledFor) })}</p>}
           {short && <p className="on-dist is-bad">{tr('The smallest order is {amount}.', { amount: money(r.minOrder) })}</p>}
         </div>
         {!r.open && !later && <p className="on-dist is-bad">{tr('Not taking orders right now')}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <button type="submit" className="on-go is-big" disabled={busy || !ready}>{busy ? tr('Sending your order…') : tr('Place order · {amount}', { amount: money(subtotal + fee) })}</button>
+        <button type="submit" className="on-go is-big" disabled={busy || !ready}>{busy ? tr('Sending your order…') : tr('Place order · {amount}', { amount: money(bill.total) })}</button>
         <p className="on-hint is-center">{scheduledFor ? tr('The restaurant confirms your order first, and starts cooking it in time. You can cancel until then.') : tr('The restaurant accepts your order first; you can watch it here all the way to your door.')}</p>
       </form>
     </div>

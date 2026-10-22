@@ -3,6 +3,7 @@ import { Icon } from '../../components/DashKit';
 import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
+import AddOnGroups from './AddOnGroups';
 
 // The menu and the stock, kept from the till (restaurantTillMenu.service.js):
 // MenuTab in the till settings, for a manager — add a dish, change its
@@ -21,6 +22,7 @@ export function MenuTab({ token, pin, onFail }) {
   const [edit, setEdit] = useState(null); // the dish being added or changed
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(null);
+  const [view, setView] = useState('dishes'); // 'dishes' | 'addons' (till/AddOnGroups.jsx)
   const call = useCallback((body) => posFetch('POST', '/pos/settings/menu', token, { managerPin: pin || undefined, ...body }), [token, pin]);
   useEffect(() => { call({ action: 'list' }).then(setData).catch(onFail); }, [call, onFail]);
   const shown = useMemo(() => {
@@ -47,6 +49,21 @@ export function MenuTab({ token, pin, onFail }) {
   }
   function setVar(i, p) { setEdit({ ...edit, variations: edit.variations.map((v, k) => (k === i ? { ...v, ...p } : v)) }); }
   if (!data) return <section className="ts-sec"><p className="dk-muted">{tr('Loading…')}</p></section>;
+  const viewSwitch = (
+    <div className="dk-segment ts-mn-view" role="tablist">
+      <button type="button" role="tab" aria-selected={view === 'dishes'} className={view === 'dishes' ? 'is-on' : ''} onClick={() => setView('dishes')}>{tr('Dishes')} {data.items.length}</button>
+      <button type="button" role="tab" aria-selected={view === 'addons'} className={view === 'addons' ? 'is-on' : ''} onClick={() => setView('addons')}>✚ {tr('Add-ons')} {(data.groups || []).length}</button>
+    </div>
+  );
+  if (view === 'addons' && !edit) {
+    return (
+      <>
+        <div className="ts-mn-viewbar">{viewSwitch}</div>
+        {flash && <div className="ts-flash" role="status"><Icon name="check" />{flash}</div>}
+        <AddOnGroups data={data} call={call} onData={setData} onFail={onFail} onFlash={setFlash} />
+      </>
+    );
+  }
 
   if (edit) {
     const startCounting = edit.trackStock && !(data.items.find((i) => i.id === edit.id) || {}).trackStock;
@@ -63,6 +80,9 @@ export function MenuTab({ token, pin, onFail }) {
           </div>
           <div className="field"><label htmlFor="mn-price">{tr('Price')}</label><input id="mn-price" className="input" type="number" min="0" step="0.01" inputMode="decimal" required value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} /></div>
         </div>
+        {(data.groups || []).some((g) => edit.id && g.itemIds.includes(edit.id)) && (
+          <p className="ts-ao-on">✚ {tr('Add-ons: {names}', { names: data.groups.filter((g) => g.itemIds.includes(edit.id)).map((g) => g.name).join(', ') })}</p>
+        )}
         <div className="ts-mn-sizes">
           <span className="ts-label">{tr('Sizes (optional)')}</span>
           <small className="dk-muted">{tr('A dish with sizes is sold at each size\'s price, e.g. Small and Large.')}</small>
@@ -101,6 +121,7 @@ export function MenuTab({ token, pin, onFail }) {
   const cats = data.categories;
   return (
     <section className="ts-sec ts-mn">
+      <div className="ts-mn-viewbar">{viewSwitch}</div>
       <div className="ts-mn-tools">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find a dish…')} aria-label={tr('Find a dish…')} />
         <button type="button" className="btn btn-primary" onClick={() => open(null)}><Icon name="spark" /> {tr('Add a dish')}</button>

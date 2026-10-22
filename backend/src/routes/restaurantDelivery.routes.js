@@ -57,6 +57,9 @@ router.post('/online/:code/orders', h(function (req) { return online.place(req.p
 router.get('/online/track/:token', h(function (req) { return online.track(req.params.token); }));
 router.post('/online/track/:token/cancel', h(function (req) { return online.cancel(req.params.token); }));
 
+// ── a sale's receipt, opened from the link sent to the customer ──
+router.get('/receipt/:token', h(function (req) { return require('../services/restaurantPos.service').publicReceipt(req.params.token); }));
+
 // ── ordering from the table (its QR code) ──
 router.get('/table/orders/:token', h(function (req) { return tables.track(req.params.token); }));
 router.post('/table/orders/:token/cancel', h(function (req) { return tables.cancel(req.params.token); }));

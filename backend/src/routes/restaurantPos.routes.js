@@ -101,6 +101,15 @@ router.post('/orders', posAuth, async function (req, res, next) {
 router.get('/orders/:id/receipt', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.receiptForSession(req.posToken, req.params.id)); } catch (e) { next(e); }
 });
+// The receipt sent to the customer: by text message, or a WhatsApp message
+// the till opens (restaurantPos sendReceipt).
+router.post('/orders/:id/receipt/send', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.sendReceipt(req.posToken, req.params.id, req.body, req.ip)); } catch (e) { next(e); }
+});
+// A manager's PIN for a discount, a dish on the house or the service charge taken off.
+router.post('/approve', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.approve(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 
 // Refunds (approved with a manager's PIN), VIP balances and IOUs
 // (restaurantTillMoney.service.js).
@@ -151,6 +160,17 @@ router.post('/tabs', posAuth, async function (req, res, next) {
 });
 router.delete('/tabs/:id', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.removeTab(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+// Bills: some dishes moved to another order, one order joined to another,
+// an order moved to another table or waiter.
+router.post('/tabs/:id/move-dishes', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.moveDishes(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/tabs/:id/join', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.mergeTabs(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/tabs/:id/move', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.moveTab(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
 // This cashier's shift so far.

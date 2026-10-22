@@ -6,6 +6,7 @@ import { unlockAudio, playNewTicket } from '../kiosk/kioskSounds';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
+import { modsWords } from './till/tillBill';
 import { buildRunnerTicketBytes, bluetoothSupported, reconnectBluetoothPrinter, reconnectUsbPrinter, requestBluetoothPrinter, requestUsbPrinter, usbSupported } from '../lib/thermalPrinter';
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import './till/till.css';
@@ -454,7 +455,9 @@ export default function KdsPage() {
                       <button type="button" className={'kds-item is-' + i.status} disabled={i.status === 'cancelled' || busy.has(i.id)} onClick={() => toggleItem(i)}
                         aria-pressed={i.status === 'done'} title={i.status === 'done' ? tr('Done. Tap to put it back') : i.status === 'cancelled' ? tr('Taken off the order') : tr('Tap when it is done')}>
                         <b>{qtyText(i.qty)}×</b>
-                        <span className="kds-item-name">{i.name}{station === 'all' && i.stationName && <em>{i.stationName}</em>}{i.note && <small className="kds-item-note">✎ {i.note}</small>}</span>
+                        <span className="kds-item-name">{i.name}{station === 'all' && i.stationName && <em>{i.stationName}</em>}
+                          {(i.mods || []).length > 0 && <span className="kds-item-mods">{i.mods.map((m, k) => <b key={k} className={'is-' + (m.how || 'add')}>{m.how === 'no' ? tr('No {name}', { name: m.name }) : m.how === 'extra' ? tr('Extra {name}', { name: m.name }) : m.how === 'side' ? tr('{name} on the side', { name: m.name }) : '+ ' + m.name}</b>)}</span>}
+                          {i.note && <small className="kds-item-note">✎ {i.note}</small>}</span>
                         <i className="kds-check" aria-hidden="true">{i.status === 'done' ? '✓' : i.status === 'cancelled' ? '✕' : ''}</i>
                       </button>
                     </li>
@@ -528,7 +531,7 @@ export default function KdsPage() {
           {(paper.guestName || paper.label) && <p><b>{tr('For:')}</b> {paper.guestName || paper.label}</p>}
           {paper.fulfillment === 'delivery' && <p><b>{tr('To:')}</b> {paper.deliveryAddress}<br />{paper.customerPhone}</p>}
           {paper.waiterName && <p>{tr('Waiter: {name}', { name: paper.waiterName })}</p>}
-          <ul>{paper.items.map((i) => <li key={i.id}><b>{qtyText(i.qty)} ×</b> {i.name}{i.note && <em> — {i.note}</em>}</li>)}</ul>
+          <ul>{paper.items.map((i) => <li key={i.id}><b>{qtyText(i.qty)} ×</b> {i.name}{(i.mods || []).length > 0 && <em> [{modsWords(i.mods, tr)}]</em>}{i.note && <em> — {i.note}</em>}</li>)}</ul>
           {paper.note && <p>✎ {paper.note}</p>}
           <p className="kds-print-time">{tr('Sent {time}', { time: timeOf(paper.createdAt) })}{paper.sentBy ? ' · ' + paper.sentBy : ''} · {tr('Ready {time}', { time: timeOf(new Date().toISOString()) })}</p>
         </div>

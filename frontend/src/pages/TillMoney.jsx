@@ -63,7 +63,8 @@ export function RefundDialog({ token, startWith, onClose, onShowReceipt, onChang
   useEffect(() => { if (startWith) openSale(startWith); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lines = sale ? sale.items.map((i) => ({ ...i, left: Math.round((i.qty - i.refundedQty) * 100) / 100 })) : [];
-  const amount = Math.round(lines.reduce((s, i) => s + (qty[i.id] || 0) * i.lineTotal / i.qty, 0) * 100) / 100;
+  // A dish's share of the service charge and added taxes comes back with it (backend restaurantTillMoney refundFactor).
+  const amount = Math.round(lines.reduce((s, i) => s + (qty[i.id] || 0) * i.lineTotal / i.qty, 0) * ((sale && sale.refundFactor) || 1) * 100) / 100;
   const leftOnSale = sale ? Math.round((sale.total - sale.refunded) * 100) / 100 : 0;
   const shown = Math.min(amount, leftOnSale);
   function setLine(i, n) { setQty({ ...qty, [i.id]: Math.max(0, Math.min(i.left, n)) }); }

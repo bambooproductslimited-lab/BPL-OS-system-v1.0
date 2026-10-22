@@ -184,6 +184,13 @@
 .kds-ful { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 8px 12px 0; font-size: 12.5px; }
 .kds-ful .tl-ful { margin: 0; font-size: 12px; }
 .kds-deliver { font-weight: 700; }
+.kds-item-mods { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.kds-item-mods b { padding: 2px 8px; font-size: 12.5px; font-weight: 800; color: #0f766e; border-radius: 8px; background: rgba(20, 184, 166, .14); }
+.kds-item-mods b.is-no { color: #b91c1c; background: rgba(239, 68, 68, .14); }
+.kds-item-mods b.is-extra { color: #1d4ed8; background: rgba(59, 130, 246, .14); }
+.kds-item-mods b.is-side { color: #b45309; background: rgba(245, 158, 11, .16); }
+:root[data-theme='dark'] .kds-item-mods b { color: #5eead4; } :root[data-theme='dark'] .kds-item-mods b.is-no { color: #fca5a5; }
+:root[data-theme='dark'] .kds-item-mods b.is-extra { color: #93c5fd; } :root[data-theme='dark'] .kds-item-mods b.is-side { color: #fcd34d; }
 .kds-item-note { display: block; margin-top: 2px; font-size: 12.5px; font-weight: 700; font-style: normal; color: #b45309; }
 :root[data-theme='dark'] .kds-item-note { color: #fcd34d; }
 .kds-ready-ful { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 12px; }

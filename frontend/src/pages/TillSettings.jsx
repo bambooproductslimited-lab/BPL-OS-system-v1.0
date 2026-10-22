@@ -9,6 +9,7 @@ import SalesReport from './till/SalesReport';
 import { AccountsTab, DisputesTab, DrawersTab, KitchenScreensTab } from './till/OfficeTabs';
 import { MenuTab, StockTab } from './till/MenuStock';
 import { TableQrTab } from './till/TableQr';
+import BillSettings from './till/BillSettings';
 import './TillSettings.css';
 
 // The till's settings, opened by a manager (backend:
@@ -45,9 +46,11 @@ const PERMISSION = {
   iouPaid: [() => tr('Take IOU payments'), () => tr('Mark what a customer owed as paid.')],
   favorites: [() => tr('Change favourites'), () => tr('Star and unstar dishes for everyone.')],
   stock: [() => tr('Count the stock'), () => tr('Count stock and enter what came in.')],
-  kds: [() => tr('Use the kitchen screen'), () => tr('Sign in to the kitchen screen.')]
+  kds: [() => tr('Use the kitchen screen'), () => tr('Sign in to the kitchen screen.')],
+  discount: [() => tr('Give discounts'), () => tr('Take money off a dish or a bill, or the service charge off; without it, a manager types their PIN.')],
+  comp: [() => tr('Put dishes on the house'), () => tr('Make a dish free, saying why; without it, a manager types their PIN.')]
 };
-const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock'];
+const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'discount', 'comp'];
 const METHOD = {
   cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or US dollars.')],
   mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number, in cedis only.')],
@@ -63,7 +66,7 @@ const GROUPS = [
   ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
-    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
+    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
 const GROUP_OF = {};
 GROUPS.forEach(([g, , tabs]) => tabs.forEach(([k]) => { GROUP_OF[k] = g; }));
@@ -333,6 +336,8 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'stock' && <StockTab token={token} pin={pin} onFail={fail} />}
             {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
             {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} drawer={actDrawer} onClearDrawer={() => setActDrawer(null)} />}
+
+            {tab === 'bill' && <BillSettings draft={draft} set={set} />}
 
             {tab === 'receipts' && (
               <section className="ts-sec ts-receipt-sec">

@@ -36,8 +36,10 @@ var EDITABLE_ROLES = ['cashier', 'waiter', 'kitchen'];
 // keepOpen is "send orders to the kitchen" (an order kept open to pay
 // later); customItem rings up a dish that is not on the menu; stock counts
 // the stock and adds what came in; delivery sends orders out with a rider
-// and takes the website's orders (the delivery screen, migration 0159).
-var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'kds'];
+// and takes the website's orders (the delivery screen, migration 0159);
+// discount gives discounts and takes the service charge off a bill, comp
+// puts a dish on the house (migration 0168; anyone else asks a manager).
+var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'kds', 'discount', 'comp'];
 function only(keys) { var o = {}; PERMISSIONS.forEach(function (p) { o[p] = keys.indexOf(p) >= 0; }); return o; }
 var ROLE_DEFAULTS = {
   cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'delivery', 'kds']),
@@ -45,6 +47,7 @@ var ROLE_DEFAULTS = {
   kitchen: only(['kds'])
 };
 var IDLE_CHOICES = [0, 5, 10, 15, 30, 60];
+var DISCOUNT_KINDS = ['percent', 'amount'];
 var DEFAULTS = {
   defaultRole: 'cashier',
   roles: ROLE_DEFAULTS,
@@ -59,7 +62,15 @@ var DEFAULTS = {
   kitchen: { warnAfter: 10, lateAfter: 20, printReady: false },
   // Orders from the table's QR code (restaurantTableOrders): taken at all,
   // and whether they go to the kitchen without the till accepting them.
-  qrOrders: { on: true, straightToKitchen: false }
+  qrOrders: { on: true, straightToKitchen: false },
+  // The bill (restaurantTillCheck.service.js): the manager's ready-made
+  // discounts ([{ id, name, kind: 'percent' | 'amount', value, open }] —
+  // open: anyone on the till may give it), the service charge (a
+  // percentage, on the order types picked; taxed: the taxes are charged on
+  // it too) and the taxes (included in the menu prices, or added on top).
+  discounts: [],
+  serviceCharge: { on: false, name: 'Service charge', rate: 10, types: { dine_in: true, pickup: false, delivery: false }, taxed: true },
+  tax: { included: true, list: [] }
 };
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
@@ -75,7 +86,9 @@ var REFUSED = {
   favorites: 'Your role on the till cannot change the favourites.',
   stock: 'Your role on the till cannot change the stock. Ask a manager.',
   delivery: 'Your role does not send deliveries. Ask a manager.',
-  kds: 'Your role does not use the kitchen screen. Ask a manager.'
+  kds: 'Your role does not use the kitchen screen. Ask a manager.',
+  discount: 'Your role on the till cannot give discounts. Ask a manager.',
+  comp: 'Your role on the till cannot put a dish on the house. Ask a manager.'
 };
 
 function posSession(token) { return require('./restaurantPos.service').verifyPosToken(token); }
@@ -115,6 +128,19 @@ function merged(stored) {
   }
   if (s.kitchen && typeof s.kitchen.printReady === 'boolean') out.kitchen.printReady = s.kitchen.printReady;
   if (s.qrOrders) ['on', 'straightToKitchen'].forEach(function (k) { if (typeof s.qrOrders[k] === 'boolean') out.qrOrders[k] = s.qrOrders[k]; });
+  if (Array.isArray(s.discounts)) out.discounts = s.discounts.filter(function (d) { return d && d.id && d.name && DISCOUNT_KINDS.indexOf(d.kind) >= 0 && Number(d.value) > 0; });
+  if (s.serviceCharge) {
+    var sc = s.serviceCharge;
+    if (typeof sc.on === 'boolean') out.serviceCharge.on = sc.on;
+    if (typeof sc.name === 'string' && sc.name.trim()) out.serviceCharge.name = sc.name;
+    if (Number(sc.rate) > 0 && Number(sc.rate) <= 50) out.serviceCharge.rate = Number(sc.rate);
+    if (sc.types) FULFILLMENTS.forEach(function (f) { if (typeof sc.types[f] === 'boolean') out.serviceCharge.types[f] = sc.types[f]; });
+    if (typeof sc.taxed === 'boolean') out.serviceCharge.taxed = sc.taxed;
+  }
+  if (s.tax) {
+    if (typeof s.tax.included === 'boolean') out.tax.included = s.tax.included;
+    if (Array.isArray(s.tax.list)) out.tax.list = s.tax.list.filter(function (t) { return t && t.name && Number(t.rate) > 0; });
+  }
   return out;
 }
 async function settingsOf(companyId, db) {
@@ -164,7 +190,8 @@ async function profile(token) {
     role: a.role, can: a.can, cashierOnDuty: await cashierOnDuty(session.posCompanyId, session.posEmployeeId),
     settings: {
       paymentMethods: a.settings.paymentMethods, currencies: a.settings.currencies, ratesSetAt: a.settings.ratesSetAt, receipt: a.settings.receipt,
-      idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen
+      idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen,
+      discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax
     }
   };
 }
@@ -210,6 +237,15 @@ async function refundApprover(companyId, pin, ip) {
   var emp = await employeeByPin(String(pin || ''), ip);
   if (await allowedHere(companyId, emp.id, 'approveRefunds')) return emp;
   fail('forbidden', emp.first_name + ' ' + emp.last_name + ' cannot approve refunds: a restaurant manager has to.');
+}
+
+// A manager's yes for a discount, a dish on the house or the service charge
+// taken off (restaurantTillCheck approval): someone whose till role may do
+// it, or an OS restaurant manager, by their PIN.
+async function approver(companyId, pin, ip, perm) {
+  var emp = await employeeByPin(String(pin || ''), ip);
+  if (await allowedHere(companyId, emp.id, perm)) return emp;
+  fail('forbidden', emp.first_name + ' ' + emp.last_name + (perm === 'comp' ? ' cannot put dishes on the house' : ' cannot give discounts') + ': a restaurant manager has to.');
 }
 
 // The settings are opened by a manager: the person signed in, or a
@@ -278,7 +314,7 @@ function cleanSettings(p, base) {
     var given = (p.roles && p.roles[r]) || {};
     PERMISSIONS.forEach(function (k) { if (given[k] !== undefined) out.roles[r][k] = !!given[k]; });
     // Taking payments is done at the till.
-    if (out.roles[r].charge || out.roles[r].keepOpen || out.roles[r].customItem || out.roles[r].removeTable || out.roles[r].refund || out.roles[r].vipTopUp || out.roles[r].iouPaid || out.roles[r].iou || out.roles[r].favorites || out.roles[r].stock) out.roles[r].till = true;
+    if (out.roles[r].charge || out.roles[r].keepOpen || out.roles[r].customItem || out.roles[r].removeTable || out.roles[r].refund || out.roles[r].vipTopUp || out.roles[r].iouPaid || out.roles[r].iou || out.roles[r].favorites || out.roles[r].stock || out.roles[r].discount || out.roles[r].comp) out.roles[r].till = true;
     if (out.roles[r].iou && !out.roles[r].charge) out.roles[r].iou = false;
   });
   if (p.paymentMethods !== undefined) {
@@ -316,6 +352,46 @@ function cleanSettings(p, base) {
     out.kitchen = { warnAfter: warn, lateAfter: late, printReady: p.kitchen.printReady === undefined ? out.kitchen.printReady : !!p.kitchen.printReady };
   }
   if (p.qrOrders) ['on', 'straightToKitchen'].forEach(function (k) { if (p.qrOrders[k] !== undefined) out.qrOrders[k] = !!p.qrOrders[k]; });
+  if (p.discounts !== undefined) {
+    if (!Array.isArray(p.discounts) || p.discounts.length > 30) fail('invalid', 'Keep at most 30 discounts.');
+    var names = new Set();
+    out.discounts = p.discounts.map(function (d) {
+      d = d || {};
+      var name = text(d.name, 40);
+      if (!name) fail('invalid', 'Give each discount a name, e.g. Staff meal.');
+      if (names.has(name.toLowerCase())) fail('invalid', 'Two discounts are called ' + name + '.');
+      names.add(name.toLowerCase());
+      if (DISCOUNT_KINDS.indexOf(d.kind) < 0) fail('invalid', name + ': a percentage or an amount?');
+      var value = Math.round(Number(d.value) * 100) / 100;
+      if (!(value > 0) || (d.kind === 'percent' && value > 100) || value >= 1000000) fail('invalid', name + ': give it a size (a percentage up to 100, or an amount).');
+      var id = /^[a-z0-9-]{4,40}$/.test(String(d.id || '')) ? d.id : require('crypto').randomUUID();
+      return { id: id, name: name, kind: d.kind, value: value, open: !!d.open };
+    });
+  }
+  if (p.serviceCharge) {
+    var sc = p.serviceCharge;
+    var rate = Math.round(Number(sc.rate) * 100) / 100;
+    if (sc.on && !(rate > 0 && rate <= 50)) fail('invalid', 'The service charge is a percentage from 0.5 to 50.');
+    var types = {};
+    FULFILLMENTS.forEach(function (f) { types[f] = !!(sc.types && sc.types[f]); });
+    if (sc.on && !FULFILLMENTS.some(function (f) { return types[f]; })) fail('invalid', 'Pick the orders the service charge is on.');
+    out.serviceCharge = { on: !!sc.on, name: text(sc.name, 40) || 'Service charge', rate: rate > 0 ? rate : out.serviceCharge.rate, types: types, taxed: sc.taxed !== false };
+  }
+  if (p.tax) {
+    var list = Array.isArray(p.tax.list) ? p.tax.list : [];
+    if (list.length > 8) fail('invalid', 'Keep at most 8 taxes.');
+    out.tax = {
+      included: p.tax.included !== false,
+      list: list.map(function (t) {
+        t = t || {};
+        var name = text(t.name, 40);
+        if (!name) fail('invalid', 'Give each tax a name, e.g. VAT.');
+        var r = Math.round(Number(t.rate) * 1000) / 1000;
+        if (!(r > 0 && r <= 50)) fail('invalid', name + ': a rate from 0.001% to 50%.');
+        return { id: /^[a-z0-9-]{4,40}$/.test(String(t.id || '')) ? t.id : require('crypto').randomUUID(), name: name, rate: r, compound: !!t.compound };
+      })
+    };
+  }
   return out;
 }
 
@@ -492,6 +568,8 @@ async function menu(token, p, ip) {
   var saved = null;
   if (p.action === 'save') saved = await tm.saveItem(company, m.manager, p.item);
   else if (p.action === 'remove') await tm.removeItem(company, m.manager, p.id);
+  else if (p.action === 'saveGroup') saved = await tm.saveGroup(company, m.manager, p.group);
+  else if (p.action === 'removeGroup') await tm.removeGroup(company, m.manager, p.id);
   return Object.assign(await tm.menu(company), { saved: saved });
 }
 
@@ -532,6 +610,7 @@ async function activityReport(token, p, ip) {
 }
 
 module.exports = {
+  approver: approver,
   TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, DEFAULTS: DEFAULTS, cashierOnDuty: cashierOnDuty,
   settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,

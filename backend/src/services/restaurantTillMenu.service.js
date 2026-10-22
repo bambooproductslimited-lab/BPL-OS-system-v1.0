@@ -126,7 +126,80 @@ async function menu(companyId) {
   vars.forEach(function (v) { if (!byItem.has(v.menu_item_id)) byItem.set(v.menu_item_id, []); byItem.get(v.menu_item_id).push({ id: v.id, name: v.name, price: Number(v.price) }); });
   var items = rows.map(function (r) { return itemOut(r, byItem.get(r.id)); });
   var categories = Array.from(new Set(items.map(function (i) { return i.category; }))).sort();
-  return { items: items, categories: categories };
+  return { items: items, categories: categories, groups: await groups(companyId) };
+}
+
+// ── add-ons (migration 0168): groups of choices, put on dishes ──
+async function groups(companyId) {
+  var gs = (await pool.query('SELECT * FROM restaurant_modifier_groups WHERE company_id = $1 ORDER BY sort_order, name', [companyId])).rows;
+  if (!gs.length) return [];
+  var ids = gs.map(function (g) { return g.id; });
+  var opts = (await pool.query('SELECT * FROM restaurant_modifiers WHERE group_id = ANY($1::uuid[]) ORDER BY sort_order, name', [ids])).rows;
+  var links = (await pool.query('SELECT group_id, menu_item_id FROM restaurant_menu_item_modifier_groups WHERE group_id = ANY($1::uuid[])', [ids])).rows;
+  return gs.map(function (g) {
+    return {
+      id: g.id, name: g.name, minPick: g.min_pick, maxPick: g.max_pick, active: g.active,
+      options: opts.filter(function (o) { return o.group_id === g.id; }).map(function (o) { return { id: o.id, name: o.name, price: Number(o.price), active: o.active }; }),
+      itemIds: links.filter(function (l) { return l.group_id === g.id; }).map(function (l) { return l.menu_item_id; })
+    };
+  });
+}
+// Add or change a group: { id?, name, minPick, maxPick (none = any), active,
+// options: [{ id?, name, price, active, remove? }], itemIds: the dishes
+// that take it (all of them: the list replaces the one before).
+async function saveGroup(companyId, manager, p) {
+  p = p || {};
+  var name = text(p.name, 60);
+  if (!name) fail('invalid', 'Give the add-ons a name, e.g. Pick a side.');
+  var min = Math.max(0, Math.floor(Number(p.minPick) || 0));
+  var max = p.maxPick === null || p.maxPick === undefined || p.maxPick === '' || Number(p.maxPick) === 0 ? null : Math.floor(Number(p.maxPick));
+  if (max !== null && !(max >= 1)) fail('invalid', name + ': "at most" is a number from 1, or empty for any.');
+  if (max !== null && min > max) fail('invalid', name + ': "at least" is more than "at most".');
+  var options = (Array.isArray(p.options) ? p.options : []).filter(function (o) { return o && !o.remove; });
+  if (!options.length) fail('invalid', name + ': add at least one choice.');
+  if (min > options.filter(function (o) { return o.active !== false; }).length) fail('invalid', name + ': there are fewer choices than must be picked.');
+  return withTransaction(async function (client) {
+    var g;
+    if (p.id) {
+      g = (await client.query('UPDATE restaurant_modifier_groups SET name = $3, min_pick = $4, max_pick = $5, active = $6 WHERE id = $1 AND company_id = $2 RETURNING *',
+        [p.id, companyId, name, min, max, p.active !== false])).rows[0];
+      if (!g) fail('notfound', 'Those add-ons are no longer there.');
+    } else {
+      g = (await client.query('INSERT INTO restaurant_modifier_groups (company_id, name, min_pick, max_pick, active, sort_order) ' +
+        'VALUES ($1,$2,$3,$4,$5,(SELECT coalesce(max(sort_order), 0) + 1 FROM restaurant_modifier_groups WHERE company_id = $1)) RETURNING *',
+        [companyId, name, min, max, p.active !== false])).rows[0];
+    }
+    var keep = [];
+    var all = Array.isArray(p.options) ? p.options : [];
+    for (var i = 0; i < all.length; i++) {
+      var o = all[i] || {};
+      if (o.remove) { if (o.id) await client.query('DELETE FROM restaurant_modifiers WHERE id = $1 AND group_id = $2', [o.id, g.id]); continue; }
+      var oname = text(o.name, 60);
+      if (!oname) fail('invalid', name + ': give each choice a name.');
+      var price = priceOf(o.price || 0, oname);
+      if (o.id) {
+        var up = (await client.query('UPDATE restaurant_modifiers SET name = $3, price = $4, active = $5, sort_order = $6 WHERE id = $1 AND group_id = $2 RETURNING id', [o.id, g.id, oname, price, o.active !== false, i])).rows[0];
+        if (up) { keep.push(up.id); continue; }
+      }
+      keep.push((await client.query('INSERT INTO restaurant_modifiers (group_id, name, price, active, sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING id', [g.id, oname, price, o.active !== false, i])).rows[0].id);
+    }
+    if (Array.isArray(p.itemIds)) {
+      var mine = (await client.query('SELECT id FROM restaurant_menu_items WHERE company_id = $1 AND id = ANY($2::uuid[])', [companyId, p.itemIds.filter(function (x) { return /^[0-9a-f-]{36}$/i.test(String(x)); })])).rows.map(function (r) { return r.id; });
+      await client.query('DELETE FROM restaurant_menu_item_modifier_groups WHERE group_id = $1', [g.id]);
+      for (var j = 0; j < mine.length; j++) await client.query('INSERT INTO restaurant_menu_item_modifier_groups (menu_item_id, group_id, sort_order) VALUES ($1,$2,$3)', [mine[j], g.id, g.sort_order]);
+    }
+    var what = (p.id ? 'Changed the add-ons ' : 'Added the add-ons ') + name;
+    await audit(client, who(manager), p.id ? 'restaurant.menu.update' : 'restaurant.menu.create', 'restaurant_modifier_group', g.id, what + '.');
+    await activity.log(client, { companyId: companyId, employeeId: manager.id, app: 'settings', action: 'settings.menu', summary: what + '.', refType: 'modifier_group', refId: g.id });
+    return g.id;
+  });
+}
+async function removeGroup(companyId, manager, id) {
+  var g = (await pool.query('DELETE FROM restaurant_modifier_groups WHERE id = $1 AND company_id = $2 RETURNING name', [id, companyId])).rows[0];
+  if (!g) fail('notfound', 'Those add-ons are no longer there.');
+  await audit(pool, who(manager), 'restaurant.menu.delete', 'restaurant_modifier_group', id, 'Removed the add-ons ' + g.name + '.');
+  await activity.log(pool, { companyId: companyId, employeeId: manager.id, app: 'settings', action: 'settings.menu', summary: 'Removed the add-ons ' + g.name + '.', refType: 'modifier_group', refId: id });
+  return id;
 }
 
 async function itemOfCompany(db, companyId, id) {
@@ -268,6 +341,7 @@ async function history(companyId, type, id) {
 }
 
 module.exports = {
+  groups: groups, saveGroup: saveGroup, removeGroup: removeGroup,
   heldOnTabs: heldOnTabs, tileStock: tileStock, checkOrder: checkOrder, deductForSale: deductForSale, returnForVoid: returnForVoid,
   menu: menu, saveItem: saveItem, removeItem: removeItem, stock: stock, move: move, history: history
 };
