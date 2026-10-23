@@ -5,7 +5,8 @@ import ThemeSwitch from './ThemeSwitch';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import '../pages/LoginPage.css';
 
-// The frame every sign-in screen shares (LoginPage, ForcedPasswordChangePage):
+// The frame every sign-in screen shares (LoginPage, ForcedPasswordChangePage;
+// the sales team's own app passes its own words, a tone and a picture):
 // the brand side saying what Bamboo OS is, and the form side. Like the till
 // and the kiosk, it follows the light, dark or glass choice on this device,
 // with a switch in the corner.
@@ -25,6 +26,10 @@ const ICONS = {
   plate: <><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="3.5" /><path d="M2.5 4v5.5M4 4v16M20.5 4c-1.5 1-2 3-2 6h2v10" /></>,
   chart: <><path d="M4 20V4M4 20h16" /><path d="M8 16v-4M12 16V8M16 16v-6" /></>,
   spark: <><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" /></>,
+  target: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" /></>,
+  chat: <><path d="M4 5h16v11H9l-5 4V5Z" /><path d="M8 9.5h8M8 12.5h5" /></>,
+  pin: <><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11Z" /><circle cx="12" cy="10" r="2.4" /></>,
+  cash: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.6" /><path d="M6.5 9.5v5M17.5 9.5v5" /></>,
   lock: <><rect x="5" y="10" width="14" height="10" rx="1.5" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
   sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" /></>,
   moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" />,
@@ -43,7 +48,7 @@ export function AuthIcon({ name, className }) {
   return <svg className={'auth-icon' + (className ? ' ' + className : '')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICONS[name]}</svg>;
 }
 
-export default function AuthLayout({ children, heading, sub }) {
+export default function AuthLayout({ children, heading, sub, areas, eyebrow, tone, art }) {
   const { locale, setLocale } = useI18n();
   const [theme, setTheme] = useState(getInitialTheme);
   useEffect(() => {
@@ -53,17 +58,18 @@ export default function AuthLayout({ children, heading, sub }) {
   useEffect(() => () => clearTheme(), []);
 
   return (
-    <div className="auth">
+    <div className={'auth' + (tone ? ' is-' + tone : '')}>
       <aside className="auth-brand">
         <img src="/logo.png" alt="Bamboo Products Limited" className="auth-logo" />
         <div className="auth-brand-main">
-          <p className="auth-eyebrow">{tr('Bamboo Products Limited')}</p>
+          <p className="auth-eyebrow">{eyebrow || tr('Bamboo Products Limited')}</p>
           <h1 className="auth-brand-title">{heading || tr('Company Operating System')}</h1>
           <p className="auth-brand-sub">{sub || tr('Everything the company runs on, in one place.')}</p>
           <ul className="auth-areas">
-            {AREAS.map(([icon, label]) => <li key={icon}><AuthIcon name={icon} />{tr(label)}</li>)}
+            {(areas || AREAS).map(([icon, label]) => <li key={icon}><AuthIcon name={icon} />{tr(label)}</li>)}
           </ul>
         </div>
+        {art}
         <p className="auth-brand-foot"><AuthIcon name="lock" />{tr('Internal system · authorised staff only')}</p>
       </aside>
       <main className="auth-side">

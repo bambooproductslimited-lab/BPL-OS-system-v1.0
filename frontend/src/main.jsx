@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
@@ -7,6 +7,12 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { I18nProvider } from './components/I18nProvider.jsx'
 import { AuthProvider } from './auth/AuthContext'
 import { API_URL } from './api/client'
+import { LazySalesApp } from './pages/sales/lazySalesApp.js'
+
+// oseitutu.com/sales is the sales team's own app (pages/sales/SalesApp.jsx),
+// the same one as sales.oseitutu.com (src/sites/sales.jsx): only Sales &
+// CRM, signed in with the same account.
+const SALES = /^\/sales(\/|$)/.test(window.location.pathname)
 
 // Makes the app installable (PWA) and lets the app shell open instantly on
 // repeat visits — see public/sw.js. Registered at scope '/', which coexists
@@ -23,7 +29,7 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={SALES ? '/sales' : undefined}>
       <ErrorBoundary>
         {/* AuthProvider sits ABOVE I18nProvider on purpose. Switching
             language remounts everything below the I18n provider (see
@@ -32,7 +38,7 @@ createRoot(document.getElementById('root')).render(
             the user through /login on the way back. */}
         <AuthProvider>
           <I18nProvider>
-            <App />
+            {SALES ? <Suspense fallback={null}><LazySalesApp /></Suspense> : <App />}
           </I18nProvider>
         </AuthProvider>
       </ErrorBoundary>

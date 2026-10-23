@@ -37,3 +37,15 @@ test('the till, kitchen, delivery and ordering sites reach /api/pos and nothing 
   assert.equal(await preflight('/api/pos/login', own), own);
   assert.equal(await preflight('/api/auth/login', own), own);
 });
+
+test('the sales team\'s own app reaches the OS\'s API; the restaurant sites still do not', async function () {
+  assert.deepEqual(config.salesSiteOrigins, ['https://sales.oseitutu.com']);
+  var sales = 'https://sales.oseitutu.com';
+  assert.equal(await preflight('/api/auth/login', sales), sales);
+  assert.equal(await preflight('/api/crm/leads', sales), sales);
+  assert.equal(await preflight('/api/me', sales), sales);
+  assert.equal(await preflight('/api/crm/leads', 'https://sales.example.com'), null);
+  assert.equal(await preflight('/api/crm/leads', 'https://pos.starbartema.com'), null);
+  // Not an address links in emails go to: those stay the OS's.
+  assert.equal(config.corsOrigin.indexOf(sales), -1);
+});

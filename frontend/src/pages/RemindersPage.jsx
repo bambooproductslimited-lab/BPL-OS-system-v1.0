@@ -15,6 +15,7 @@ import './PokiRentals.css';
 import './CustomersPage.css';
 import './EstimatesPage.css';
 import './RemindersPage.css';
+import { osOrigin } from '../lib/osOrigin';
 
 // Payment reminders (reminders.service.js): everyone whose rent, utility
 // bill or invoice is overdue or due soon, and every Poki tenant whose
@@ -107,7 +108,7 @@ function useSender(reload, setError, setToast) {
     setSending(row.key);
     setError(null);
     try {
-      const r = await api.post(path, { origin: window.location.origin });
+      const r = await api.post(path, { origin: osOrigin() });
       if (win) win.location.href = r.whatsappUrl;
       else window.location.href = r.whatsappUrl;
       setToast(tr('WhatsApp opened for {name} — press send there.', { name: row.customerName }));
@@ -124,7 +125,7 @@ function useSender(reload, setError, setToast) {
     setSending(row.key + ':sms');
     setError(null);
     try {
-      await api.post(path, { origin: window.location.origin });
+      await api.post(path, { origin: osOrigin() });
       setToast(tr('Text sent to {name}.', { name: row.customerName }));
       await reload();
     } catch (err) {
@@ -138,7 +139,7 @@ function useSender(reload, setError, setToast) {
     setSending(row.key + ':email');
     setError(null);
     try {
-      await api.post(path, { origin: window.location.origin });
+      await api.post(path, { origin: osOrigin() });
       setToast(tr('Email sent to {name}.', { name: row.customerName }));
       await reload();
     } catch (err) {

@@ -27,6 +27,7 @@ import './PokiRentals.css';
 import './CustomersPage.css';
 import './EstimatesPage.css';
 import './InvoicesPage.css';
+import { osOrigin } from '../lib/osOrigin';
 
 // Invoices — what clients have been billed and what they still owe. Same
 // "explains itself" layout as the dashboards (components/DashKit.jsx): what
@@ -297,7 +298,7 @@ export default function InvoicesPage() {
     setBusyId(inv.id);
     setError(null);
     try {
-      const r = await api.post('/reminders/' + inv.id + '/whatsapp', { origin: window.location.origin });
+      const r = await api.post('/reminders/' + inv.id + '/whatsapp', { origin: osOrigin() });
       if (win) win.location.href = r.whatsappUrl;
       else window.location.href = r.whatsappUrl;
       setToast(tr('WhatsApp opened for {name} — press send there.', { name: inv.customerName }));

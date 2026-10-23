@@ -48,7 +48,9 @@ const RESET_WAYS = [
   ['sms', 'phone', msg('Text message'), msg('To the phone number on your staff record')]
 ];
 
-export default function LoginPage() {
+// home: where a signed-in person lands (the sales app: its board); brand:
+// the brand side's words and look, for AuthLayout (the sales app's own).
+export default function LoginPage({ home = '/dashboard', brand }) {
   const { login, verifyCode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,7 +86,7 @@ export default function LoginPage() {
   const hasApp = methods.includes('app');
   const hasSms = methods.includes('sms');
   const hasEmail = methods.includes('email');
-  const redirectTo = location.state && location.state.from ? location.state.from : '/dashboard';
+  const redirectTo = location.state && location.state.from ? location.state.from : home;
 
   function go(next) { setMode(next); setError(null); setNotice(null); setSubmitting(false); }
 
@@ -204,7 +206,7 @@ export default function LoginPage() {
   );
 
   return (
-    <AuthLayout>
+    <AuthLayout {...brand}>
       <form className="auth-form" onSubmit={handleSubmit} noValidate={mode === 'reset'}>
         {mode === 'signin' && (
           <>

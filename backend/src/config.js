@@ -81,6 +81,13 @@ module.exports = {
   // replaces the list.
   restaurantSiteOrigins: (process.env.RESTAURANT_SITE_ORIGINS || 'https://pos.starbartema.com,https://kds.starbartema.com,https://delivery.starbartema.com,https://online.starbartema.com')
     .split(',').map(function (s) { return s.trim().replace(/\/+$/, ''); }).filter(Boolean),
+  // The sales team's own app (frontend: npm run build:sales): Sales &
+  // CRM alone, signed in with the person's OS account. It calls the OS's API
+  // like the OS does (its account's permissions apply); links in emails and
+  // shared documents still go to the OS's own address (corsOrigin).
+  // SALES_SITE_URL replaces the address (a comma list for more than one).
+  salesSiteOrigins: (process.env.SALES_SITE_URL || 'https://sales.oseitutu.com')
+    .split(',').map(function (s) { return s.trim().replace(/\/+$/, ''); }).filter(Boolean),
   // The delivery screen (riders' links point there) and the website
   // customers order on (restaurantDelivery / restaurantOnline services).
   deliverySiteUrl: (process.env.DELIVERY_SITE_URL || 'https://delivery.starbartema.com').replace(/\/+$/, ''),

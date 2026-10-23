@@ -88,7 +88,8 @@ app.use(helmet());
 // An attendance feed's own website may read it from the browser
 // (attendanceFeeds.routes.js); everything else keeps the app's CORS rule.
 app.use('/api/feeds/attendance', attendanceFeedsRoutes.browsers);
-var appCors = cors({ origin: config.corsOrigin, credentials: true });
+// The OS, and the sales team's own app (config.salesSiteOrigins).
+var appCors = cors({ origin: config.corsOrigin.concat(config.salesSiteOrigins), credentials: true });
 // The till and the kitchen screen on their own websites reach their API only.
 var posCors = cors({ origin: config.corsOrigin.concat(config.restaurantSiteOrigins), credentials: true });
 app.use(function (req, res, next) {

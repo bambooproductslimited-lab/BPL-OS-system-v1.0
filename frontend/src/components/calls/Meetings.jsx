@@ -4,6 +4,7 @@ import { tr } from '../../lib/i18n.jsx';
 import CallIcon from './CallIcon';
 import { useCalls } from './CallsContext';
 import './Calls.css';
+import { osOrigin } from '../../lib/osOrigin';
 
 // Meetings booked in a chat (calls.service.js): the booking form, the card
 // the booking leaves in the chat, and the list of what's coming up.
@@ -40,7 +41,7 @@ function statusText(st) {
   if (st.minutes <= 60) return st.minutes <= 1 ? tr('Starts in a minute') : tr('Starts in {n} min', { n: st.minutes });
   return '';
 }
-function guestUrl(token) { return window.location.origin + '/meet/' + token; }
+function guestUrl(token) { return osOrigin() + '/meet/' + token; }
 
 // Re-render every 30 s so "starts in" and the Join button keep up.
 function useTick() {

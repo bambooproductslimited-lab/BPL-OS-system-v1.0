@@ -6,6 +6,7 @@ import PrintLayer from './PrintLayer';
 import EmailDocumentDialog from './EmailDocumentDialog';
 
 import { activeIntlLocale, docTr, tr, msg } from '../lib/i18n.jsx';
+import { osOrigin } from '../lib/osOrigin';
 // Shared print-style preview modal for Estimates/Quotations/Invoices,
 // ported from Bamboo OS.dc.html's dialog.estimatePreview / .quotationPreview
 // / .invoicePreview blocks (nearly identical white-page layouts, only the
@@ -72,7 +73,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
     setCopied(false);
     try {
       const res = await share.create(expiryDays);
-      setShareUrl(window.location.origin + '/share/' + res.token);
+      setShareUrl(osOrigin() + '/share/' + res.token);
       setShareExpiresAt(res.expiresAt || null);
     } catch (err) {
       setLinkError(err.message);
@@ -101,7 +102,7 @@ export default function DocPreview({ docLabel, dateLabel, dateValue, heading, su
       let url = shareUrl;
       if (!url) {
         const res = await share.create(expiryDays);
-        url = window.location.origin + '/share/' + res.token;
+        url = osOrigin() + '/share/' + res.token;
         setShareExpiresAt(res.expiresAt || null);
         setShareUrl(url);
       }

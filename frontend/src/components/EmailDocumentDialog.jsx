@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './EmailDocumentDialog.css';
+import { osOrigin } from '../lib/osOrigin';
 
 // Emailing an invoice, quotation, estimate or Poki bill to the customer
 // (backend documentEmails.service.js), from its preview. The email is
@@ -48,7 +49,7 @@ export default function EmailDocumentDialog({ documentType, documentId, title, o
     e.preventDefault();
     setSending(true); setError(null);
     try {
-      const r = await api.post('/document-emails/' + documentType + '/' + documentId, { ...form, origin: window.location.origin });
+      const r = await api.post('/document-emails/' + documentType + '/' + documentId, { ...form, origin: osOrigin() });
       setSent(r);
       setDraft((d) => ({ ...d, history: r.history || d.history }));
     } catch (err) { setError(err.message); }
