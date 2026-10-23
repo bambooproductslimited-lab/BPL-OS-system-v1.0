@@ -310,12 +310,13 @@
 .sr-parts li > small { flex-basis: 100%; padding-left: 22px; font-size: 11.5px; color: var(--color-text-muted); }
 .sr-who { color: var(--color-text-muted); }
 
-/* The three groups of tabs: Reports, Menu and stock, Setup. */
-.ts-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 4px; margin-top: 4px; border-radius: 16px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
+/* The groups of tabs: Reports, Guests, Menu and stock, Setup. */
+.ts-groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 4px; margin-top: 4px; border-radius: 16px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
 .ts-groups button { padding: 10px 8px; font: inherit; font-size: 14px; font-weight: 800; color: var(--color-text-muted); background: none; border: 0; border-radius: 12px; cursor: pointer; }
 .ts-groups button.is-on { color: #fff; box-shadow: 0 10px 22px -14px rgba(0, 0, 0, .6); }
 .ts-groups .is-reports.is-on { background: linear-gradient(135deg, #059669, #0f766e); }
 .ts-groups .is-menu.is-on { background: linear-gradient(135deg, #f97316, #ea580c); }
+.ts-groups .is-guestsGroup.is-on { background: linear-gradient(135deg, #db2777, #e11d48); }
 .ts-groups .is-setup.is-on { background: linear-gradient(135deg, #7c3aed, #a855f7); }
 .ts-back { align-self: flex-start; }
 .tl-hint-row { margin: 0; font-size: 13px; }

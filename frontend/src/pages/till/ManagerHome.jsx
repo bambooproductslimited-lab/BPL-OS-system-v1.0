@@ -13,12 +13,14 @@ import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 
 const SECTIONS = [
   ['reports', msg('Reports'), msg('What happened on the till, and what is owed.'), [
-    ['sales', 'up', msg('Sales')], ['monthly', 'calendar', msg('Monthly report')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
+    ['sales', 'up', msg('Sales')], ['insights', 'pulse', msg('Insights')], ['monthly', 'calendar', msg('Monthly report')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
+  ['guestsGroup', msg('Guests'), msg('Texts and emails to your guests, loyalty points and gift cards.'), [
+    ['campaigns', 'send', msg('Texts and emails')], ['loyalty', 'star', msg('Loyalty')], ['giftcards', 'card', msg('Gift cards')]]],
   ['menu', msg('Menu and stock'), msg('What the till sells, at what price, and what is left.'), [
     ['menu', 'receipt', msg('Menu')], ['stock', 'layers', msg('Stock')]]],
   ['setup', msg('Setup'), msg('Who does what, how customers pay, the bill\'s discounts and taxes, the floor and the kitchen screens.'), [
     ['people', 'people', msg('People')], ['roles', 'key', msg('What each role can do')], ['screens', 'layers', msg('Kitchen screens')], ['payments', 'cash', msg('Payments')],
-    ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['bill', 'percent', msg('Discounts, service and tax')], ['service', 'clock', msg('Courses, menu times and happy hours')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
+    ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['bill', 'percent', msg('Discounts, service and tax')], ['service', 'clock', msg('Courses, menu times and happy hours')], ['apps', 'send', msg('Delivery apps')], ['kiosk', 'receipt', msg('Self-order kiosk')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
 ];
 
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }

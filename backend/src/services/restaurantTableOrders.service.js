@@ -32,6 +32,8 @@ function hash(token) { return crypto.createHash('sha256').update(String(token)).
 function pos() { return require('./restaurantPos.service'); }
 function online() { return require('./restaurantOnline.service'); }
 function ref(n) { return 'Q-' + String(n).padStart(4, '0'); }
+// A kiosk's order (restaurantKiosk, migration 0177) is K-, a table's Q-.
+function refOf(o) { return (o.kind === 'kiosk' ? 'K-' : 'Q-') + String(o.number).padStart(4, '0'); }
 function newCode() { return crypto.randomBytes(9).toString('base64url'); }
 function minutesSince(ts) { return Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 60000)); }
 function tableUrl(code, companyCode) { return require('./restaurantOnline.service').siteUrlFor(companyCode) + '/q/' + code; }
@@ -68,7 +70,7 @@ async function billOf(t) {
 function orderOut(o, ticketState) {
   var stage = o.status === 'pending' ? 'waiting' : o.status === 'accepted' ? (ticketState === 'served' ? 'served' : ticketState === 'ready' ? 'ready' : 'cooking') : o.status;
   return {
-    ref: ref(o.number), status: o.status, stage: stage, items: o.items, subtotal: round2(o.subtotal), note: o.note, name: o.customer_name,
+    ref: refOf(o), status: o.status, stage: stage, items: o.items, subtotal: round2(o.subtotal), note: o.note, name: o.customer_name,
     rejectReason: o.reject_reason, placedAt: o.created_at, decidedAt: o.decided_at, canCancel: o.status === 'pending'
   };
 }
@@ -158,7 +160,7 @@ async function cancel(raw) {
     var row = await byToken(raw, true, client);
     if (row.status !== 'pending') fail('conflict', row.status === 'accepted' ? 'It has gone to the kitchen already: ask a waiter to change it.' : 'This order is not waiting any more.');
     var up = (await client.query("UPDATE restaurant_table_orders SET status = 'cancelled', reject_reason = 'Cancelled at the table.', updated_at = now() WHERE id = $1 RETURNING *", [row.id])).rows[0];
-    await activity.log(client, { companyId: row.company_id, app: 'table', action: 'table.cancelled', summary: ref(row.number) + ' was cancelled at the table before it was accepted.', refType: 'table_order', refId: row.id });
+    await activity.log(client, { companyId: row.company_id, app: 'table', action: 'table.cancelled', summary: refOf(row) + ' was cancelled at the table before it was accepted.', refType: 'table_order', refId: row.id });
     return up;
   });
   return orderOut(o, null);
@@ -180,14 +182,15 @@ async function call(code, p, ip) {
 
 function staffOut(o) {
   return {
-    id: o.id, ref: ref(o.number), status: o.status, tableId: o.table_id, tableName: o.table_name, area: o.area || '', name: o.customer_name, note: o.note,
+    id: o.id, ref: refOf(o), status: o.status, tableId: o.table_id, tableName: o.table_name, area: o.area || '', name: o.customer_name, note: o.note,
     items: o.items, subtotal: round2(o.subtotal), placedAt: o.created_at, waitingMinutes: minutesSince(o.created_at), rejectReason: o.reject_reason,
-    hasOpenOrder: !!o.open_tab, waiterName: o.waiter_name || null
+    hasOpenOrder: !!o.open_tab, waiterName: o.waiter_name || null,
+    kind: o.kind || 'table', dining: o.dining || null, kioskName: o.kiosk_name || null, paid: !!o.paystack_ref
   };
 }
 var STAFF_SELECT =
-  "SELECT o.*, t.name AS table_name, t.area, tab.id AS open_tab, w.first_name || ' ' || w.last_name AS waiter_name FROM restaurant_table_orders o JOIN restaurant_tables t ON t.id = o.table_id " +
-  'LEFT JOIN restaurant_open_tabs tab ON tab.table_id = o.table_id AND tab.company_id = o.company_id LEFT JOIN employees w ON w.id = tab.waiter_id ';
+  "SELECT o.*, t.name AS table_name, t.area, tab.id AS open_tab, w.first_name || ' ' || w.last_name AS waiter_name, k.name AS kiosk_name FROM restaurant_table_orders o LEFT JOIN restaurant_tables t ON t.id = o.table_id " +
+  'LEFT JOIN restaurant_open_tabs tab ON tab.table_id = o.table_id AND tab.company_id = o.company_id LEFT JOIN employees w ON w.id = tab.waiter_id LEFT JOIN restaurant_displays k ON k.id = o.kiosk_id ';
 
 // GET /api/pos/table-orders — what the tables are asking for: orders
 // waiting for an answer and calls not answered, oldest first.
@@ -206,6 +209,7 @@ async function inbox(token) {
 // none), sent to the kitchen as a new round. In the name of the person who
 // accepted it, or (straight to the kitchen) of the table's waiter.
 async function acceptRow(o, session, p) {
+  if (o.kind === 'kiosk') return acceptKiosk(o, session);
   var tab = (await pool.query('SELECT * FROM restaurant_open_tabs WHERE company_id = $1 AND table_id = $2 ORDER BY created_at LIMIT 1', [o.company_id, o.table_id])).rows[0] || null;
   var settings = session ? session.access.settings : await access.settingsOf(o.company_id);
   var waiterId = tab && tab.waiter_id ? tab.waiter_id : (p.waiterId || null);
@@ -219,7 +223,7 @@ async function acceptRow(o, session, p) {
   var add = claimed.items.map(function (l) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: require('./restaurantOnline.service').modsFrom(l.modifiers) }, l.discount ? { discount: l.discount } : {}); });
   var t;
   try {
-    var note = [ref(claimed.number) + ' (ordered at the table)', claimed.note].filter(Boolean).join(' · ');
+    var note = [refOf(claimed) + ' (ordered at the table)', claimed.note].filter(Boolean).join(' · ');
     t = tab
       ? await pos().saveTabFor(session, { id: tab.id, tableId: o.table_id, waiterId: waiterId || undefined, guestId: tab.guest_id || undefined, label: tab.label, fulfillment: 'dine_in',
         customerName: tab.customer_name, customerPhone: tab.customer_phone, items: (tab.items || []).concat(add), kitchenNote: note })
@@ -231,11 +235,40 @@ async function acceptRow(o, session, p) {
   var row = (await pool.query("UPDATE restaurant_table_orders SET status = 'accepted', tab_id = $2, kitchen_ticket_id = $3, updated_at = now() WHERE id = $1 RETURNING *",
     [o.id, t.id, t.kitchenTicket ? t.kitchenTicket.id : null])).rows[0];
   await activity.log(pool, { companyId: o.company_id, employeeId: session.posEmployeeId || null, app: 'till', action: 'table.accepted',
-    summary: (session.posEmployeeId ? 'Accepted ' : 'Sent straight to the kitchen: ') + ref(claimed.number) + ' from ' + (await pool.query('SELECT name FROM restaurant_tables WHERE id = $1', [o.table_id])).rows[0].name +
+    summary: (session.posEmployeeId ? 'Accepted ' : 'Sent straight to the kitchen: ') + refOf(claimed) + ' from ' + (await pool.query('SELECT name FROM restaurant_tables WHERE id = $1', [o.table_id])).rows[0].name +
       (t.kitchenTicket ? ', kitchen ticket #' + t.kitchenTicket.number : '') + '.',
     amount: round2(claimed.subtotal), refType: 'table_order', refId: o.id });
   return { row: row, tab: t };
 }
+// A kiosk's order: an open order of its own on the till — eaten here (no
+// table) or taken away — named by its number and the customer's name, to
+// the kitchen; paid at the till (or paid on the kiosk already: the open
+// order carries the Paystack payment for the cashier to take).
+async function acceptKiosk(o, session) {
+  var settings = session ? session.access.settings : await access.settingsOf(o.company_id);
+  if (!session) session = { posCompanyId: o.company_id, posEmployeeId: null, access: { settings: settings, can: { customItem: false } } };
+  var claimed = (await pool.query("UPDATE restaurant_table_orders SET decided_by = $2, decided_at = now(), updated_at = now() WHERE id = $1 AND status = 'pending' AND decided_at IS NULL RETURNING *",
+    [o.id, session.posEmployeeId || null])).rows[0];
+  if (!claimed) fail('conflict', 'Someone has answered that order already, or it was cancelled.');
+  var add = claimed.items.map(function (l) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: online().modsFrom(l.modifiers) }, l.discount ? { discount: l.discount } : {}); });
+  var label = refOf(claimed) + (claimed.customer_name ? ' · ' + claimed.customer_name : '');
+  var t;
+  try {
+    t = await pos().saveTabFor(session, { fulfillment: claimed.dining === 'here' ? 'dine_in' : 'pickup', kioskOrder: true, label: label.slice(0, 60), customerName: claimed.customer_name || '',
+      items: add, kitchenNote: [refOf(claimed) + (claimed.dining === 'here' ? ' (kiosk, eat here)' : ' (kiosk, take away)'), claimed.paystack_ref ? 'PAID on the kiosk' : '', claimed.note].filter(Boolean).join(' · '),
+      paystackRef: claimed.paystack_ref || undefined });
+  } catch (err) {
+    await pool.query('UPDATE restaurant_table_orders SET decided_by = NULL, decided_at = NULL WHERE id = $1', [o.id]);
+    throw err;
+  }
+  var row = (await pool.query("UPDATE restaurant_table_orders SET status = 'accepted', tab_id = $2, kitchen_ticket_id = $3, updated_at = now() WHERE id = $1 RETURNING *",
+    [o.id, t.id, t.kitchenTicket ? t.kitchenTicket.id : null])).rows[0];
+  await activity.log(pool, { companyId: o.company_id, employeeId: session.posEmployeeId || null, app: 'till', action: 'kiosk.accepted',
+    summary: (session.posEmployeeId ? 'Took ' : 'Sent straight to the kitchen: ') + refOf(claimed) + ' from the kiosk' + (t.kitchenTicket ? ', kitchen ticket #' + t.kitchenTicket.number : '') + '.',
+    amount: round2(claimed.subtotal), refType: 'table_order', refId: o.id });
+  return { row: row, tab: t };
+}
+
 // POST /api/pos/table-orders/:id/accept { waiterId } — onto the table's open order, to the kitchen.
 async function accept(token, id, p) {
   var session = await access.need(token, 'keepOpen');
@@ -258,7 +291,7 @@ async function reject(token, id, p) {
     "WHERE id = $1 AND company_id = $2 AND status = 'pending' AND decided_at IS NULL RETURNING *", [id, session.posCompanyId, reason, session.posEmployeeId])).rows[0];
   if (!o) fail('conflict', 'That order has been answered already, or cancelled.');
   await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'table.rejected',
-    summary: 'Turned down ' + ref(o.number) + ' from the table: ' + reason, amount: round2(o.subtotal), refType: 'table_order', refId: o.id });
+    summary: 'Turned down ' + refOf(o) + (o.kind === 'kiosk' ? ' from the kiosk: ' : ' from the table: ') + reason, amount: round2(o.subtotal), refType: 'table_order', refId: o.id });
   return { ok: true };
 }
 // POST /api/pos/table-calls/:id/answer — someone is on their way.
@@ -298,4 +331,5 @@ async function qrCodes(token, p, ip) {
   };
 }
 
-module.exports = { page: page, place: place, track: track, cancel: cancel, call: call, inbox: inbox, accept: accept, reject: reject, answer: answer, qrCodes: qrCodes, ref: ref };
+module.exports = { page: page, place: place, track: track, cancel: cancel, call: call, inbox: inbox, accept: accept, reject: reject, answer: answer, qrCodes: qrCodes, ref: ref, refOf: refOf,
+  acceptRow: acceptRow, throttle: throttle, orderOut: orderOut, STAFF_SELECT: STAFF_SELECT, staffOut: staffOut };

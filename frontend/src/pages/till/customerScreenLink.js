@@ -23,6 +23,9 @@ export function displayUrl() {
   return window.location.origin + (site === 'pos' ? '/display' : '/customer-display');
 }
 
+// Where the self-order kiosk opens (till/Kiosks.jsx): /self-order on either site.
+export function kioskUrl() { return window.location.origin + '/self-order'; }
+
 export function useCustomerDisplay({ token, state }) {
   const device = useRef(tillDevice()).current;
   const [displays, setDisplays] = useState([]);

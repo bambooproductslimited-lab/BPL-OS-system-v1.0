@@ -524,7 +524,7 @@ async function reject(token, id, p) {
 
 module.exports = {
   siteUrlFor: siteUrlFor, shopOf: shopOf,
-  modsFrom: modsFrom,
+  modsFrom: modsFrom, billRules: billRules,
   categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP
 };

@@ -37,12 +37,16 @@ var TILL_METHODS = access.TILL_METHODS;
 // The money each way of paying is taken in: Alipay and WeChat Pay in RMB
 // only, Mobile Money in cedis only, cash in cedis or US dollars; VIP and IOU
 // are accounts kept in cedis.
-var METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'], gift_card: ['GHS'] };
+var METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'], gift_card: ['GHS'], card: ['GHS'], app: ['GHS'] };
 var PAID_IN = { cash: 'Cash is taken in cedis or US dollars.', mobile_money: 'Mobile Money is paid in cedis only.', alipay: 'Alipay is paid in RMB only.',
-  wechat: 'WeChat Pay is paid in RMB only.', vip: 'VIP is in cedis.', iou: 'An IOU is in cedis.', gift_card: 'A gift card is in cedis.' };
+  wechat: 'WeChat Pay is paid in RMB only.', vip: 'VIP is in cedis.', iou: 'An IOU is in cedis.', gift_card: 'A gift card is in cedis.', card: 'A card is charged in cedis.', app: 'An app\'s order is in cedis.' };
+// A card (migration 0176): its brand, how it was read, and the last 4 digits
+// and the terminal's approval code if the cashier types them.
+var CARD_BRANDS = ['Visa', 'Mastercard', 'Verve', 'American Express', 'Other'];
+var CARD_ENTRIES = ['tap', 'chip', 'swipe'];
 var MONEY = ['cash', 'mobile_money'];
 var CURRENCY_NAME = { GHS: 'GHS', USD: 'USD', CNY: 'RMB' };
-var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', gift_card: 'gift card', other: 'other' };
+var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', gift_card: 'gift card', card: 'card', app: 'the app', other: 'other' };
 
 // Every completed sale's money, by way of paying: the parts of a sale
 // paid since migration 0157, and older sales whole. Columns: order_id,
@@ -63,16 +67,28 @@ var ORDER_METHODS_SQL =
 // one the manager has turned on with its rate, adding up to the bill. One part pays the whole bill unless it
 // says how much. Cash can say what was handed over (in its currency): the
 // change is given in cedis. Returns { rows, method, cashTendered }.
-function planPayments(session, total, list) {
+// opts.app: a delivery app's order, paid on the app (restaurantApps);
+// opts.paystack: references checked with Paystack already, by amount.
+function planPayments(session, total, list, opts) {
+  opts = opts || {};
   var settings = session.access.settings;
   if (!Array.isArray(list) || !list.length) fail('invalid', 'Choose how it is paid.');
   if (list.length > 6) fail('invalid', 'Split a bill into at most 6 payments.');
   total = round2(total);
   var rows = list.map(function (p, i) {
     p = p || {};
-    var method = V.oneOf(p.method || 'cash', TILL_METHODS.concat(['gift_card']), 'Payment method');
-    // A gift card is taken when the till sells them (restaurantGiftCards).
-    if (method === 'gift_card' ? !settings.giftCards.on : settings.paymentMethods.indexOf(method) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
+    // Paid through Paystack (the customer's phone or the kiosk): a card or
+    // Mobile Money as Paystack says, checked with Paystack before (opts.paystack).
+    var paystackRef = p.paystackRef ? String(p.paystackRef) : null;
+    var ps = paystackRef && opts.paystack ? opts.paystack[paystackRef] : null;
+    var method = ps ? (ps.channel === 'mobile_money' ? 'mobile_money' : 'card') : V.oneOf(p.method || 'cash', TILL_METHODS.concat(['gift_card', 'app']), 'Payment method');
+    // Paid on the app: a delivery app's order only, and all of it.
+    if (method === 'app' && !opts.app) fail('invalid', 'Only a delivery app\'s order is paid on the app.');
+    if (opts.app && method !== 'app') fail('invalid', 'A delivery app\'s order is paid on the app.');
+    // A gift card is taken when the till sells them (restaurantGiftCards); a
+    // Paystack payment when the till takes them.
+    if (method === 'app' || paystackRef) { if (paystackRef && !(opts.paystack && opts.paystack[paystackRef])) fail('invalid', 'That Paystack payment is not paid, or not for this restaurant.'); }
+    else if (method === 'gift_card' ? !settings.giftCards.on : settings.paymentMethods.indexOf(method) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
     var giftCode = method === 'gift_card' ? gifts().digitsOf(p.code) : null;
     if (method === 'gift_card' && giftCode.length !== 16) fail('invalid', 'Type the 16-digit number on the gift card.');
     if (method === 'iou' && !session.access.can.iou) fail('forbidden', 'Your role on the till cannot sell on IOU. Ask a manager.');
@@ -90,6 +106,19 @@ function planPayments(session, total, list) {
     var amount = list.length === 1 && (p.amount === undefined || p.amount === null || p.amount === '') ? total : round2(p.amount);
     if (!(amount > 0)) fail('invalid', 'Each part of the bill needs an amount.');
     var foreign = currency === 'GHS' ? null : round2(amount / rate);
+    var card = null;
+    if (paystackRef) {
+      if (Math.abs(ps.amount - amount) > 0.009) fail('invalid', 'The Paystack payment was for ' + ps.amount.toFixed(2) + ', not ' + amount.toFixed(2) + '.');
+      card = { brand: ps.cardBrand || null, last4: ps.cardLast4 || null, entry: 'online', ref: '', provider: 'paystack', providerRef: paystackRef };
+    } else if (method === 'card') {
+      var c = p.card || {};
+      var brand = c.brand ? V.oneOf(c.brand, CARD_BRANDS, 'Card') : 'Other';
+      var entry = c.entry ? V.oneOf(c.entry, CARD_ENTRIES, 'How the card was read') : null;
+      var last4 = String(c.last4 || '').replace(/\D/g, '');
+      if (last4 && last4.length !== 4) fail('invalid', 'The card\'s last 4 digits, or none.');
+      card = { brand: brand, last4: last4 || null, entry: entry, ref: String(c.ref || '').trim().slice(0, 40), provider: 'terminal', providerRef: null,
+        terminal: String(c.terminal || '').trim().slice(0, 40) };
+    }
     var tendered = null, change = 0;
     if (method === 'cash' && p.tendered !== undefined && p.tendered !== null && p.tendered !== '') {
       tendered = round2(p.tendered);
@@ -98,7 +127,7 @@ function planPayments(session, total, list) {
       change = round2(tendered * rate - amount);
       if (change < 0) change = 0;
     }
-    return { method: method, amount: amount, currency: currency, rate: rate, foreignAmount: foreign, tendered: tendered, changeGiven: change, sortOrder: i, giftCode: giftCode };
+    return { method: method, amount: amount, currency: currency, rate: rate, foreignAmount: foreign, tendered: tendered, changeGiven: change, sortOrder: i, giftCode: giftCode, card: card };
   });
   var sum = round2(rows.reduce(function (a, r) { return a + r.amount; }, 0));
   if (Math.abs(sum - total) > 0.009) {
@@ -117,8 +146,11 @@ async function savePayments(client, orderId, rows) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     await client.query(
-      'INSERT INTO restaurant_order_payments (order_id, method, amount, currency, rate, foreign_amount, tendered, change_given, sort_order, gift_card_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [orderId, r.method, r.amount, r.currency, r.rate, r.foreignAmount, r.tendered, r.changeGiven, r.sortOrder, r.giftCardId || null]);
+      'INSERT INTO restaurant_order_payments (order_id, method, amount, currency, rate, foreign_amount, tendered, change_given, sort_order, gift_card_id, card_brand, card_last4, card_entry, card_ref, provider, provider_ref) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',
+      [orderId, r.method, r.amount, r.currency, r.rate, r.foreignAmount, r.tendered, r.changeGiven, r.sortOrder, r.giftCardId || null,
+        r.card ? r.card.brand : null, r.card ? r.card.last4 : null, r.card ? r.card.entry : null, r.card ? [r.card.terminal, r.card.ref].filter(Boolean).join(' · ') : '',
+        r.card ? r.card.provider : null, r.card ? r.card.providerRef : null]);
   }
 }
 async function paymentsOf(db, orderIds) {
@@ -128,7 +160,8 @@ async function paymentsOf(db, orderIds) {
   rows.forEach(function (r) {
     if (!by.has(r.order_id)) by.set(r.order_id, []);
     by.get(r.order_id).push({ method: r.method, amount: round2(r.amount), currency: r.currency, rate: Number(r.rate), foreignAmount: r.foreign_amount == null ? null : round2(r.foreign_amount),
-      tendered: r.tendered == null ? null : round2(r.tendered), changeGiven: round2(r.change_given), giftCard: r.gift_code ? r.gift_code.slice(-4) : null });
+      tendered: r.tendered == null ? null : round2(r.tendered), changeGiven: round2(r.change_given), giftCard: r.gift_code ? r.gift_code.slice(-4) : null,
+      card: r.method === 'card' || r.provider === 'paystack' ? { brand: r.card_brand || null, last4: r.card_last4 || null, entry: r.card_entry || null, ref: r.card_ref || '', provider: r.provider || null } : null });
   });
   return by;
 }
@@ -425,10 +458,14 @@ function refundMethodsFor(o, parts) {
   if (o.payment_method === 'iou') return o.iou_paid_at ? MONEY : ['iou'];
   if (o.payment_method === 'alipay' || o.payment_method === 'wechat') return [o.payment_method, 'cash'];
   if (o.payment_method === 'gift_card') return ['gift_card', 'cash'];
+  // A card: back on the card through its terminal (or Paystack), or cash.
+  if (o.payment_method === 'card') return ['card', 'cash'];
+  // A delivery app's order is refunded by the app itself.
+  if (o.payment_method === 'app') return [];
   if (o.payment_method === 'split') {
     var used = (parts || []).map(function (r) { return r.method; });
     var out = ['cash'];
-    ['mobile_money', 'alipay', 'wechat', 'vip', 'gift_card'].forEach(function (m) { if (used.indexOf(m) >= 0) out.push(m); });
+    ['mobile_money', 'alipay', 'wechat', 'vip', 'gift_card', 'card'].forEach(function (m) { if (used.indexOf(m) >= 0) out.push(m); });
     return out;
   }
   return o.payment_method === 'mobile_money' ? ['mobile_money', 'cash'] : ['cash', 'mobile_money'];
@@ -524,6 +561,7 @@ async function refundSale(token, orderId, p, ip) {
     if (!o) fail('notfound', 'Sale not found.');
     if (o.status !== 'completed') fail('conflict', 'That sale was voided: there is nothing to refund.');
     var methods = refundMethodsFor(o, (await paymentsOf(client, [o.id])).get(o.id));
+    if (!methods.length) fail('conflict', 'A delivery app\'s order is refunded in the app, not at the till.');
     var method = p.method || methods[0];
     if (methods.indexOf(method) < 0) fail('invalid', 'This sale cannot be refunded that way.');
     if (method === 'vip' && !o.guest_id) fail('invalid', 'This VIP sale has no guest to give the money back to.');
@@ -668,7 +706,7 @@ async function shiftMoney(cashierId, companyId, from) {
 }
 
 module.exports = {
-  TILL_METHODS: TILL_METHODS, METHOD_CURRENCIES: METHOD_CURRENCIES, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME, needDrawer: needDrawer,
+  TILL_METHODS: TILL_METHODS, METHOD_CURRENCIES: METHOD_CURRENCIES, ORDER_METHODS_SQL: ORDER_METHODS_SQL, METHOD_NAME: METHOD_NAME, needDrawer: needDrawer, CARD_BRANDS: CARD_BRANDS,
   planPayments: planPayments, savePayments: savePayments, paymentsOf: paymentsOf, paymentText: paymentText, cashSales: cashSales,
   chargeSale: chargeSale, vipGuests: vipGuests, vipGuest: vipGuest, vipTopUp: vipTopUp, vipCashOut: vipCashOut,
   iouList: iouList, payIou: payIou, payIous: payIous, iouAdvance: iouAdvance, owedBy: owedBy, accountMoves: accountMoves,

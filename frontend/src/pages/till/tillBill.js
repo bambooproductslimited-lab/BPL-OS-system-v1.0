@@ -1,3 +1,4 @@
+import { msg } from '../../lib/i18n.jsx';
 // The bill as the till shows it while an order is taken: the same sums as
 // the server's (backend restaurantTillCheck compute) — add-ons priced into
 // each dish, discounts and dishes on the house, the bill-wide discount
@@ -76,4 +77,21 @@ export function billOf(lines, adjust, settings, fulfillment) {
     serviceCharge: service, serviceName: sc.name || 'Service charge', serviceRate: service > 0 ? sc.rate : 0, serviceOn: scOn, serviceOff: scOn && !!adjust.serviceOff,
     taxes, taxTotal, taxIncluded: tx.included ? taxSum : 0, total: r2(subtotal + service + taxTotal)
   };
+}
+
+// A delivery app's prices (till/AppOrder.jsx; backend restaurantApps
+// applyMarkup): each dish, and its add-ons, with the app's markup.
+export function withMarkup(lines, markup) {
+  if (!markup) return lines;
+  const f = 1 + markup / 100;
+  return lines.map((l) => ({ ...l, price: r2(l.price * f), modifiers: (l.modifiers || []).map((m) => ({ ...m, price: r2((Number(m.price) || 0) * f) })) }));
+}
+// A card noted from the bank's terminal (till/CardPay.jsx): its last 4 digits, or none.
+export function cardOk(v) { return !v.last4 || v.last4.length === 4; }
+// A card on the bank's terminal (backend restaurantTillMoney CARD_BRANDS): its brand and how it was read.
+export const CARD_BRANDS = ['Visa', 'Mastercard', 'Verve', 'American Express', 'Other'];
+export const CARD_ENTRIES = [['tap', msg('Tap')], ['chip', msg('Chip')], ['swipe', msg('Swipe')]];
+// A customer's email, birthday and yes or no to messages, as the forms edit them (till/GuestContact.jsx).
+export function contactOf(g) {
+  return { email: (g && g.email) || '', birthday: g && g.birthday ? String(g.birthday).slice(0, 10) : '', marketing: (g && g.marketing) || 'unknown' };
 }

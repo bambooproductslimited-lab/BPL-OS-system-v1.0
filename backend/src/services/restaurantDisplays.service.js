@@ -88,17 +88,19 @@ async function viewOf(d) {
 
 // POST /api/pos/display/hello { key } — a screen with its key (as it was),
 // or a new one: its key (kept on the screen) and its code.
-async function hello(key, ip, ua) {
+async function hello(key, ip, ua, kind) {
+  kind = kind === 'kiosk' ? 'kiosk' : 'screen';
   var d = key ? await byKey(key) : null;
-  if (d) return Object.assign({ key: key }, await viewOf(d));
+  if (d && d.kind !== kind) d = null;
+  if (d) return Object.assign({ key: key }, kind === 'kiosk' ? { kind: kind } : await viewOf(d));
   var now = Date.now(), who = String(ip || '');
   var list = (made.get(who) || []).filter(function (t) { return now - t < 3600000; });
   if (list.length >= NEW_PER_IP_HOUR) fail('ratelimited', 'Too many new screens from here. Try again in an hour.');
   list.push(now); made.set(who, list);
   if (made.size > 5000) made.clear();
   var fresh = crypto.randomBytes(24).toString('base64url');
-  var row = (await pool.query('INSERT INTO restaurant_displays (key_hash, ip, user_agent) VALUES ($1, $2, $3) RETURNING *', [hash(fresh), str(ip, 60), str(ua, 200)])).rows[0];
-  return Object.assign({ key: fresh }, await viewOf(row));
+  var row = (await pool.query('INSERT INTO restaurant_displays (key_hash, ip, user_agent, kind) VALUES ($1, $2, $3, $4) RETURNING *', [hash(fresh), str(ip, 60), str(ua, 200), kind])).rows[0];
+  return Object.assign({ key: fresh }, kind === 'kiosk' ? { kind: kind } : await viewOf(row));
 }
 
 // GET /api/pos/display — the screen asking what to show (its key as the
@@ -148,7 +150,7 @@ async function pair(token, p) {
   var device = deviceOf(p.device);
   var code = String(p.code || '').replace(/\D/g, '');
   if (code.length !== 6) fail('invalid', 'Type the 6 numbers the customer screen shows.');
-  var d = (await pool.query('SELECT * FROM restaurant_displays WHERE pair_code = $1 AND company_id IS NULL AND code_expires > now()', [code])).rows[0];
+  var d = (await pool.query("SELECT * FROM restaurant_displays WHERE pair_code = $1 AND company_id IS NULL AND code_expires > now() AND kind = 'screen'", [code])).rows[0];
   if (!d) fail('notfound', 'No customer screen shows that code. Check the numbers, or reload the screen for a new code.');
   var name = str(String(p.name || '').trim(), 40) || 'Customer screen';
   await pool.query('UPDATE restaurant_displays SET company_id = $2, till_device = $3, name = $4, paired_by = $5, paired_at = now(), pair_code = NULL, code_expires = NULL, state = $6, state_at = now(), tip = NULL WHERE id = $1',
@@ -203,4 +205,4 @@ async function tipFor(token, device, ref) {
   return { tip: (rows[0] && rows[0].tip) || null };
 }
 
-module.exports = { hello: hello, view: view, chooseTip: chooseTip, pair: pair, mine: mine, unpair: unpair, push: push, tipFor: tipFor, _made: made, cleanState: cleanState };
+module.exports = { byKey: byKey, viewOf: viewOf, newCode: newCode, hash: hash, CODE_MINUTES: CODE_MINUTES, hello: hello, view: view, chooseTip: chooseTip, pair: pair, mine: mine, unpair: unpair, push: push, tipFor: tipFor, _made: made, cleanState: cleanState };

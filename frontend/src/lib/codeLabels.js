@@ -54,7 +54,7 @@ const LABELS = {
   // Payment methods
   cash: msg('Cash'), bank_transfer: msg('Bank transfer'), mobile_money: msg('Mobile money'), card: msg('Card'),
   cheque: msg('Cheque'), square: msg('Square'), iou: msg('IOU'), // vip: 'VIP' is above
-  alipay: msg('Alipay'), wechat: msg('WeChat Pay'), split: msg('Split payment'),
+  alipay: msg('Alipay'), wechat: msg('WeChat Pay'), split: msg('Split payment'), app: msg('Paid on the app'),
   // Kinds
   tool: msg('Tool'), equipment: msg('Equipment'), material: msg('Material'), product: msg('Product'),
   raw: msg('Raw material'), comment: msg('Comment'), message: msg('Message'), social: msg('Social'),

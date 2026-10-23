@@ -18,7 +18,7 @@ const RANGES = [['today', msg('Today')], ['yesterday', msg('Yesterday')], ['week
 // Where a sale was rung up: this till, or Square before it (brought in by the OS's Square import).
 const SOURCES = [['', msg('Till and Square')], ['till', msg('This till')], ['square', msg('From Square')]];
 const KINDS = [['all', msg('All transactions')], ['sales', msg('Sales')], ['refunds', msg('Refunds')], ['iou', msg('Sold on IOU')], ['voided', msg('Voided')]];
-const METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'gift_card', 'card', 'bank_transfer', 'other'];
+const METHODS = ['cash', 'mobile_money', 'card', 'app', 'alipay', 'wechat', 'vip', 'iou', 'gift_card', 'bank_transfer', 'other'];
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 function pct(part, whole) { return whole > 0 ? Math.round((part / whole) * 100) : 0; }
 function hourLabel(h) { return new Date(2000, 0, 1, h).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }); }

@@ -58,8 +58,9 @@ test('a cash sale keeps what was handed over and gives the change; too little is
   assert.equal(o.change, 40);
   var momo = await pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'mobile_money', cashTendered: 500 });
   assert.equal(momo.cashTendered, null);            // only cash has change
-  // The till takes cash, Mobile Money, VIP, IOU and Other only.
-  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'card' }), /Payment method/);
+  // Ways the till does not know are refused; a card waits until a manager turns cards on.
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'cheque' }), /Payment method/);
+  await assert.rejects(pos.createOrder(token, { items: [{ menuItemId: beer, qty: 1 }], paymentMethod: 'card' }), /turned off in the till settings/);
   var r = await pos.receiptForSession(token, o.id);
   assert.equal(r.change, 40);
   assert.equal(r.items.length, 2);

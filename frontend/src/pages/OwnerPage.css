@@ -1,0 +1,45 @@
+/* The owner's phone (OwnerPage.jsx): one column, big numbers, a card per
+   restaurant. One blue series (sales); the delta in the good/critical
+   status colours with an arrow, never colour alone. */
+.ow { --ow-now: #2a78d6; --ow-up: #006300; --ow-down: #d03b3b; --ow-card: var(--color-bg); --ow-soft: var(--color-bg-subtle);
+  max-width: 720px; margin: 0 auto; padding: 8px 0 40px; display: flex; flex-direction: column; gap: 14px; }
+:root[data-theme='dark'] .ow { --ow-now: #3987e5; --ow-up: #0ca30c; --ow-down: #e66767; }
+.ow-wait { padding: 40px 0; text-align: center; color: var(--color-text-muted); }
+.ow-hero { position: relative; padding: 22px 22px 20px; border-radius: 28px; color: #fff; overflow: hidden;
+  background: radial-gradient(circle at 90% 0%, rgba(255, 255, 255, .25), transparent 50%), linear-gradient(135deg, #0f766e, #2563eb 60%, #7c3aed); box-shadow: 0 30px 60px -38px rgba(37, 99, 235, .9); }
+.ow-hero small { font-size: 13px; opacity: .9; }
+.ow-hero h1 { margin: 4px 0 2px; font-size: clamp(32px, 9vw, 64px); letter-spacing: -.04em; line-height: 1; }
+.ow-hero p { margin: 0; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ow-hero .ow-delta.ow-delta { padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, .2); color: #fff; }
+.ow-vs { opacity: .85; }
+.ow-refresh { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; border: 0; font-size: 20px; color: #fff; background: rgba(255, 255, 255, .2); cursor: pointer; }
+.ow-delta { font-size: 13px; font-weight: 800; white-space: nowrap; }
+.ow-delta.is-up { color: var(--ow-up); } .ow-delta.is-down { color: var(--ow-down); } .ow-delta.is-flat { color: var(--color-text-muted); }
+.ow-list { display: flex; flex-direction: column; gap: 12px; }
+.ow-card { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border-radius: 24px; background: var(--ow-card); border: 1px solid var(--color-border); box-shadow: 0 22px 44px -36px rgba(15, 23, 42, .7); animation: ow-rise .4s ease both; }
+@keyframes ow-rise { from { opacity: 0; transform: translateY(12px); } }
+.ow-card header { display: flex; align-items: center; gap: 10px; }
+.ow-card header img { width: 38px; height: 38px; object-fit: contain; border-radius: 10px; background: #fff; padding: 3px; border: 1px solid var(--color-border); }
+.ow-dot { font-size: 26px; }
+.ow-card header strong { flex: 1; font-size: 16px; }
+.ow-big b { display: block; font-size: 34px; letter-spacing: -.03em; line-height: 1.05; }
+.ow-big small { font-size: 12.5px; color: var(--color-text-muted); }
+.ow-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ow-stats span { display: flex; flex-direction: column; padding: 8px 10px; border-radius: 14px; font-size: 11.5px; color: var(--color-text-muted); background: var(--ow-soft); }
+.ow-stats b { font-size: 17px; color: var(--color-text); }
+.ow-now { display: flex; flex-wrap: wrap; gap: 6px; }
+.ow-now span { padding: 5px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); background: var(--ow-soft); }
+.ow-now span.is-on { color: var(--color-text); box-shadow: inset 0 0 0 1px var(--color-border); }
+.ow-top { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.ow-top li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 14px; }
+.ow-top em { font-style: normal; }
+.ow-top span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ow-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; }
+.ow-charts small { font-size: 11.5px; font-weight: 700; color: var(--color-text-muted); }
+.ow-week, .ow-hours { display: flex; align-items: flex-end; gap: 3px; height: 70px; margin-top: 4px; }
+.ow-week-day, .ow-hours span { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; min-width: 0; }
+.ow-week-day i, .ow-hours i { display: block; width: 100%; max-width: 18px; margin-top: auto; border-radius: 4px 4px 0 0; background: color-mix(in srgb, var(--ow-now) 45%, transparent); transform-origin: bottom; animation: ow-grow .6s ease both; }
+.ow-week-day.is-today i, .ow-hours i { background: var(--ow-now); }
+.ow-week-day small, .ow-hours small { font-size: 10px; color: var(--color-text-muted); height: 12px; }
+@keyframes ow-grow { from { transform: scaleY(0); } }
+@media (max-width: 480px) { .ow-charts { grid-template-columns: minmax(0, 1fr); } .ow-hero { border-radius: 22px; } }

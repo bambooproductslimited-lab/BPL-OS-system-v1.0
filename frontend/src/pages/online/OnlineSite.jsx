@@ -5,13 +5,16 @@ import TableShop from './TableShop';
 import OnlineReceipt from './OnlineReceipt';
 import { BookingPage } from './BookSheet';
 import GiftPage from './GiftPage';
+import { PaidPage, UnsubscribePage } from './GuestPages';
 import { loadAccount } from './onlineShared';
 
 // online.starbartema.com: the restaurant's menu to order from, an order
 // followed at /t/<its link> (?t= also works, for testing), and a table's
 // own menu at /q/<its code> — the QR code on the table (?q=), and a till
 // sale's receipt at /receipt/<its link> (?receipt=), a booking at
-// /b/<its link> (?b=) and a gift card at /g/<its link> (?g=). Which
+// /b/<its link> (?b=), a gift card at /g/<its link> (?g=), the stop link of
+// a text or email at /u/<its link> (?u=) and the page after paying the
+// till's QR code at /paid. Which
 // restaurant: ?r=<code> (Bamboo Garden: ?r=BGN), else the one it was built
 // for (VITE_ONLINE_COMPANY, tools/build-site.mjs).
 const HOME_CODE = import.meta.env.VITE_ONLINE_COMPANY || 'SBR';
@@ -22,7 +25,8 @@ function route() {
   const rc = window.location.pathname.match(/\/receipt\/([A-Za-z0-9_-]{16,64})/);
   const bk = window.location.pathname.match(/\/b\/([A-Za-z0-9_-]{16,64})/);
   const g = window.location.pathname.match(/\/g\/([A-Za-z0-9_-]{16,64})/);
-  return { track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), booking: bk ? bk[1] : q.get('b'), gift: g ? g[1] : q.get('g'),
+  const u = window.location.pathname.match(/\/u\/([A-Za-z0-9_-]{8,40})/);
+  return { unsubscribe: u ? u[1] : q.get('u'), paid: /\/paid\/?$/.test(window.location.pathname) || q.has('paid'), track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), booking: bk ? bk[1] : q.get('b'), gift: g ? g[1] : q.get('g'),
     mine: q.get('mine'), code: q.get('r') || HOME_CODE };
 }
 // On the site's own address the paths are / and /t/<link>; opened as a
@@ -38,6 +42,8 @@ export default function OnlineSite() {
     const c = code || r.code;
     return ON_PAGE ? window.location.pathname + '?r=' + c : c === HOME_CODE ? '/' : '/?r=' + encodeURIComponent(c);
   };
+  if (r.unsubscribe) return <UnsubscribePage token={r.unsubscribe} />;
+  if (r.paid) return <PaidPage />;
   if (r.receipt) return <OnlineReceipt token={r.receipt} />;
   if (r.gift) return <GiftPage token={r.gift} />;
   if (r.booking) return <BookingPage token={r.booking} onMenu={(code) => go(menuOf(code))} />;

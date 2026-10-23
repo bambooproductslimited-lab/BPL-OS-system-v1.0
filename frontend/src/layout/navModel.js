@@ -47,7 +47,9 @@ export const NAV_GROUPS = [
   { label: msg('Restaurants'), items: [
     { key: 'restaurant', label: msg('Menu & inventory'), perm: 'restaurant.read', icon: 'utensils' },
     // Guests, the order log for phone/WhatsApp/Bolt orders, feedback (pages/RestaurantCrmPage.jsx).
-    { key: 'restaurantcrm', label: msg('Guest CRM'), perm: 'restaurant.read', icon: 'users' }
+    { key: 'restaurantcrm', label: msg('Guest CRM'), perm: 'restaurant.read', icon: 'users' },
+    // Today across the restaurants, on the owner's phone (pages/OwnerPage.jsx).
+    { key: 'owner', label: msg('Owner\'s view'), perm: 'restaurant.read', icon: 'chart' }
   ] },
   { label: msg('Poki Properties'), items: [
     { key: 'pokidash', label: msg('Overview'), perm: 'poki.read', icon: 'chart' },

@@ -8,6 +8,7 @@ var attendanceFeeds = require('./jobs/attendanceFeeds');
 var crmJobs = require('./jobs/crm');
 var mkRoutines = require('./jobs/mkRoutines');
 var onlineScheduled = require('./jobs/onlineScheduled');
+var guestCampaigns = require('./jobs/campaigns');
 
 app.listen(config.port, function () {
   console.log('Bamboo OS backend listening on port ' + config.port + ' (' + config.nodeEnv + ')');
@@ -19,5 +20,6 @@ app.listen(config.port, function () {
   crmJobs.start();
   mkRoutines.start();
   onlineScheduled.start();
+  guestCampaigns.start();
   require('./services/whatsappAccess').load();
 });

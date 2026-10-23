@@ -22,7 +22,7 @@ import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
 import { CustomItemDialog, DeliveryDialog, DisputeDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
 import { AddOnsDialog, DiscountDialog } from './till/BillDialogs';
-import { billOf, serviceWords, modsPrice, modsWords } from './till/tillBill';
+import { billOf, contactOf, serviceWords, modsPrice, modsWords, withMarkup } from './till/tillBill';
 import { ReceiptLines, ReceiptQr, SendReceipt } from './till/ReceiptParts';
 import MoveBill from './till/MoveBill';
 import { AllergyDialog, AllergyStrip, KitchenChits } from './till/ServiceParts';
@@ -35,6 +35,10 @@ import Bookings from './till/Bookings';
 import GiftCards from './till/GiftCards';
 import CustomerScreen from './till/CustomerScreen';
 import Rewards from './till/Rewards';
+import Downloads from './till/Downloads';
+import Kiosks from './till/Kiosks';
+import { AppBanner, AppPicker } from './till/AppOrder';
+import GuestContactDialog, { ContactFields } from './till/GuestContact';
 import { useCustomerDisplay } from './till/customerScreenLink';
 import {
   OFFLINE_METHODS, cacheLoad, cacheSave, draftClear, draftLoad, draftSave, enqueue, fetchOrGiveUp, flush, isLocal, isNetworkError, newRef, onQueue, queueList,
@@ -262,6 +266,8 @@ export default function RestaurantPosPage() {
   const [guestSearching, setGuestSearching] = useState(false);
   const [newGuestName, setNewGuestName] = useState('');
   const [newGuestPhone, setNewGuestPhone] = useState('');
+  const [newGuestMore, setNewGuestMore] = useState(null); // email, birthday, yes or no to messages (till/GuestContact.jsx)
+  const [contactFor, setContactFor] = useState(null); // the customer whose email and birthday are being kept
   const [addingGuest, setAddingGuest] = useState(false);
   const [guestError, setGuestError] = useState(null);
 
@@ -335,6 +341,10 @@ export default function RestaurantPosPage() {
   const [giftOpen, setGiftOpen] = useState(false);
   const [screenOpen, setScreenOpen] = useState(false);
   const [rewardsOpen, setRewardsOpen] = useState(false);
+  const [downloadsOpen, setDownloadsOpen] = useState(false); // till/Downloads.jsx: Square-format files
+  const [kiosksOpen, setKiosksOpen] = useState(false); // till/Kiosks.jsx: pairing the self-order kiosk
+  const [appOrder, setAppOrder] = useState(null); // a delivery app's order being rung up (till/AppOrder.jsx)
+  const [appPickOpen, setAppPickOpen] = useState(false);
   const [payInfo, setPayInfo] = useState(null); // the bill being paid and its tip, for the customer's screen
   const [deliveryPrompt, setDeliveryPrompt] = useState(null); // a delivery's food ready to go out
   const [tableBox, setTableBox] = useState(null); // what the tables ask for from their QR codes
@@ -876,6 +886,7 @@ export default function RestaurantPosPage() {
     setGuestSearch('');
     setNewGuestName('');
     setNewGuestPhone('');
+    setNewGuestMore(null);
     setGuestPickerOpen(true);
     searchGuests('');
   }
@@ -885,7 +896,8 @@ export default function RestaurantPosPage() {
     setAddingGuest(true);
     setGuestError(null);
     try {
-      const g = await posFetch('POST', '/pos/guests', session.token, { name: newGuestName, phone: newGuestPhone });
+      const more = newGuestMore ? { email: newGuestMore.email.trim() || undefined, birthday: newGuestMore.birthday || undefined, marketing: newGuestMore.marketing } : {};
+      const g = await posFetch('POST', '/pos/guests', session.token, { name: newGuestName, phone: newGuestPhone, ...more });
       setSelectedGuest(g);
       setGuestPickerOpen(false);
     } catch (err) {
@@ -1088,7 +1100,9 @@ export default function RestaurantPosPage() {
 
   // The bill as the server will make it (till/tillBill.js): add-ons,
   // discounts, the service charge, the taxes.
-  const bill = useMemo(() => billOf(cart, billAdjust, tillSettings, fulfillment), [cart, billAdjust, tillSettings, fulfillment]);
+  // A delivery app's order is at the app's prices, and picked up by its rider.
+  const bill = useMemo(() => (appOrder ? billOf(withMarkup(cart, appOrder.markup), billAdjust, tillSettings, 'pickup') : billOf(cart, billAdjust, tillSettings, fulfillment)),
+    [cart, billAdjust, tillSettings, fulfillment, appOrder]);
   const cartTotal = bill.total;
   const animatedCartTotal = useCountUp(cartTotal);
   // The customer's screen (till/customerScreenLink.js): the order as it
@@ -1125,6 +1139,9 @@ export default function RestaurantPosPage() {
   // the restaurant has tables) and, if the settings ask, the waiter; a
   // delivery, who, a phone and where.
   function orderReady() {
+    // Ordered on the self-order kiosk: called by its number, no table or phone needed.
+    const kioskTab = currentTab && tabs.some((t) => t.id === currentTab.id && t.fromKiosk);
+    if (kioskTab) return true;
     if (fulfillment === 'dine_in' && tables.length && !selectedTable) {
       setToast(tr('Pick the table for this dine-in order.'));
       setTablePickerOpen(true);
@@ -1226,6 +1243,25 @@ export default function RestaurantPosPage() {
       setCheckingOut(false);
     }
   }
+  // A delivery app's order: paid on the app, so it is rung up at once.
+  async function submitApp() {
+    if (!cart.length || !appOrder) return;
+    if (offline) { setToast(tr('No internet: a delivery app\'s order waits for the internet.')); return; }
+    setCheckingOut(true);
+    try {
+      const order = await posFetch('POST', '/pos/orders', session.token, {
+        items: cart.map(lineBody), payments: [{ method: 'app' }], app: { key: appOrder.key, ref: appOrder.ref, customer: appOrder.customer || undefined },
+        kitchenNote: kitchenNote.trim() || undefined, adjust: adjustBody(), allergy: allergy || null, clientRef: newRef()
+      });
+      setReceipt({ ...order, tableName: null, waiterName: null, guestName: order.customerName || null, guestPhone: '' });
+      printChits(order.chits);
+      clearOrder();
+      loadShift(); loadKitchen();
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); }
+      else setToast(err.message);
+    } finally { setCheckingOut(false); }
+  }
   // A sale with no server to take it: kept on this till with when it was
   // taken, a receipt now, and sent when the internet is back. VIP and IOU
   // need the customer's account on the server.
@@ -1259,6 +1295,7 @@ export default function RestaurantPosPage() {
   // ── open orders ──
   function clearOrder() {
     setCart([]);
+    setAppOrder(null);
     setKitchenNote(''); setNoteOpen(false);
     setSelectedTable(null);
     setSelectedWaiter(null);
@@ -1806,6 +1843,8 @@ export default function RestaurantPosPage() {
           <button type="button" className="pos-icon-btn pos-sheet-close" onClick={() => setCartOpen(false)} aria-label={tr('Close')}>×</button>
         </div>
       </div>
+      {appOrder && <AppBanner app={appOrder} total={cartTotal} onChange={() => setAppPickOpen(true)} onCancel={() => setAppOrder(null)} />}
+      {!appOrder && (<>
       <div className="tl-ful-switch" role="radiogroup" aria-label={tr('Dine in, pickup or delivery')}>
         {FULFILLMENT.map((f) => (
           <button key={f.key} type="button" role="radio" aria-checked={fulfillment === f.key} className={'is-' + f.key + (fulfillment === f.key ? ' is-on' : '')}
@@ -1845,7 +1884,8 @@ export default function RestaurantPosPage() {
           )}
         </button>
       </div>
-      {fulfillment === 'dine_in' && (
+      </>)}
+      {fulfillment === 'dine_in' && !appOrder && (
         <div className="pos-service">
           <div className="pos-guests" role="group" aria-label={tr('Guests')}>
             <span aria-hidden="true">👥</span>
@@ -1908,7 +1948,7 @@ export default function RestaurantPosPage() {
                     ? <button type="button" className="pos-line-mods" onClick={() => editAddOns(l)} title={tr('Change the add-ons')}>✚ {modsWords(l.modifiers, tr)}</button>
                     : <span className="pos-line-mods">✚ {modsWords(l.modifiers, tr)}</span>
                 )}
-                <span className="dk-muted">{money(l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
+                <span className="dk-muted">{money(appOrder && appOrder.markup ? round2(l.price * (1 + appOrder.markup / 100)) : l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
                 <span className="pos-line-extra">
                   {bad.length > 0 && <em className="pos-line-clash">⚠ {bad.map((x) => allergenWords(x, tr)).join(', ')}</em>}
                   {guests > 1 && (
@@ -1982,10 +2022,12 @@ export default function RestaurantPosPage() {
           </div>
         )}
         <div className="pos-order-actions">
-          {can('keepOpen') && <button type="button" className="btn btn-secondary pos-send" disabled={!cart.length || savingTab} onClick={sendToKitchen} title={tr('Send to the kitchen and keep the order open to pay later')}>
+          {can('keepOpen') && !appOrder && <button type="button" className="btn btn-secondary pos-send" disabled={!cart.length || savingTab} onClick={sendToKitchen} title={tr('Send to the kitchen and keep the order open to pay later')}>
             <Icon name="send" /><span>{savingTab ? tr('Sending…') : tr('Send to kitchen')}</span>
           </button>}
-          {can('charge') && (drawer
+          {can('charge') && (appOrder
+            ? <button type="button" className="btn btn-primary pos-charge is-app" disabled={!cart.length || checkingOut} onClick={submitApp}><span>{checkingOut ? tr('Processing…') : tr('Ring up the {app} order · {amount}', { app: appOrder.name, amount: money(cartTotal) })}</span></button>
+            : drawer
             ? <button type="button" className="btn btn-primary pos-charge" disabled={!cart.length} onClick={openCheckout}><span>{tr('Charge {amount}', { amount: money(cartTotal) })}</span></button>
             : isManager
               ? <button type="button" className="btn btn-primary pos-charge" onClick={() => setOrdersOnly(false)}><span>{tr('Open your drawer to charge')}</span></button>
@@ -2096,7 +2138,11 @@ export default function RestaurantPosPage() {
               can('bookings') && { key: 'bookings', icon: <span className="tl-more-emo">📅</span>, tone: 'book', label: tr('Bookings and waitlist'), note: soon && soon.waiting ? tr('{n} waiting', { n: soon.waiting }) : tr('Tables booked, walk-ins waiting'), badge: soon && soon.requested ? soon.requested : null, onClick: () => setBookingsOpen(true) },
               tillSettings.giftCards && tillSettings.giftCards.on && { key: 'gift', icon: <span className="tl-more-emo">🎁</span>, tone: 'gift', label: tr('Gift cards'), note: tr('Sell one, or look one up'), onClick: () => setGiftOpen(true) },
               { key: 'screen', icon: <span className="tl-more-emo">🖥️</span>, tone: 'screen', label: tr('Customer screen'), note: screen.displays.length ? tr('{n} showing this till', { n: screen.displays.length }) : tr('Pair a screen facing the customer'), onClick: () => setScreenOpen(true) },
+              can('charge') && (tillSettings.apps && tillSettings.apps.list || []).some((a) => a.on) && { key: 'app', icon: <span className="tl-more-emo">🛵</span>, tone: 'app', label: tr('Delivery-app order'),
+                note: (tillSettings.apps.list || []).filter((a) => a.on).map((a) => a.name).join(', '), onClick: () => (currentTab ? setToast(tr('Put the open order aside first: an app\'s order is rung up on its own.')) : setAppPickOpen(true)) },
+              { key: 'kiosk', icon: <span className="tl-more-emo">🧾</span>, tone: 'kiosk', label: tr('Self-order kiosk'), note: tillSettings.kiosk && tillSettings.kiosk.on ? tr('Taking orders') : tr('Pair a tablet for customers to order'), onClick: () => setKiosksOpen(true) },
               { key: 'dispute', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
+              { key: 'downloads', icon: <span className="tl-more-emo">⬇️</span>, tone: 'downloads', label: tr('Downloads (Square format)'), note: tr('Item library and item sales'), onClick: () => setDownloadsOpen(true) },
               isManager ? { key: 'office', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
                 : { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
               kitchen && kitchen.inUse && { key: 'kds', icon: 'bag', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
@@ -2195,6 +2241,12 @@ export default function RestaurantPosPage() {
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {bookingsOpen && <Bookings token={session.token} tables={tables} onSeat={seatBooking} onToast={setToast} onClose={() => { setBookingsOpen(false); loadSoon(); }} />}
+      {contactFor && <GuestContactDialog token={session.token} guest={contactFor} onClose={() => setContactFor(null)}
+        onSaved={(g) => { setContactFor(null); if (selectedGuest && selectedGuest.id === g.id) setSelectedGuest(g); setToast(tr('Saved for {name}.', { name: g.name })); }} />}
+      {downloadsOpen && <Downloads token={session.token} isManager={isManager} companyName={session.companyName} onToast={setToast} onClose={() => setDownloadsOpen(false)} />}
+      {kiosksOpen && <Kiosks token={session.token} onToast={setToast} onClose={() => setKiosksOpen(false)} />}
+      {appPickOpen && <AppPicker apps={(tillSettings.apps && tillSettings.apps.list) || []} current={appOrder} onClose={() => setAppPickOpen(false)}
+        onPick={(a) => { setAppOrder(a); setAppPickOpen(false); setCurrentTab(null); }} />}
       {giftOpen && <GiftCards token={session.token} settings={tillSettings} companyName={session.companyName} can={can} onToast={setToast} onClose={() => { setGiftOpen(false); refreshDrawer(); loadShift(); }} />}
       {screenOpen && <CustomerScreen token={session.token} device={screen.device} displays={screen.displays} onChanged={screen.reload} onToast={setToast} onClose={() => setScreenOpen(false)} />}
       {rewardsOpen && selectedGuest && (
@@ -2212,7 +2264,7 @@ export default function RestaurantPosPage() {
               : cart.length !== sentLines.length || cart.some((l) => { const s0 = sentLines.find((x) => lineKey(x) === lineKey(l)); return !s0 || s0.qty !== l.qty; })
                 ? tr('Send the new dishes to the kitchen first, then pay by dish.') : null
           } : null}
-          screenTip={screen.tip} onTip={setPayInfo}
+          screenTip={screen.tip} onTip={setPayInfo} paidOnKiosk={liveTab ? liveTab.paidOnKiosk : null}
           onCancel={() => { setCheckoutOpen(false); setPayInfo(null); }} onComplete={submitCheckout} />
       )}
 
@@ -2583,8 +2635,11 @@ export default function RestaurantPosPage() {
               <input className="input" value={newGuestName} onChange={(e) => setNewGuestName(e.target.value)} placeholder={tr('Name')} required />
               <input className="input" value={newGuestPhone} onChange={(e) => setNewGuestPhone(e.target.value)} placeholder={tr('Phone (optional)')} />
               <button type="submit" className="btn btn-primary" disabled={addingGuest}>{addingGuest ? tr('Adding…') : tr('Add & select')}</button>
+              {newGuestMore ? <ContactFields value={newGuestMore} onChange={setNewGuestMore} />
+                : <button type="button" className="pos-link gx-more" onClick={() => setNewGuestMore(contactOf(null))}>✉️ {tr('+ Email, birthday, messages')}</button>}
             </form>
             <div className="dialog-actions">
+              {selectedGuest && <button type="button" className="btn btn-secondary" onClick={() => { setContactFor(selectedGuest); setGuestPickerOpen(false); }}>✉️ {tr('Email and birthday')}</button>}
               {selectedGuest && <button type="button" className="btn btn-secondary" onClick={() => { setSelectedGuest(null); setGuestPickerOpen(false); }}>{tr('Clear')}</button>}
               <button type="button" className="btn btn-secondary" onClick={() => setGuestPickerOpen(false)}>{tr('Close')}</button>
             </div>

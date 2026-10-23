@@ -130,18 +130,32 @@ async function itemSalesRows(companyIds, q) {
     "  o.delivery_address, c.name AS company_name, c.code AS company_code, m.category, m.sku AS item_sku, m.item_type, m.external_id AS item_token, m.name AS menu_name, " +
     "  v.name AS size_name, v.sku AS size_sku, v.external_id AS size_token, e.first_name AS cashier_first, " +
     '  (SELECT p.id FROM restaurant_order_payments p WHERE p.order_id = o.id ORDER BY p.sort_order LIMIT 1) AS payment_id, ' +
-    '  (SELECT count(*) FROM restaurant_online_orders w WHERE w.order_id = o.id) AS from_web ' +
+    '  (SELECT count(*) FROM restaurant_online_orders w WHERE w.order_id = o.id) AS from_web, o.channel, o.app, o.app_ref, ' +
+    "  (SELECT p.card_brand || '|' || coalesce(p.card_last4, '') FROM restaurant_order_payments p WHERE p.order_id = o.id AND p.card_brand IS NOT NULL ORDER BY p.sort_order LIMIT 1) AS card " +
     'FROM restaurant_order_items i JOIN restaurant_orders o ON o.id = i.order_id JOIN companies c ON c.id = o.company_id ' +
     'LEFT JOIN restaurant_menu_items m ON m.id = i.menu_item_id LEFT JOIN restaurant_menu_item_variations v ON v.id = i.variation_id LEFT JOIN employees e ON e.id = o.cashier_id ' +
     'WHERE ' + where + ' ORDER BY o.created_at DESC, i.sort_order', [companyIds, d.from, d.to])).rows;
   var back = (await pool.query(
     "SELECT ri.qty AS back_qty, ri.amount AS back_amount, r.created_at AS at, r.id AS refund_id, i.*, o.id AS order_id, o.order_no, o.fulfillment, o.subtotal, o.tax_total, o.adjustments, " +
     '  o.external_id AS sq_id, o.source, o.source_name, o.receipt_token, o.company_id, c.name AS company_name, c.code AS company_code, m.category, m.sku AS item_sku, m.item_type, ' +
-    '  m.external_id AS item_token, m.name AS menu_name, v.name AS size_name, v.sku AS size_sku, v.external_id AS size_token, e.first_name AS cashier_first, 0 AS from_web ' +
+    '  m.external_id AS item_token, m.name AS menu_name, v.name AS size_name, v.sku AS size_sku, v.external_id AS size_token, e.first_name AS cashier_first, 0 AS from_web, o.channel, o.app, o.app_ref, ' +
+    "  (SELECT p.card_brand || '|' || coalesce(p.card_last4, '') FROM restaurant_order_payments p WHERE p.order_id = o.id AND p.card_brand IS NOT NULL ORDER BY p.sort_order LIMIT 1) AS card " +
     'FROM restaurant_refund_items ri JOIN restaurant_refunds r ON r.id = ri.refund_id JOIN restaurant_order_items i ON i.id = ri.order_item_id JOIN restaurant_orders o ON o.id = r.order_id ' +
     'JOIN companies c ON c.id = o.company_id LEFT JOIN restaurant_menu_items m ON m.id = i.menu_item_id LEFT JOIN restaurant_menu_item_variations v ON v.id = i.variation_id ' +
     'LEFT JOIN employees e ON e.id = r.cashier_id WHERE r.company_id = ANY($1::uuid[]) AND r.created_at >= $2::date AND r.created_at < $3::date + 1', [companyIds, d.from, d.to])).rows;
   var siteUrl = require('./restaurantOnline.service').siteUrlFor;
+  // Each restaurant's delivery apps by their key (the Channel of an app's order).
+  var appNames = {};
+  for (var k = 0; k < cos.length; k++) {
+    ((await require('./restaurantTillAccess.service').settingsOf(cos[k].id)).apps.list || []).forEach(function (a) { appNames[cos[k].id + ':' + a.key] = a.name; });
+  }
+  function channelOf(r, loc) {
+    if (r.source === 'square') return r.source_name || loc;
+    if (r.channel === 'app') return appNames[r.company_id + ':' + r.app] || r.app || loc;
+    if (r.channel === 'website' || Number(r.from_web) > 0) return loc + ' Online';
+    if (r.channel === 'kiosk') return loc + ' Kiosk';
+    return loc;
+  }
   function row(r, refund) {
     var at = new Date(r.at);
     var itemName = r.menu_name || String(r.name || '').split(' — ')[0];
@@ -158,14 +172,16 @@ async function itemSalesRows(companyIds, q) {
     var mods = (r.modifiers || []).map(function (m) { return (m.how && m.how !== 'add' ? m.how + ' ' : '') + m.name; }).join(', ');
     var loc = locationName(r.company_name);
     var square = r.source === 'square';
+    var app = r.channel === 'app';
+    var card = r.card ? String(r.card).split('|') : null;
     return [
       at.toISOString().slice(0, 10), at.toISOString().slice(11, 19), 'UTC', r.category || (r.custom ? '' : 'Uncategorized'), itemName, qty.toFixed(1), size,
       r.size_sku || r.item_sku || '', mods, ced(gross), ced(disc), ced(net), ced(tax),
       square ? r.sq_id || r.order_no : r.order_no, refund ? r.refund_id : (r.payment_id || r.order_id), square ? (r.source_name || '') : 'Till' + (r.cashier_first ? ' (' + r.cashier_first + ')' : ''),
       r.note || '', r.receipt_token ? siteUrl(r.company_code) + '/receipt/' + r.receipt_token : '', refund ? 'Refund' : 'Payment', loc,
-      Number(r.from_web) > 0 && r.fulfillment === 'pickup' ? 'Pickup' : DINING[r.fulfillment] || '', 'ea', String(Math.round(qty)),
-      r.custom ? '' : SALES_TYPE[r.item_type] || 'Physical Good', '', square ? (r.source_name || loc) : Number(r.from_web) > 0 ? loc + ' Online' : loc,
-      r.size_token || r.item_token || (r.menu_item_id || ''), '', ''
+      app ? 'Delivery' : Number(r.from_web) > 0 && r.fulfillment === 'pickup' ? 'Pickup' : DINING[r.fulfillment] || '', 'ea', String(Math.round(qty)),
+      r.custom ? '' : SALES_TYPE[r.item_type] || 'Physical Good', app && r.app_ref ? channelOf(r, loc) + ' #' + r.app_ref : '', channelOf(r, loc),
+      r.size_token || r.item_token || (r.menu_item_id || ''), card ? card[0] : '', card && card[1] ? card[1] : ''
     ];
   }
   var all = sold.map(function (r) { return { at: r.at, row: row(r, false) }; }).concat(back.map(function (r) { return { at: r.at, row: row(r, true) }; }));

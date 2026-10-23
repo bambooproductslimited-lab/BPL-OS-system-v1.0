@@ -14,6 +14,8 @@ var disputes = require('./restaurantDisputes.service');
 function deliveries() { return require('./restaurantDelivery.service'); }
 function gifts() { return require('./restaurantGiftCards.service'); }
 function loyalty() { return require('./restaurantLoyalty.service'); }
+function apps() { return require('./restaurantApps.service'); }
+function paystack() { return require('./restaurantPaystack.service'); }
 var tillMenu = require('./restaurantTillMenu.service');
 var check = require('./restaurantTillCheck.service');
 var times = require('./restaurantTillTimes.service');
@@ -160,6 +162,7 @@ function rowToOrder(order, items, payments) {
     change: payments.length ? (change > 0 || cashGiven != null ? change : null) : (cashGiven == null ? null : Math.round((cashGiven - Number(order.total)) * 100) / 100),
     payments: payments, guests: order.guests || null, allergy: order.allergy || null,
     tip: Number(order.tip || 0), pointsEarned: order.points_earned || 0, pointsUsed: order.points_used || 0,
+    channel: order.channel || 'till', app: order.app ? { key: order.app, ref: order.app_ref || '', commission: Number(order.app_commission || 0) } : null,
     items: items.map(function (it) {
       return { menuItemId: it.menuItemId, name: it.name, qty: it.qty, unitPrice: it.unitPrice, lineTotal: it.lineTotal, note: it.note || '', custom: !!it.custom,
         modifiers: it.modifiers || [], gross: it.gross != null ? Number(it.gross) : it.lineTotal, discount: Number(it.discount || 0), discountName: it.discountName || null, compReason: it.compReason || null,
@@ -302,11 +305,12 @@ function rowToGuestTile(r) {
     id: r.id, name: r.name, phone: r.phone,
     vip: !!r.vip, vipBalance: r.vip_balance == null ? 0 : Math.round(Number(r.vip_balance) * 100) / 100,
     iouAllowed: !!r.iou_allowed, iouLimit: r.iou_limit == null ? null : Number(r.iou_limit), iouOwed: r.owed == null ? 0 : Math.round(Number(r.owed) * 100) / 100,
-    points: r.points == null ? 0 : Number(r.points)
+    points: r.points == null ? 0 : Number(r.points),
+    email: r.email || '', birthday: r.birthday ? new Date(r.birthday).toISOString().slice(0, 10) : null, marketing: r.marketing || 'unknown'
   };
 }
 var GUEST_SELECT =
-  'SELECT g.id, g.name, g.phone, g.iou_allowed, g.iou_limit, v.balance AS vip_balance, (v.guest_id IS NOT NULL) AS vip, i.owed, ' +
+  'SELECT g.id, g.name, g.phone, g.iou_allowed, g.iou_limit, g.email, g.birthday, g.marketing, v.balance AS vip_balance, (v.guest_id IS NOT NULL) AS vip, i.owed, ' +
   '  (SELECT sum(l.points) FROM restaurant_loyalty_entries l WHERE l.guest_id = g.id) AS points ' +
   'FROM restaurant_guests g LEFT JOIN (SELECT guest_id, sum(amount) AS balance FROM restaurant_vip_entries GROUP BY guest_id) v ON v.guest_id = g.id ' +
   "LEFT JOIN (SELECT guest_id, sum(owed) AS owed FROM (SELECT guest_id, total - refunded_total AS owed FROM restaurant_orders WHERE payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL " +
@@ -330,13 +334,49 @@ async function guestById(db, companyId, id) {
 async function createGuestForSession(token, p) {
   var session = await access.need(token, 'till');
   var name = V.text(p.name, 'Name', 100);
+  var c = contactOf(p);
   var res = await pool.query(
-    "INSERT INTO restaurant_guests (company_id, name, phone, source) VALUES ($1,$2,$3,'till') RETURNING id, name, phone, iou_allowed, iou_limit",
-    [session.posCompanyId, name, (p.phone || '').trim().slice(0, 40)]
+    "INSERT INTO restaurant_guests (company_id, name, phone, source, email, birthday, marketing, marketing_at) VALUES ($1,$2,$3,'till',$4,$5,$6,CASE WHEN $6 <> 'unknown' THEN now() END) " +
+    'RETURNING id, name, phone, iou_allowed, iou_limit, email, birthday, marketing',
+    [session.posCompanyId, name, (p.phone || '').trim().slice(0, 40), c.email || '', c.birthday || null, c.marketing || 'unknown']
   );
   await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.customer',
     summary: 'Added the customer ' + name + '.', refType: 'guest', refId: res.rows[0].id });
   return rowToGuestTile(res.rows[0]);
+}
+
+// A guest's email, birthday and whether they want to hear from the
+// restaurant (texts and emails, restaurantCampaigns), as the till gives them.
+function contactOf(p) {
+  p = p || {};
+  var out = {};
+  if (p.email !== undefined) {
+    var email = String(p.email || '').trim().slice(0, 120);
+    if (email && !require('./mail.service').isEmail(email)) fail('invalid', 'That email address does not look right.');
+    out.email = email;
+  }
+  if (p.birthday !== undefined) {
+    var b = String(p.birthday || '');
+    if (b && !/^\d{4}-\d{2}-\d{2}$/.test(b)) fail('invalid', 'The birthday as a date, e.g. 1990-05-21.');
+    out.birthday = b || null;
+  }
+  if (p.marketing !== undefined) out.marketing = ['yes', 'no', 'unknown'].indexOf(p.marketing) >= 0 ? p.marketing : fail('invalid', 'Do they want texts and emails: yes, no, or not asked?');
+  return out;
+}
+// POST /api/pos/guests/:id/contact { email, birthday, marketing } — from the till.
+async function guestContact(token, id, p) {
+  var session = await access.need(token, 'till');
+  var c = contactOf(p);
+  var g = (await pool.query('SELECT id, name, marketing FROM restaurant_guests WHERE id = $1 AND company_id = $2', [id, session.posCompanyId])).rows[0];
+  if (!g) fail('notfound', 'That customer is not this restaurant\'s.');
+  await pool.query('UPDATE restaurant_guests SET email = coalesce($3, email), birthday = CASE WHEN $4 THEN $5::date ELSE birthday END, ' +
+    "marketing = coalesce($6, marketing), marketing_at = CASE WHEN $6 IS NOT NULL AND $6 <> marketing THEN now() ELSE marketing_at END, updated_at = now() WHERE id = $1 AND company_id = $2",
+    [id, session.posCompanyId, c.email !== undefined ? c.email : null, c.birthday !== undefined, c.birthday || null, c.marketing || null]);
+  if (c.marketing && c.marketing !== g.marketing) {
+    await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.customer',
+      summary: g.name + (c.marketing === 'yes' ? ' agreed to texts and emails.' : c.marketing === 'no' ? ' wants no texts or emails.' : ': texts and emails not asked.'), refType: 'guest', refId: id });
+  }
+  return rowToGuestTile(await guestById(pool, session.posCompanyId, id));
 }
 
 // Dine in (at a table), pickup (at the counter) or delivery (needs who, a
@@ -347,13 +387,15 @@ async function orderType(client, companyId, p, refs) {
   var f = p.fulfillment === undefined || p.fulfillment === null || p.fulfillment === '' ? '' : V.oneOf(p.fulfillment, access.FULFILLMENTS, 'Dine in, pickup or delivery');
   var guest = refs.guestId ? (await client.query('SELECT name, phone FROM restaurant_guests WHERE id = $1', [refs.guestId])).rows[0] : null;
   var out = { fulfillment: f, customerName: cleanText(p.customerName, 120) || (guest ? guest.name : ''), customerPhone: cleanText(p.customerPhone, 40) || (guest ? guest.phone || '' : ''), deliveryAddress: '' };
-  if (f === 'dine_in' && !refs.tableId) {
+  if (f === 'dine_in' && !refs.tableId && !p.kioskOrder) {
     var hasTables = (await client.query("SELECT 1 FROM restaurant_tables WHERE company_id = $1 AND status = 'active' LIMIT 1", [companyId])).rows.length > 0;
     if (hasTables) fail('invalid', 'Pick the table for this dine-in order.');
   }
   if (f === 'pickup' || f === 'delivery') refs.tableId = null;
   // A pickup: who it is for, and a number to call when it is ready.
-  if (f === 'pickup') {
+  // (A delivery app's order is handed to the app's rider; a kiosk's
+  // customer is called by their number.)
+  if (f === 'pickup' && !p.appOrder && !p.kioskOrder) {
     if (!out.customerName) fail('invalid', 'A pickup needs the customer\'s name.');
     if (!out.customerPhone) fail('invalid', 'A pickup needs a phone number, to call the customer when it is ready.');
   }
@@ -519,23 +561,39 @@ async function createOrder(token, p) {
 async function chargeOrder(session, p, clientRef) {
   var tillSettings = session.access.settings;
   var takenAt = clientRef ? takenAtOf(p.takenAt) : null;
+  // A delivery app's order (restaurantApps): at the app's prices, paid on
+  // the app, handed to its rider.
+  var app = p.app ? apps().appOf(tillSettings, p.app) : null;
+  if (app) {
+    if (p.tabId) fail('invalid', 'A delivery app\'s order is rung up on its own.');
+    p = Object.assign({}, p, { fulfillment: 'pickup', tableId: null, appOrder: true, customerName: p.customerName || app.customer || app.name });
+  }
   if (tillSettings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
   var asked = Array.isArray(p.payments) && p.payments.length ? p.payments
     : [{ method: p.paymentMethod || 'cash', tendered: p.cashTendered }];
+  // Paid through Paystack (the customer's phone, or the kiosk): checked with Paystack.
+  var psRefs = asked.map(function (r) { return r && r.paystackRef ? String(r.paystackRef) : null; }).filter(Boolean);
 
   return withTransaction(async function (client) {
     await money.needDrawer(client, session.posEmployeeId);
+    var psMap = psRefs.length ? await paystack().claimFor(client, session.posCompanyId, psRefs) : null;
     var tab = null;
     if (p.tabId) {
       var tabRes = await client.query('SELECT id, label, customer_name, customer_phone, items, adjust, table_id, guests, allergy FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
       if (!tabRes.rows[0]) fail('conflict', 'That open order has already been paid or removed.');
       tab = tabRes.rows[0];
+      // Ordered on the self-order kiosk: no table or phone number needed.
+      if (await fromKiosk(client, tab.id)) p = Object.assign({}, p, { kioskOrder: true });
       // Who it is for, as the open order says, unless the till says otherwise.
       p = Object.assign({}, p, { customerName: p.customerName || tab.customer_name || '', customerPhone: p.customerPhone || tab.customer_phone || '' });
     }
     var refs = await resolveRefs(client, session.posCompanyId, p);
     var type = await orderType(client, session.posCompanyId, p, refs);
     var priced = await priceLines(client, session.posCompanyId, p.items, session.access.can.customItem);
+    if (app && app.markup) {
+      var marked = apps().applyMarkup(priced.lines, app);
+      priced = { lines: marked, subtotal: Math.round(marked.reduce(function (a, l) { return a + l.lineTotal; }, 0) * 100) / 100 };
+    }
     // The bill: discounts, dishes on the house, the service charge and the
     // taxes (restaurantTillCheck), allowed as an open order's were saved,
     // by the person's role or with a manager's approval.
@@ -571,7 +629,8 @@ async function chargeOrder(session, p, clientRef) {
     }
     // A tip on top (the till's settings, tips): paid with the bill, not a sale.
     var tip = tipOf(p.tip, bill.total, tillSettings);
-    var plan = money.planPayments(session, Math.round((bill.total + tip) * 100) / 100, asked);
+    if (app && tip > 0) fail('invalid', 'A tip on an app\'s order is the app\'s to give.');
+    var plan = money.planPayments(session, Math.round((bill.total + tip) * 100) / 100, asked, { app: !!app, paystack: psMap });
     if (tip > 0 && plan.rows.some(function (r) { return r.method === 'iou'; })) fail('invalid', 'A tip is paid in money, not on an IOU.');
 
     var companyRes = await client.query('SELECT code FROM companies WHERE id = $1', [session.posCompanyId]);
@@ -579,15 +638,25 @@ async function chargeOrder(session, p, clientRef) {
     var orderNo = companyRes.rows[0].code + '-' + String(seqRes.rows[0].n).padStart(6, '0');
 
     var cols = check.saleColumns(bill);
+    // Where it came from: the till, a delivery app, or (an open order) the website, a table's QR code or the kiosk.
+    var channel = app ? 'app' : 'till';
+    if (!app && tab) {
+      var from = (await client.query(
+        "SELECT (SELECT count(*) FROM restaurant_online_orders WHERE tab_id = $1)::int AS web, (SELECT max(kind) FROM restaurant_table_orders WHERE tab_id = $1) AS kind", [tab.id])).rows[0];
+      channel = from.web > 0 ? 'website' : from.kind === 'kiosk' ? 'kiosk' : from.kind === 'table' ? 'table' : 'till';
+    }
     var orderRes = await client.query(
       'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id, cash_tendered, ' +
-      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at, discount_total, service_charge, tax_total, taxes, adjustments, receipt_token, guests, allergy, tip) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17, now()),$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING *',
+      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at, discount_total, service_charge, tax_total, taxes, adjustments, receipt_token, guests, allergy, tip, ' +
+      '  channel, app, app_ref, app_commission) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17, now()),$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30) RETURNING *',
       [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, bill.total, plan.method, refs.tableId, refs.waiterId, refs.guestId, plan.cashTendered,
         type.fulfillment, type.customerName, type.customerPhone, type.deliveryAddress, clientRef, takenAt, at,
-        cols.discountTotal, cols.serviceCharge, cols.taxTotal, JSON.stringify(cols.taxes), JSON.stringify(cols.adjustments), newReceiptToken(), guests, allergy ? JSON.stringify(allergy) : null, tip]
+        cols.discountTotal, cols.serviceCharge, cols.taxTotal, JSON.stringify(cols.taxes), JSON.stringify(cols.adjustments), newReceiptToken(), guests, allergy ? JSON.stringify(allergy) : null, tip,
+        channel, app ? app.key : null, app ? app.ref : '', app ? apps().commissionOf(app, bill.total) : 0]
     );
     var order = orderRes.rows[0];
+    if (psRefs.length) await paystack().markUsed(client, psRefs, order.id);
     for (var j = 0; j < lines.length; j++) {
       await client.query(
         'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross, note, custom, sort_order, modifiers, discount, discount_name, comp_reason, seat, course) ' +
@@ -616,7 +685,7 @@ async function chargeOrder(session, p, clientRef) {
       if (keptAdjust.discount && keptAdjust.discount.kind === 'amount') delete keptAdjust.discount;
       await client.query('UPDATE restaurant_open_tabs SET items = $2, adjust = $3, updated_at = now() WHERE id = $1', [tab.id, JSON.stringify(rest), JSON.stringify(keptAdjust)]);
     } else ticket = await kitchen.fire(client, session.posCompanyId, Object.assign({
-      lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : (type.customerName || orderNo),
+      lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : app ? apps().labelOf(app) : (type.customerName || orderNo),
       note: p.kitchenNote, sentBy: session.posEmployeeId, settings: tillSettings, allergy: allergy, guests: guests
     }, names));
     // What goes to the cooks now, for the stations that print their tickets.
@@ -756,7 +825,11 @@ async function personName(db, employeeId) {
 async function tabRows(companyId, where, args) {
   var res = await pool.query(
     'SELECT t.*, rt.name AS table_name, g.name AS guest_name, g.phone AS guest_phone, ' +
-    "  we.first_name || ' ' || we.last_name AS waiter_name, oe.first_name || ' ' || oe.last_name AS opened_by_name " +
+    "  we.first_name || ' ' || we.last_name AS waiter_name, oe.first_name || ' ' || oe.last_name AS opened_by_name, " +
+    // Paid on the self-order kiosk already (restaurantKiosk): the Paystack payment for the cashier to take.
+    "  (SELECT json_build_object('ref', ps.reference, 'amount', ps.amount, 'channel', ps.channel) FROM restaurant_table_orders ko JOIN restaurant_paystack_payments ps ON ps.reference = ko.paystack_ref " +
+    "     WHERE ko.tab_id = t.id AND ps.status = 'success' AND ps.used_by_order IS NULL LIMIT 1) AS kiosk_paid, " +
+    "  EXISTS (SELECT 1 FROM restaurant_table_orders kk WHERE kk.tab_id = t.id AND kk.kind = 'kiosk') AS from_kiosk " +
     'FROM restaurant_open_tabs t LEFT JOIN restaurant_tables rt ON rt.id = t.table_id LEFT JOIN restaurant_guests g ON g.id = t.guest_id ' +
     'LEFT JOIN employees we ON we.id = t.waiter_id LEFT JOIN employees oe ON oe.id = t.opened_by ' +
     'WHERE t.company_id = $1' + (where || '') + ' ORDER BY t.created_at', [companyId].concat(args || []));
@@ -784,6 +857,7 @@ async function tabRows(companyId, where, args) {
       fulfillment: r.fulfillment || 'dine_in', customerName: r.customer_name || '', customerPhone: r.customer_phone || '', deliveryAddress: r.delivery_address || '',
       openedBy: r.opened_by_name || null, createdAt: r.created_at, updatedAt: r.updated_at,
       lines: lines, total: total, bill: billOut(bill), adjust: r.adjust || {}, unavailable: gone, kitchen: null,
+      paidOnKiosk: r.kiosk_paid ? { ref: r.kiosk_paid.ref, amount: Number(r.kiosk_paid.amount), channel: r.kiosk_paid.channel } : null, fromKiosk: !!r.from_kiosk,
       guests: r.guests || null, allergy: r.allergy || null, firedCourse: r.fired_course || 0
     });
   }
@@ -837,7 +911,12 @@ async function saveTabFor(session, p) {
     throw e;
   }
 }
+// Whether an open order came from the self-order kiosk (restaurantKiosk).
+async function fromKiosk(db, tabId) {
+  return !!tabId && (await db.query("SELECT 1 FROM restaurant_table_orders WHERE tab_id = $1 AND kind = 'kiosk' LIMIT 1", [tabId])).rows.length > 0;
+}
 async function keepTab(session, p, clientRef) {
+  if (p.id && !p.kioskOrder && await fromKiosk(pool, p.id)) p = Object.assign({}, p, { kioskOrder: true });
   if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
   var refs = await resolveRefs(pool, company, p);
@@ -1587,7 +1666,7 @@ module.exports = {
   addDrawerMovement: addDrawerMovement, closeDrawerSession: closeDrawerSession,
   listDrawerSessions: listDrawerSessions, getDrawerSession: getDrawerSession,
   tablesForSession: tablesForSession, waitersForSession: waitersForSession,
-  guestsForSession: guestsForSession, createGuestForSession: createGuestForSession,
+  guestsForSession: guestsForSession, createGuestForSession: createGuestForSession, guestContact: guestContact,
   listTabs: listTabs, saveTab: saveTab, saveTabFor: saveTabFor, removeTab: removeTab, fireCourse: fireCourse, tabRows: tabRows, priceLines: priceLines, FEE_NAME: FEE_NAME,
   shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken,
   closeDrawerFor: closeDrawerFor, signOut: signOut, drawerHistory: drawerHistory, raiseDispute: raiseDispute

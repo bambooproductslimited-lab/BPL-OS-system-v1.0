@@ -26,7 +26,7 @@ const IDS = 'bamboo.till.localIds';  // 'local:…' → the open order's id on t
 const DRAFT = 'bamboo.till.draft.';   // + the restaurant's id
 // The ways of paying that need nothing from the server at the moment of
 // the sale (VIP and IOU look up the customer's account).
-export const OFFLINE_METHODS = ['cash', 'mobile_money', 'alipay', 'wechat'];
+export const OFFLINE_METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'card'];
 const TIMEOUT_MS = 12000;
 
 function read(key, dflt) { try { const v = JSON.parse(localStorage.getItem(key) || 'null'); return v == null ? dflt : v; } catch { return dflt; } }

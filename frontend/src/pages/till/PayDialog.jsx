@@ -3,6 +3,8 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { tr } from '../../lib/i18n.jsx';
 import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, methodName, round2 } from './tillShared';
+import { CardFields, PhonePay } from './CardPay';
+import { cardOk } from './tillBill';
 
 // Taking payment (RestaurantPosPage.jsx's Charge): one way, or the bill
 // split several ways; each in the money that way takes (tillShared
@@ -19,12 +21,20 @@ import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, met
 // customer on their screen (screenTip, CustomerScreen.jsx) — paid with the
 // bill, not a sale. A gift card (settings.giftCards) is a way of paying:
 // its number checked for what is left on it (backend restaurantGiftCards).
+// A card on the bank's terminal (its brand, last 4 and approval code noted),
+// or paid on the customer's phone through Paystack (a QR code; CardPay.jsx).
+// An order paid on the self-order kiosk already (paidOnKiosk) is taken with
+// that payment.
 
 const NEEDS_CUSTOMER = { vip: true, iou: true };
 
-export default function PayDialog({ token, title, total: wholeTotal, methods: tillMethods, settings, customer, refreshKey, busy, error, dishes, screenTip, onTip, onPickCustomer, onTopUp, onCancel, onComplete }) {
+export default function PayDialog({ token, title, total: wholeTotal, methods: tillMethods, settings, customer, refreshKey, busy, error, dishes, screenTip, paidOnKiosk, onTip, onPickCustomer, onTopUp, onCancel, onComplete }) {
   const giftOn = !!(settings.giftCards && settings.giftCards.on);
-  const methods = giftOn ? tillMethods.concat(['gift_card']) : tillMethods;
+  const phoneOn = !!(settings.card && settings.card.paystack);
+  const terminals = (settings.card && settings.card.terminals) || [];
+  const methods = tillMethods.concat(giftOn ? ['gift_card'] : [], phoneOn ? ['paystack'] : []);
+  const [card, setCard] = useState({ brand: 'Visa', entry: 'tap', last4: '', ref: '', terminal: terminals[0] || '' });
+  const [phonePaid, setPhonePaid] = useState(null);
   const tips = settings.tips && settings.tips.on ? settings.tips : null;
   const currencies = liveCurrencies(settings);
   const rateOf = (c) => (currencies.find((x) => x.code === c) || { rate: 1 }).rate;
@@ -121,15 +131,24 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
   const splitOk = split && parts.length > 1 && Math.abs(left) < 0.005 && splitProblems.every((x) => !x) && !(vipSplit > 0 && vipBalance !== null && vipBalance < vipSplit);
 
   const singleOk = !split && allowed(method) && !(method === 'cash' && changeCedis !== null && changeCedis < 0) && !vipShort && !iouOver && !(mode === 'dish' && !(picked > 0))
-    && !(method === 'gift_card' && (!gift || giftShort)) && !(tip > 0 && method === 'iou');
+    && !(method === 'gift_card' && (!gift || giftShort)) && !(tip > 0 && method === 'iou')
+    && !(method === 'card' && !cardOk(card)) && !(method === 'paystack' && !(phonePaid && Math.abs(phonePaid.amount - total) < 0.005));
   // The rest of the bill another way, after what is left on the card.
   function splitWithCard() {
     const onCard = round2(Math.min(gift.balance, total));
     setParts([{ method: 'gift_card', currency: 'GHS', amount: String(onCard), tendered: '', code: gift.code }, { method: 'cash', currency: 'GHS', amount: String(round2(total - onCard)), tendered: '' }]);
     setMode('split');
   }
+  // Paid on the kiosk: that payment, and anything added since another way (cash).
+  const kioskRest = paidOnKiosk ? round2(total - paidOnKiosk.amount) : 0;
+  function completeKiosk() {
+    onComplete(kioskRest > 0.004 ? [{ paystackRef: paidOnKiosk.ref, amount: paidOnKiosk.amount }, { method: 'cash', currency: 'GHS', amount: kioskRest }] : [{ paystackRef: paidOnKiosk.ref }], null, tip);
+  }
   function complete() {
-    const one = [{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined, code: method === 'gift_card' ? gift.code : undefined }];
+    if (paidOnKiosk && mode === 'one') { completeKiosk(); return; }
+    if (method === 'paystack') { onComplete([{ paystackRef: phonePaid.reference }], null, tip); return; }
+    const one = [{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined, code: method === 'gift_card' ? gift.code : undefined,
+      card: method === 'card' ? { brand: card.brand, entry: card.entry, last4: card.last4 || undefined, ref: card.ref || undefined, terminal: card.terminal || undefined } : undefined }];
     if (mode === 'dish') { onComplete(one, Object.keys(pick).filter((k) => pick[k] > 0).map((k) => ({ key: k, qty: pick[k] })), tip); return; }
     if (split) {
       onComplete(parts.map((p) => ({ method: p.method, currency: p.currency, amount: round2(p.amount), tendered: p.method === 'cash' && p.tendered !== '' ? Number(p.tendered) : undefined,
@@ -143,7 +162,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
   const rmbNote = methods.some((m) => (m === 'alipay' || m === 'wechat') && !allowed(m));
   return (
     <div className="dialog-backdrop" onClick={() => !busy && onCancel()}>
-      <form className="dialog pos-pay tl-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (split ? splitOk : singleOk) complete(); }}>
+      <form className="dialog pos-pay tl-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (split ? splitOk : (paidOnKiosk && mode === 'one') || singleOk) complete(); }}>
         <h2>{tr('Take payment')}</h2>
         <div className="pos-pay-due">
           <span>{title}</span>
@@ -151,6 +170,17 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
           {tip > 0 && <small className="tl-pay-tipline">{tr('{bill} + a tip of {tip}', { bill: money(bill), tip: money(tip) })}</small>}
           {currencies.length > 1 && <small className="tl-pay-fx">{currencies.filter((c) => c.code !== 'GHS').map((c) => fmt(round2(total / c.rate), c.code)).join(' · ')}</small>}
         </div>
+        {paidOnKiosk && mode === 'one' && (
+          <div className={'cp-kiosk' + (kioskRest < -0.004 ? ' is-bad' : '')}>
+            <span className="cp-tick" aria-hidden="true">✓</span>
+            <div>
+              <strong>{tr('Paid on the kiosk: {amount}', { amount: money(paidOnKiosk.amount) })}</strong>
+              <small>{paidOnKiosk.channel === 'mobile_money' ? methodName('mobile_money') : methodName('card')}{' · '}{'Paystack'}{' · '}{paidOnKiosk.ref}</small>
+              {kioskRest > 0.004 && <small className="cp-kiosk-rest">{tr('{amount} was added since: take it in cash.', { amount: money(kioskRest) })}</small>}
+              {kioskRest < -0.004 && <small className="cp-kiosk-rest">{tr('The bill is now less than what was paid: put the dishes back, or refund the difference after.')}</small>}
+            </div>
+          </div>
+        )}
         <div className="dk-segment tl-pay-mode" role="radiogroup" aria-label={tr('How it is paid')}>
           <button type="button" role="radio" aria-checked={mode === 'one'} className={mode === 'one' ? 'is-on' : ''} onClick={() => setMode('one')}>{tr('One payment')}</button>
           <button type="button" role="radio" aria-checked={split} className={split ? 'is-on' : ''} onClick={() => (parts.length ? setMode('split') : startSplit(2))}>{tr('Split the bill')}</button>
@@ -210,7 +240,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
             </div>
           </div>
         )}
-        {mode === 'dish' && (dishes.why || !picked) ? null : !split ? (
+        {(mode === 'dish' && (dishes.why || !picked)) || (paidOnKiosk && mode === 'one') ? null : !split ? (
           <>
             <div className="pos-methods tl-methods" role="radiogroup" aria-label={tr('Payment method')}>
               {methods.map((k) => {
@@ -259,6 +289,8 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
                     + (customer.iouLimit != null ? ' ' + tr('Limit {limit}, owed now {owed}.', { limit: money(customer.iouLimit), owed: money(customer.iouOwed) }) : '')}</span>
               </p>
             )}
+            {method === 'card' && <CardFields terminals={terminals} value={card} onChange={setCard} />}
+            {method === 'paystack' && <PhonePay token={token} amount={total} paid={phonePaid} onPaid={setPhonePaid} onReset={() => setPhonePaid(null)} />}
             {method === 'gift_card' && (
               <div className="tl-giftpay">
                 <label htmlFor="tl-gift-code" className="pos-big-label">🎁 {tr('The number on the gift card')}</label>
@@ -311,7 +343,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
                   <li key={i} className={splitProblems[i] ? 'is-bad' : ''}>
                     <span className="tl-part-no">{i + 1}</span>
                     <select className="input" value={p.method} onChange={(e) => setPart(i, { method: e.target.value })} aria-label={tr('Payment method')}>
-                      {methods.filter((m) => m !== 'iou').map((m) => <option key={m} value={m} disabled={!allowed(m)}>{methodName(m)}{allowed(m) ? '' : ' — ' + (NEEDS_CUSTOMER[m] ? tr('no account') : tr('no RMB rate'))}</option>)}
+                      {methods.filter((m) => m !== 'iou' && m !== 'paystack').map((m) => <option key={m} value={m} disabled={!allowed(m)}>{methodName(m)}{allowed(m) ? '' : ' — ' + (NEEDS_CUSTOMER[m] ? tr('no account') : tr('no RMB rate'))}</option>)}
                     </select>
                     {curFor(p.method).length > 1 ? (
                       <select className="input tl-part-cur" value={p.currency} onChange={(e) => setPart(i, { currency: e.target.value, tendered: '' })} aria-label={tr('Currency')}>
@@ -352,7 +384,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
         {error && <div className="error-banner">{error}</div>}
         <div className="dialog-actions">
           <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>{tr('Cancel')}</button>
-          <button type="submit" className="btn btn-primary pos-complete" disabled={busy || !(split ? splitOk : singleOk)}>{busy ? tr('Processing…') : tr('Complete sale')}</button>
+          <button type="submit" className="btn btn-primary pos-complete" disabled={busy || !(split ? splitOk : paidOnKiosk && mode === 'one' ? kioskRest > -0.004 : singleOk)}>{busy ? tr('Processing…') : tr('Complete sale')}</button>
         </div>
       </form>
     </div>

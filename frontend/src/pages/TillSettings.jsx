@@ -13,6 +13,9 @@ import BillSettings from './till/BillSettings';
 import ServiceSettings from './till/ServiceSettings';
 import GuestSettings from './till/GuestSettings';
 import { GiftCardsReport, LoyaltyReport } from './till/GuestReports';
+import CampaignsTab from './till/Campaigns';
+import Insights from './till/Insights';
+import { AppsTab, CardSettings, KioskTab } from './till/GrowthSettings';
 import './TillSettings.css';
 // The monthly report brings the OS's report and its styles: loaded when opened.
 const MonthlyReport = lazy(() => import('./till/MonthlyReport'));
@@ -65,16 +68,19 @@ const METHOD = {
   alipay: [() => tr('Alipay'), () => tr('Scanned with the customer\'s Alipay, in RMB only.')],
   wechat: [() => tr('WeChat Pay'), () => tr('Scanned with the customer\'s WeChat, in RMB only.')],
   vip: [() => tr('VIP'), () => tr('From money a VIP customer put down.')],
-  iou: [() => tr('IOU'), () => tr('A customer with an IOU account pays later.')]
+  iou: [() => tr('IOU'), () => tr('A customer with an IOU account pays later.')],
+  card: [() => tr('Card'), () => tr('On the bank\'s card terminal; the card\'s brand and last 4 digits are noted.')]
 };
 // What each foreign currency is taken for (tillShared METHOD_CURRENCIES).
 const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat Pay') };
 // The tabs, in three groups: what happened, what is sold, how the till works.
 const GROUPS = [
-  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['insights', () => tr('Insights'), 'pulse'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['guestsGroup', () => tr('Guests'), [['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
-    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
+    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'],
+    ['apps', () => tr('Delivery apps'), 'send'], ['kiosk', () => tr('Self-order kiosk'), 'receipt'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
 const GROUP_OF = {};
 GROUPS.forEach(([g, , tabs]) => tabs.forEach(([k]) => { GROUP_OF[k] = g; }));
@@ -331,6 +337,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                     {draft.ratesSetAt ? tr('Rates last set {date} by {name}.', { date: new Date(draft.ratesSetAt).toLocaleString(activeIntlLocale(), { dateStyle: 'medium', timeStyle: 'short' }), name: draft.ratesSetBy || '—' }) : tr('No rates set yet. Check them every day: the till uses them for every sale.')}
                   </small>
                 </div>
+                <CardSettings token={token} pin={pin} draft={draft} set={set} paystackReady={!!data.choices.paystack} onFail={fail} />
               </section>
             )}
 
@@ -344,6 +351,10 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'accounts' && <AccountsTab token={token} pin={pin} onFail={fail} />}
             {tab === 'loyalty' && <LoyaltyReport token={token} pin={pin} onFail={fail} />}
             {tab === 'giftcards' && <GiftCardsReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'insights' && <Insights token={token} pin={pin} onFail={fail} />}
+            {tab === 'campaigns' && <CampaignsTab token={token} pin={pin} draft={draft} set={set} companyName={companyName} onFail={fail} />}
+            {tab === 'apps' && <AppsTab token={token} pin={pin} draft={draft} set={set} onFail={fail} />}
+            {tab === 'kiosk' && <KioskTab draft={draft} set={set} paystackReady={!!data.choices.paystack} />}
             {tab === 'menu' && <MenuTab token={token} pin={pin} onFail={fail} />}
             {tab === 'stock' && <StockTab token={token} pin={pin} onFail={fail} />}
             {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
@@ -440,7 +451,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
               {dirty && <span className="ts-dirty">{tr('Unsaved changes')}</span>}
               <button type="button" className="btn btn-secondary" onClick={close} disabled={busy}>{tr('Close')}</button>
               {/* Reports, the menu, the stock and the kitchen screens save as they go. */}
-              {(dirty || (group === 'setup' && tab !== 'screens')) && <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? tr('Saving…') : tr('Save changes')}</button>}
+              {(dirty || (group === 'setup' && tab !== 'screens') || tab === 'campaigns') && <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? tr('Saving…') : tr('Save changes')}</button>}
             </div>
           </>
         )}

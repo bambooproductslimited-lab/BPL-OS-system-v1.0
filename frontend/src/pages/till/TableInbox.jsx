@@ -9,6 +9,9 @@ import { tr } from '../../lib/i18n.jsx';
 // waiter or the bill, answered with "On my way" (the bill also opens the
 // table's order on the till, to charge it). The till asks for it every few
 // seconds and rings when something new comes (RestaurantPosPage).
+// Orders from the self-order kiosk wait here too (K-0012; backend
+// restaurantKiosk): eaten here or taken away, paid on the kiosk or at the
+// counter; accepted, they open as their own order and go to the kitchen.
 
 const REASONS = [() => tr('A dish is sold out'), () => tr('The kitchen is closing'), () => tr('A waiter will come and take it')];
 
@@ -17,15 +20,17 @@ function OrderCard({ o, token, waiters, requireWaiter, canSend, onDone, onError 
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [waiterId, setWaiterId] = useState('');
-  const needsWaiter = requireWaiter && !o.hasOpenOrder;
+  const kiosk = o.kind === 'kiosk';
+  const needsWaiter = requireWaiter && !o.hasOpenOrder && !kiosk;
   async function run(path, body, text) {
     setBusy(true);
     try { await posFetch('POST', '/pos/table-orders/' + o.id + path, token, body); onDone(text); } catch (e) { onError(e); } finally { setBusy(false); }
   }
   return (
-    <article className={'tq-card' + (o.waitingMinutes >= 3 ? ' is-late' : '')}>
+    <article className={'tq-card' + (o.waitingMinutes >= 3 ? ' is-late' : '') + (kiosk ? ' is-kiosk' : '')}>
       <header>
-        <span className="tq-table"><span aria-hidden="true">🪑</span>{o.tableName}</span>
+        {kiosk ? <span className="tq-table is-kiosk"><span aria-hidden="true">🖥️</span>{o.kioskName || tr('Kiosk')}</span>
+          : <span className="tq-table"><span aria-hidden="true">🪑</span>{o.tableName}</span>}
         <span className="tq-ref">{o.ref}{o.name ? ' · ' + o.name : ''}</span>
         <span className="tq-wait">{o.waitingMinutes < 1 ? tr('just now') : tr('waiting {n} min', { n: o.waitingMinutes })}</span>
       </header>
@@ -33,8 +38,14 @@ function OrderCard({ o, token, waiters, requireWaiter, canSend, onDone, onError 
         {o.items.map((l, i) => <li key={i}><b>{l.qty}×</b><span>{l.name}{l.note && <em>{l.note}</em>}</span><i>{money(l.lineTotal)}</i></li>)}
       </ul>
       {o.note && <p className="tq-note">✎ {o.note}</p>}
+      {kiosk && (
+        <div className="tq-tags">
+          <span className={'tq-tag is-' + (o.dining || 'away')}>{o.dining === 'here' ? '🍽️ ' + tr('Eat here') : '🥡 ' + tr('Take away')}</span>
+          <span className={'tq-tag' + (o.paid ? ' is-paid' : ' is-due')}>{o.paid ? '✓ ' + tr('Paid on the kiosk') : '💵 ' + tr('Pays at the counter')}</span>
+        </div>
+      )}
       <div className="tq-sum">
-        <span>{o.hasOpenOrder ? tr('Added to the table\'s open order{waiter}', { waiter: o.waiterName ? ' · ' + o.waiterName : '' }) : tr('A new order for this table')}</span>
+        <span>{kiosk ? tr('Its own order, called by its number') : o.hasOpenOrder ? tr('Added to the table\'s open order{waiter}', { waiter: o.waiterName ? ' · ' + o.waiterName : '' }) : tr('A new order for this table')}</span>
         <strong>{money(o.subtotal)}</strong>
       </div>
       {!rejecting ? (
@@ -46,7 +57,7 @@ function OrderCard({ o, token, waiters, requireWaiter, canSend, onDone, onError 
             </select>
           )}
           <button type="button" className="btn btn-primary" disabled={busy || !canSend || (needsWaiter && !waiterId)}
-            onClick={() => run('/accept', { waiterId: waiterId || undefined }, tr('{ref} from {table} is in the kitchen.', { ref: o.ref, table: o.tableName }))}>
+            onClick={() => run('/accept', { waiterId: waiterId || undefined }, kiosk ? tr('{ref} from the kiosk is in the kitchen.', { ref: o.ref }) : tr('{ref} from {table} is in the kitchen.', { ref: o.ref, table: o.tableName }))}>
             {busy ? tr('Sending…') : '✓ ' + tr('Accept · to the kitchen')}
           </button>
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setRejecting(true)}>{tr('Turn down')}</button>
@@ -83,7 +94,7 @@ export default function TableInbox({ token, box, waiters, canSend, onClose, onCh
       <div className="dialog tl-dialog tq-inbox" role="dialog" aria-modal="true" aria-labelledby="tq-title" onClick={(e) => e.stopPropagation()}>
         <div className="tq-head">
           <span className="tl-dialog-ico is-qr" aria-hidden="true">📱</span>
-          <div><h2 id="tq-title">{tr('From the tables')}</h2>
+          <div><h2 id="tq-title">{box.orders.some((o) => o.kind === 'kiosk') ? tr('From the tables and the kiosk') : tr('From the tables')}</h2>
             <p className="dk-muted">{box.settings && box.settings.straightToKitchen ? tr('Orders from the QR codes go straight to the kitchen; tables with no waiter yet wait here.') : tr('Orders from the QR codes wait here to be accepted.')}</p></div>
         </div>
         {box.calls.length > 0 && (

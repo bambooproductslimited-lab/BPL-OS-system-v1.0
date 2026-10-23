@@ -27,7 +27,9 @@ var front = require('./restaurantTillFront.service');
 // Ways of paying (Alipay and WeChat Pay since migration 0157), and the
 // foreign money the till can take at the manager's rate (cedis for one).
 // "Other" was taken off the till (old sales paid that way keep their name).
-var TILL_METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou'];
+var TILL_METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'card'];
+// New ways of paying that start off (a card needs a terminal first).
+var OFF_AT_FIRST = ['card'];
 // What the till offered before Alipay and WeChat: settings saved then
 // did not choose about these, so they are on.
 var OLD_METHODS = ['cash', 'mobile_money', 'vip', 'iou', 'other'];
@@ -55,7 +57,7 @@ var DISCOUNT_KINDS = ['percent', 'amount'];
 var DEFAULTS = {
   defaultRole: 'cashier',
   roles: ROLE_DEFAULTS,
-  paymentMethods: TILL_METHODS.slice(),
+  paymentMethods: TILL_METHODS.filter(function (m) { return OFF_AT_FIRST.indexOf(m) < 0; }),
   currencies: { USD: { on: false, rate: 0 }, CNY: { on: false, rate: 0 } },
   ratesSetAt: null,
   ratesSetBy: null,
@@ -88,7 +90,11 @@ var DEFAULTS = {
   tips: front.DEFAULTS.tips,
   readyText: front.DEFAULTS.readyText,
   loyalty: front.DEFAULTS.loyalty,
-  giftCards: front.DEFAULTS.giftCards
+  giftCards: front.DEFAULTS.giftCards,
+  campaigns: front.DEFAULTS.campaigns,
+  apps: front.DEFAULTS.apps,
+  kiosk: front.DEFAULTS.kiosk,
+  card: front.DEFAULTS.card
 };
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
@@ -125,7 +131,7 @@ function merged(stored) {
   });
   if (Array.isArray(s.paymentMethods)) {
     var known = Array.isArray(s.knownMethods) ? s.knownMethods : OLD_METHODS;
-    var pm = TILL_METHODS.filter(function (m) { return s.paymentMethods.indexOf(m) >= 0 || known.indexOf(m) < 0; });
+    var pm = TILL_METHODS.filter(function (m) { return s.paymentMethods.indexOf(m) >= 0 || (known.indexOf(m) < 0 && OFF_AT_FIRST.indexOf(m) < 0); });
     if (pm.length) out.paymentMethods = pm;
   }
   if (s.currencies) {
@@ -220,7 +226,9 @@ async function profile(token) {
       idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen,
       discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax,
       courses: a.settings.courses, hours: a.settings.hours, happyHours: a.settings.happyHours,
-      tips: a.settings.tips, giftCards: a.settings.giftCards, loyalty: a.settings.loyalty, readyText: { on: a.settings.readyText.on }
+      tips: a.settings.tips, giftCards: a.settings.giftCards, loyalty: a.settings.loyalty, readyText: { on: a.settings.readyText.on },
+      apps: a.settings.apps, kiosk: { on: a.settings.kiosk.on },
+      card: { terminals: a.settings.card.terminals, paystack: a.settings.card.paystack && require('../config').paystack.configured }
     }
   };
 }
@@ -326,7 +334,9 @@ async function categoriesOf(companyId, db) {
 function settingsOut(settings, staff, companyId, tables) {
   return {
     companyId: companyId, settings: settings, staff: staff, tables: tables || [],
-    choices: { roles: ROLES, editableRoles: EDITABLE_ROLES, permissions: PERMISSIONS, managerCan: PERMISSIONS, paymentMethods: TILL_METHODS, currencies: CURRENCIES, idleMinutes: IDLE_CHOICES, fulfillments: FULFILLMENTS }
+    choices: { roles: ROLES, editableRoles: EDITABLE_ROLES, permissions: PERMISSIONS, managerCan: PERMISSIONS, paymentMethods: TILL_METHODS, currencies: CURRENCIES, idleMinutes: IDLE_CHOICES, fulfillments: FULFILLMENTS,
+      // What the server has set up: Paystack's key (cards and Mobile Money paid by phone), texts (mNotify) and email.
+      paystack: require('../config').paystack.configured, sms: require('./sms.service').configured(), email: require('./mail.service').configured() }
   };
 }
 

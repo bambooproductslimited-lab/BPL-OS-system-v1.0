@@ -31,6 +31,8 @@ import RestaurantCrmPage from './pages/RestaurantCrmPage';
 import RestaurantPosPage from './pages/RestaurantPosPage';
 import KdsPage from './pages/KdsPage';
 import CustomerDisplay from './pages/CustomerDisplay';
+import SelfOrderPage from './pages/SelfOrderPage';
+import OwnerPage from './pages/OwnerPage';
 import ProductionPage from './pages/ProductionPage';
 import ProcurementPage from './pages/ProcurementPage';
 import ApprovalsPage from './pages/ApprovalsPage';
@@ -100,7 +102,7 @@ const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: WorkOrdersPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
-  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
+  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, owner: OwnerPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, expensesheets: ExpenseSheetsPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
@@ -132,6 +134,7 @@ export default function App() {
       <Route path="/pos" element={<RestaurantPosPage />} />
       <Route path="/kds" element={<KdsPage />} />
       <Route path="/customer-display" element={<CustomerDisplay />} />
+      <Route path="/self-order" element={<SelfOrderPage />} />
       <Route path="/delivery/*" element={<Suspense fallback={null}><DeliverySite /></Suspense>} />
       <Route path="/share/:token" element={<SharePage />} />
       <Route path="/meet/:token" element={<MeetPage />} />

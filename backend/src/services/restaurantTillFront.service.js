@@ -5,8 +5,16 @@ var { fail } = require('../utils/errors');
 // ready" texts, loyalty points and gift cards. Each starts off.
 
 var TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+var TIME_END = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/; // the hours texts may go out end at 24:00 at the latest
 var STEPS = [15, 30, 60];
 var READY_TEXT = 'Hi {name}, your order {number} at {restaurant} is ready. Come and pick it up at the counter.';
+// The automatic texts and emails (restaurantCampaigns): {name}, {restaurant}
+// and {points} are filled in; every one ends with the way to stop them.
+var LAPSED_TEXT = 'Hi {name}, we miss you at {restaurant}! Come and see us this week.';
+var BIRTHDAY_TEXT = 'Happy birthday, {name}! Everyone at {restaurant} wishes you a wonderful day. Come and celebrate with us.';
+var WELCOME_TEXT = 'Thank you for coming to {restaurant}, {name}. We hope to see you again soon!';
+var APP_KEY = /^[a-z0-9-]{2,24}$/;
+var CHANNELS = ['sms', 'email', 'both'];
 
 var DEFAULTS = {
   // Bookings (restaurantBookings): asked for on the website (online), every
@@ -24,7 +32,32 @@ var DEFAULTS = {
   loyalty: { on: false, spend: 10, rewards: [] },
   // Gift cards sold at the till and taken as a way of paying; the amounts
   // offered first.
-  giftCards: { on: false, amounts: [50, 100, 200, 500] }
+  giftCards: { on: false, amounts: [50, 100, 200, 500] },
+  // Texts and emails to guests (restaurantCampaigns): the automatic ones,
+  // at most one marketing message a guest every perGuestDays, dailyMax a
+  // day, sent only between from and to; onlyAgreed: only to guests who
+  // said yes (else to all who have not said no).
+  campaigns: {
+    lapsed: { on: false, days: 30, channel: 'sms', message: LAPSED_TEXT },
+    birthday: { on: false, channel: 'sms', message: BIRTHDAY_TEXT },
+    welcome: { on: false, channel: 'sms', message: WELCOME_TEXT },
+    perGuestDays: 7, dailyMax: 300, from: '09:00', to: '20:00', onlyAgreed: false
+  },
+  // Delivery apps (restaurantApps): each app's prices on top of the menu's
+  // (markup %) and what it keeps (commission %).
+  apps: { list: [
+    { key: 'bolt', name: 'Bolt Food', on: false, markup: 0, commission: 22 },
+    { key: 'glovo', name: 'Glovo', on: false, markup: 0, commission: 25 }
+  ] },
+  // The self-order kiosk (restaurantKiosk): taking orders at all, straight
+  // to the kitchen (else when the cashier takes them), paid on the kiosk
+  // through Paystack (when the server has its key), back to the start
+  // after idleSeconds untouched, and its welcome line.
+  kiosk: { on: false, straightToKitchen: false, payHere: false, idleSeconds: 90, welcome: 'Order here, then pay at the counter.' },
+  // Cards: the terminals the till takes them on (their names, for the
+  // reconciliation), and card and Mobile Money paid by the customer's phone
+  // through Paystack (a QR code on the till).
+  card: { terminals: ['Card terminal'], paystack: false }
 };
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function num(v) { return Math.round(Number(v) * 100) / 100; }
@@ -59,6 +92,35 @@ function merge(out, s) {
   if (s.giftCards && typeof s.giftCards === 'object') {
     if (typeof s.giftCards.on === 'boolean') out.giftCards.on = s.giftCards.on;
     if (Array.isArray(s.giftCards.amounts)) { var a = s.giftCards.amounts.map(num).filter(function (x) { return x > 0 && x <= 100000; }).slice(0, 6); if (a.length) out.giftCards.amounts = a; }
+  }
+  var c = s.campaigns;
+  if (c && typeof c === 'object') {
+    ['lapsed', 'birthday', 'welcome'].forEach(function (k) {
+      var x = c[k];
+      if (!x || typeof x !== 'object') return;
+      if (typeof x.on === 'boolean') out.campaigns[k].on = x.on;
+      if (CHANNELS.indexOf(x.channel) >= 0) out.campaigns[k].channel = x.channel;
+      if (typeof x.message === 'string' && x.message.trim()) out.campaigns[k].message = x.message;
+      if (k === 'lapsed' && Number(x.days) >= 7 && Number(x.days) <= 365) out.campaigns.lapsed.days = Math.round(Number(x.days));
+    });
+    if (Number(c.perGuestDays) >= 0 && Number(c.perGuestDays) <= 60) out.campaigns.perGuestDays = Math.round(Number(c.perGuestDays));
+    if (Number(c.dailyMax) >= 1 && Number(c.dailyMax) <= 5000) out.campaigns.dailyMax = Math.round(Number(c.dailyMax));
+    if (TIME.test(c.from || '') && TIME_END.test(c.to || '') && c.from < c.to) { out.campaigns.from = c.from; out.campaigns.to = c.to; }
+    if (typeof c.onlyAgreed === 'boolean') out.campaigns.onlyAgreed = c.onlyAgreed;
+  }
+  if (s.apps && Array.isArray(s.apps.list)) {
+    var apps = s.apps.list.filter(function (a) { return a && APP_KEY.test(String(a.key || '')) && String(a.name || '').trim(); }).slice(0, 6)
+      .map(function (a) { return { key: a.key, name: String(a.name).trim().slice(0, 40), on: !!a.on, markup: Math.max(0, Math.min(100, num(a.markup) || 0)), commission: Math.max(0, Math.min(60, num(a.commission) || 0)) }; });
+    if (apps.length) out.apps.list = apps;
+  }
+  if (s.kiosk && typeof s.kiosk === 'object') {
+    ['on', 'straightToKitchen', 'payHere'].forEach(function (k) { if (typeof s.kiosk[k] === 'boolean') out.kiosk[k] = s.kiosk[k]; });
+    if (Number(s.kiosk.idleSeconds) >= 30 && Number(s.kiosk.idleSeconds) <= 600) out.kiosk.idleSeconds = Math.round(Number(s.kiosk.idleSeconds));
+    if (typeof s.kiosk.welcome === 'string' && s.kiosk.welcome.trim()) out.kiosk.welcome = s.kiosk.welcome.slice(0, 120);
+  }
+  if (s.card && typeof s.card === 'object') {
+    if (Array.isArray(s.card.terminals)) { var t = s.card.terminals.map(function (x) { return String(x || '').trim().slice(0, 40); }).filter(Boolean).slice(0, 6); if (t.length) out.card.terminals = t; }
+    if (typeof s.card.paystack === 'boolean') out.card.paystack = s.card.paystack;
   }
   return out;
 }
@@ -111,6 +173,67 @@ function clean(out, p, text) {
     var amounts = Array.isArray(p.giftCards.amounts) ? p.giftCards.amounts.map(num).filter(function (x) { return x > 0 && x <= 100000; }).slice(0, 6) : [];
     out.giftCards = { on: !!p.giftCards.on, amounts: amounts.length ? amounts : out.giftCards.amounts };
   }
+  if (p.campaigns) {
+    var c = p.campaigns, cc = clone(out.campaigns);
+    ['lapsed', 'birthday', 'welcome'].forEach(function (k) {
+      var x = c[k];
+      if (!x) return;
+      var label = { lapsed: 'We miss you', birthday: 'Happy birthday', welcome: 'Thank you for coming' }[k];
+      if (CHANNELS.indexOf(x.channel) < 0) fail('invalid', label + ': by text, by email or both?');
+      var message = text(x.message, 480);
+      if (x.on && message.length < 10) fail('invalid', label + ': write the message.');
+      cc[k] = { on: !!x.on, channel: x.channel, message: message || cc[k].message };
+      if (k === 'lapsed') {
+        var days = Math.round(Number(x.days));
+        if (!(days >= 7 && days <= 365)) fail('invalid', 'We miss you: after 7 to 365 days without a visit.');
+        cc.lapsed.days = days;
+      }
+    });
+    if (c.perGuestDays !== undefined) {
+      var gap = Math.round(Number(c.perGuestDays));
+      if (!(gap >= 0 && gap <= 60)) fail('invalid', 'Texts and emails: from 0 to 60 days between two to the same guest.');
+      cc.perGuestDays = gap;
+    }
+    if (c.dailyMax !== undefined) {
+      var max = Math.round(Number(c.dailyMax));
+      if (!(max >= 1 && max <= 5000)) fail('invalid', 'Texts and emails: from 1 to 5,000 a day.');
+      cc.dailyMax = max;
+    }
+    if (c.from !== undefined || c.to !== undefined) {
+      if (!TIME.test(c.from || '') || !TIME_END.test(c.to || '') || !(c.from < c.to)) fail('invalid', 'Texts and emails: give the hours they may go out as HH:MM, the first before the last.');
+      cc.from = c.from; cc.to = c.to;
+    }
+    if (c.onlyAgreed !== undefined) cc.onlyAgreed = !!c.onlyAgreed;
+    out.campaigns = cc;
+  }
+  if (p.apps) {
+    var list = Array.isArray(p.apps.list) ? p.apps.list : [];
+    if (list.length > 6) fail('invalid', 'Delivery apps: keep at most 6.');
+    var seen = {};
+    out.apps = { list: list.map(function (a) {
+      a = a || {};
+      var name = text(a.name, 40);
+      if (!name) fail('invalid', 'Delivery apps: give each app its name, e.g. Bolt Food.');
+      var key = APP_KEY.test(String(a.key || '')) ? a.key : name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'app';
+      if (seen[key]) fail('invalid', 'Delivery apps: ' + name + ' is there twice.');
+      seen[key] = true;
+      var markup = num(a.markup || 0), commission = num(a.commission || 0);
+      if (!(markup >= 0 && markup <= 100)) fail('invalid', name + ': its prices from 0% to 100% above the menu\'s.');
+      if (!(commission >= 0 && commission <= 60)) fail('invalid', name + ': what it keeps, from 0% to 60%.');
+      return { key: key, name: name, on: !!a.on, markup: markup, commission: commission };
+    }) };
+  }
+  if (p.kiosk) {
+    var k = p.kiosk;
+    var idle = Math.round(Number(k.idleSeconds === undefined ? out.kiosk.idleSeconds : k.idleSeconds));
+    if (!(idle >= 30 && idle <= 600)) fail('invalid', 'The kiosk: back to the start after 30 to 600 seconds.');
+    out.kiosk = { on: !!k.on, straightToKitchen: !!k.straightToKitchen, payHere: !!k.payHere, idleSeconds: idle, welcome: text(k.welcome, 120) || out.kiosk.welcome };
+  }
+  if (p.card) {
+    var terminals = Array.isArray(p.card.terminals) ? p.card.terminals.map(function (x) { return text(x, 40); }).filter(Boolean) : [];
+    if (terminals.length > 6) fail('invalid', 'Cards: at most 6 terminals.');
+    out.card = { terminals: terminals.length ? terminals : out.card.terminals, paystack: !!p.card.paystack };
+  }
   return out;
 }
 
@@ -123,4 +246,4 @@ function rewardPresets(settings) {
   return (l.rewards || []).map(function (r) { return { id: 'loyalty:' + r.id, name: r.name, kind: r.kind, value: r.value, open: true, loyalty: { id: r.id, points: r.points } }; });
 }
 
-module.exports = { DEFAULTS: DEFAULTS, rewardPresets: rewardPresets, READY_TEXT: READY_TEXT, defaults: function () { return clone(DEFAULTS); }, merge: merge, clean: clean, TIME: TIME };
+module.exports = { DEFAULTS: DEFAULTS, rewardPresets: rewardPresets, READY_TEXT: READY_TEXT, LAPSED_TEXT: LAPSED_TEXT, defaults: function () { return clone(DEFAULTS); }, merge: merge, clean: clean, TIME: TIME };

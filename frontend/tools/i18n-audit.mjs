@@ -51,7 +51,7 @@ const SAME_IN_EVERY_LANGUAGE = new Set([
   'Bambusa vulgaris', 'TR-001',
   'WhatsApp: 0591933925', 'www.bplghana.com', 'name@bplghana.com',
   'WhatsApp', 'TikTok', 'YouTube', 'Twitch', 'Facebook', 'Instagram', 'LinkedIn', 'Google', 'Square',
-  'GHS', 'USD', 'EUR', 'PDF', 'CSV', 'PIN', 'OK', 'SKU', 'SWIFT', 'SSNIT', 'PAYE', 'kWh, m³'
+  'GHS', 'USD', 'EUR', 'PDF', 'CSV', 'XLSX', 'PIN', 'OK', 'SKU', 'SWIFT', 'SSNIT', 'PAYE', 'kWh, m³', 'Paystack', 'name@example.com'
 ]);
 
 // Files whose English is deliberate. The thermal printer is sent Latin-1

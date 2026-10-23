@@ -247,6 +247,21 @@ module.exports = {
       get configured() { return !!(this.apiKey && this.senderId); }
     };
   }()),
+  // Card and Mobile Money paid by the customer's phone (a QR code on the
+  // till) or on the self-order kiosk, through Paystack (paystack.com): the
+  // secret key from Paystack's Settings → API Keys & Webhooks (live or
+  // test), set on the server only. Paystack asks for an email with each
+  // payment: PAYSTACK_EMAIL, the restaurant's (else payments@ the ordering
+  // website's domain). Its webhook URL is <the API>/api/pos/paystack/webhook.
+  paystack: (function () {
+    var secretKey = (process.env.PAYSTACK_SECRET_KEY || '').trim();
+    return {
+      secretKey: secretKey,
+      email: (process.env.PAYSTACK_EMAIL || '').trim(),
+      baseUrl: (process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co').replace(/\/+$/, ''),
+      get configured() { return !!this.secretKey; }
+    };
+  }()),
   // Voice and video calls (services/calls.service.js) go through LiveKit, a
   // calling service: LiveKit Cloud (livekit.io, a free tier) or a LiveKit
   // server of our own. From the project's Settings → Keys: the WebSocket URL

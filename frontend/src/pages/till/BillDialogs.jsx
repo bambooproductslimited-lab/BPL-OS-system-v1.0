@@ -118,7 +118,7 @@ export function AddOnsDialog({ item, variation, base, picked, qty: qty0, editing
 }
 
 // A manager's PIN, for one thing the person signed in may not do alone.
-function ManagerPin({ busy, error, onPin }) {
+export function ManagerPin({ busy, error, onPin }) {
   const [pin, setPin] = useState('');
   return (
     <div className="tl-mgr">

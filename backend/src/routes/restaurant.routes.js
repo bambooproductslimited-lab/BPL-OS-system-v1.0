@@ -48,6 +48,13 @@ router.get('/export/:kind', async function (req, res, next) {
     else res.status(404).json({ error: { code: 'notfound', message: 'Not found.' } });
   } catch (e) { next(e); }
 });
+// The owner's phone (/owner): every restaurant today against last week, and now.
+router.get('/owner', async function (req, res, next) {
+  try {
+    var ids = (await restaurantOverviewService.companies(req.ctx)).map(function (c) { return c.id; });
+    res.json(await require('../services/restaurantTillInsights.service').owner(ids));
+  } catch (e) { next(e); }
+});
 router.get('/menu-items', async function (req, res, next) {
   try { res.json(await restaurantService.listMenuItems(req.ctx, req.query.companyId)); } catch (e) { next(e); }
 });
