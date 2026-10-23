@@ -103,7 +103,9 @@ function planPayments(session, total, list, opts) {
       }
       rate = cur.rate;
     }
-    var amount = list.length === 1 && (p.amount === undefined || p.amount === null || p.amount === '') ? total : round2(p.amount);
+    // No amount given: all of it (one way of paying), or what was paid through Paystack.
+    var blank = p.amount === undefined || p.amount === null || p.amount === '';
+    var amount = blank && ps ? round2(ps.amount) : list.length === 1 && blank ? total : round2(p.amount);
     if (!(amount > 0)) fail('invalid', 'Each part of the bill needs an amount.');
     var foreign = currency === 'GHS' ? null : round2(amount / rate);
     var card = null;

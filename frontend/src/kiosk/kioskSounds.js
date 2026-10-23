@@ -67,3 +67,9 @@ export function playWrongPin() {
 export function playNewTicket() {
   playSequence([[1046.5, 0.1, 0.05], [1318.5, 0.1, 0.05], [1568, 0.22, 0]], 'triangle');
 }
+
+// The ready-for-pickup board (pages/ReadyBoardPage.jsx) and the kitchen
+// expo's hand-over: a warm "ding-dong", an order is ready.
+export function playOrderReady() {
+  playSequence([[1174.7, 0.22, 0.04], [880, 0.42, 0]], 'sine');
+}

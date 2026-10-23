@@ -359,7 +359,8 @@ test('Paystack: a QR code on the till, paid on the customer\'s phone, used by on
   // Mobile Money through Paystack is Mobile Money; the amount must match the bill.
   var momo = await paystack.start(tok.ama, { amount: 50 });
   await paid(momo.reference, { channel: 'mobile_money' });
-  await assert.rejects(pos.createOrder(tok.ama, Object.assign({ payments: [{ paystackRef: momo.reference }] }, order)), /was for 50.00, not 70.00/);
+  await assert.rejects(pos.createOrder(tok.ama, Object.assign({ payments: [{ paystackRef: momo.reference }] }, order)), /add up to 50.00; the bill is 70.00/);
+  await assert.rejects(pos.createOrder(tok.ama, Object.assign({ payments: [{ paystackRef: momo.reference, amount: 70 }] }, order)), /was for 50.00, not 70.00/);
   var s2 = await pos.createOrder(tok.ama, Object.assign({}, order, { items: [{ menuItemId: rice, qty: 1 }], payments: [{ paystackRef: momo.reference }] }));
   assert.equal(s2.paymentMethod, 'mobile_money');
   // Paid less than asked: no good.

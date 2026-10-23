@@ -1,11 +1,14 @@
 import { money } from '../../lib/currency';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
+import './fifth.css';
 
 // The guests' side of the till in the settings (TillSettings.jsx, "Bookings,
 // tips and rewards"; backend restaurantTillFront clean): bookings and the
 // website's booking page, tips on the pay screen and the customer's screen,
 // the "your food is ready" text, loyalty points and their rewards, gift
-// cards. Each starts off.
+// cards, guests' feedback from their receipt. Each starts off (but the
+// feedback). Tips are shared out as the till says (tips.pool: to whoever
+// served, by sale, or by hours; backend restaurantTips).
 
 function newId() { return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'r-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -20,12 +23,18 @@ function Toggle({ on, title, note, onChange }) {
   );
 }
 
+const POOL = [['direct', '🙋', () => tr('To whoever served'), () => tr('The table\'s waiter, else the cashier, keeps the tip.')],
+  ['sale', '🧾', () => tr('By sale'), () => tr('Each tip shared equally by the team clocked in when it was paid.')],
+  ['hours', '⏱️', () => tr('By hours'), () => tr('Each day\'s tips shared by the hours each person worked that day.')]];
+const POOL_ROLES = [['waiter', () => tr('Waiters')], ['cashier', () => tr('Cashiers')], ['kitchen', () => tr('Kitchen')], ['manager', () => tr('Managers')]];
+
 export default function GuestSettings({ draft, set, companyName }) {
   const b = draft.bookings;
   const tips = draft.tips;
   const rt = draft.readyText;
   const lo = draft.loyalty;
   const gc = draft.giftCards;
+  const fb = draft.feedback;
   const setB = (patch) => set(['bookings'], { ...b, ...patch });
   const setLo = (patch) => set(['loyalty'], { ...lo, ...patch });
   function setReward(i, patch) { setLo({ rewards: lo.rewards.map((r, j) => (j === i ? { ...r, ...patch } : r)) }); }
@@ -83,6 +92,43 @@ export default function GuestSettings({ draft, set, companyName }) {
               </label>
             ))}
             <small className="dk-muted">{tr('On a bill of {amount}: {list}', { amount: money(100), list: tips.percents.map((p) => money(p)).join(' · ') })}</small>
+          </div>
+        )}
+        {tips.on && (
+          <div className="ts-pool">
+            <span className="ts-label">{tr('Shared how?')}</span>
+            <div className="ts-pool-ways" role="radiogroup" aria-label={tr('Shared how?')}>
+              {POOL.map(([k, art, label, note]) => (
+                <button key={k} type="button" role="radio" aria-checked={tips.pool.method === k} className={tips.pool.method === k ? 'is-on' : ''}
+                  onClick={() => set(['tips', 'pool'], { ...tips.pool, method: k, roles: tips.pool.roles.length ? tips.pool.roles : ['waiter', 'cashier'] })}>
+                  <span aria-hidden="true">{art}</span><strong>{label()}</strong><small>{note()}</small>
+                </button>
+              ))}
+            </div>
+            {tips.pool.method !== 'direct' && (
+              <div className="field"><label>{tr('Who shares them')}</label>
+                <div className="ts-chips">
+                  {POOL_ROLES.map(([r, label]) => {
+                    const on = tips.pool.roles.includes(r);
+                    return <button key={r} type="button" className={'ts-chip' + (on ? ' is-on' : '')} aria-pressed={on}
+                      onClick={() => set(['tips', 'pool', 'roles'], on ? tips.pool.roles.filter((x) => x !== r) : tips.pool.roles.concat([r]))}>{label()}</button>;
+                  })}
+                </div>
+                <small className="dk-muted">{tr('By their role on the till; their hours come from clocking in. Nobody clocked in: the tip goes to whoever served.')}</small>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="ts-bill-block">
+        <h3><span aria-hidden="true">😊</span>{tr('Guests\' feedback')}</h3>
+        <Toggle on={fb.on} title={tr('Ask how it was, on the receipt')} note={tr('The receipt link (WhatsApp, text or the QR code on the printed receipt) asks for a face from 1 to 5, what was good, and a comment. Unhappy ones wait for a manager to follow up.')}
+          onChange={(v) => set(['feedback'], { ...fb, on: v })} />
+        {fb.on && (
+          <div className="field"><label htmlFor="gs-review">{tr('Your review page (optional)')}</label>
+            <input id="gs-review" className="input" type="url" inputMode="url" maxLength={300} value={fb.reviewUrl} onChange={(e) => set(['feedback', 'reviewUrl'], e.target.value.trim())} placeholder="https://g.page/r/…" />
+            <small className="dk-muted">{tr('Happy guests (4 or 5) are asked to leave a review there, on Google for example.')}</small>
           </div>
         )}
       </div>

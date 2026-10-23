@@ -94,7 +94,9 @@ var DEFAULTS = {
   campaigns: front.DEFAULTS.campaigns,
   apps: front.DEFAULTS.apps,
   kiosk: front.DEFAULTS.kiosk,
-  card: front.DEFAULTS.card
+  card: front.DEFAULTS.card,
+  tablePay: front.DEFAULTS.tablePay,
+  feedback: front.DEFAULTS.feedback
 };
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
@@ -226,9 +228,10 @@ async function profile(token) {
       idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen,
       discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax,
       courses: a.settings.courses, hours: a.settings.hours, happyHours: a.settings.happyHours,
-      tips: a.settings.tips, giftCards: a.settings.giftCards, loyalty: a.settings.loyalty, readyText: { on: a.settings.readyText.on },
+      tips: { on: a.settings.tips.on, percents: a.settings.tips.percents }, giftCards: a.settings.giftCards, loyalty: a.settings.loyalty, readyText: { on: a.settings.readyText.on },
       apps: a.settings.apps, kiosk: { on: a.settings.kiosk.on },
-      card: { terminals: a.settings.card.terminals, paystack: a.settings.card.paystack && require('../config').paystack.configured }
+      card: { terminals: a.settings.card.terminals, paystack: a.settings.card.paystack && require('../config').paystack.configured },
+      tablePay: { on: a.settings.tablePay.on && require('../config').paystack.configured }
     }
   };
 }
@@ -684,5 +687,5 @@ module.exports = {
   settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
   settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, monthlyReport: monthlyReport, kitchenScreens: kitchenScreens,
-  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock
+  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, staffOf: staffOf
 };

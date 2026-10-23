@@ -16,6 +16,7 @@ function gifts() { return require('./restaurantGiftCards.service'); }
 function loyalty() { return require('./restaurantLoyalty.service'); }
 function apps() { return require('./restaurantApps.service'); }
 function paystack() { return require('./restaurantPaystack.service'); }
+function costs() { return require('./restaurantCosts.service'); }
 var tillMenu = require('./restaurantTillMenu.service');
 var check = require('./restaurantTillCheck.service');
 var times = require('./restaurantTillTimes.service');
@@ -657,16 +658,19 @@ async function chargeOrder(session, p, clientRef) {
     );
     var order = orderRes.rows[0];
     if (psRefs.length) await paystack().markUsed(client, psRefs, order.id);
+    // What each line cost to make (restaurantCosts: its recipe, or a cost set by hand).
+    var lineCosts = await costs().forLines(client, session.posCompanyId, lines);
     for (var j = 0; j < lines.length; j++) {
       await client.query(
-        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross, note, custom, sort_order, modifiers, discount, discount_name, comp_reason, seat, course) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
+        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross, note, custom, sort_order, modifiers, discount, discount_name, comp_reason, seat, course, unit_cost) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
         [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal, lines[j].gross, lines[j].note || '', !!lines[j].custom, j,
           JSON.stringify(lines[j].modifiers || []), lines[j].discount || 0, lines[j].discountName || null, lines[j].compReason || null, lines[j].seat || null,
-          lines[j].course !== null && lines[j].course !== undefined ? lines[j].course : (tillSettings.courses.on ? times.courseOf(tillSettings, lines[j]) : null)]
+          lines[j].course !== null && lines[j].course !== undefined ? lines[j].course : (tillSettings.courses.on ? times.courseOf(tillSettings, lines[j]) : null), lineCosts[j].unitCost]
       );
     }
     await tillMenu.deductForSale(client, session.posCompanyId, order.id, session.posEmployeeId, lines);
+    await costs().drawDown(client, session.posCompanyId, order.id, session.posEmployeeId, lines, lineCosts);
     // Gift card parts off their cards (restaurantGiftCards), before the parts are kept with their card.
     await gifts().redeemForSale(client, session.posCompanyId, order, session.posEmployeeId, plan.rows);
     await money.savePayments(client, order.id, plan.rows);
@@ -829,7 +833,10 @@ async function tabRows(companyId, where, args) {
     // Paid on the self-order kiosk already (restaurantKiosk): the Paystack payment for the cashier to take.
     "  (SELECT json_build_object('ref', ps.reference, 'amount', ps.amount, 'channel', ps.channel) FROM restaurant_table_orders ko JOIN restaurant_paystack_payments ps ON ps.reference = ko.paystack_ref " +
     "     WHERE ko.tab_id = t.id AND ps.status = 'success' AND ps.used_by_order IS NULL LIMIT 1) AS kiosk_paid, " +
-    "  EXISTS (SELECT 1 FROM restaurant_table_orders kk WHERE kk.tab_id = t.id AND kk.kind = 'kiosk') AS from_kiosk " +
+    "  EXISTS (SELECT 1 FROM restaurant_table_orders kk WHERE kk.tab_id = t.id AND kk.kind = 'kiosk') AS from_kiosk, " +
+    // Paid by guests from the table (restaurantTablePay): for the cashier to take with the rest.
+    "  (SELECT json_agg(json_build_object('ref', tp.reference, 'amount', tp.amount, 'tip', tp.tip, 'payer', tp.payer, 'channel', tp.channel) ORDER BY tp.paid_at) FROM restaurant_paystack_payments tp " +
+    "     WHERE tp.tab_id = t.id AND tp.purpose = 'table' AND tp.status = 'success' AND tp.used_by_order IS NULL) AS table_paid " +
     'FROM restaurant_open_tabs t LEFT JOIN restaurant_tables rt ON rt.id = t.table_id LEFT JOIN restaurant_guests g ON g.id = t.guest_id ' +
     'LEFT JOIN employees we ON we.id = t.waiter_id LEFT JOIN employees oe ON oe.id = t.opened_by ' +
     'WHERE t.company_id = $1' + (where || '') + ' ORDER BY t.created_at', [companyId].concat(args || []));
@@ -858,6 +865,7 @@ async function tabRows(companyId, where, args) {
       openedBy: r.opened_by_name || null, createdAt: r.created_at, updatedAt: r.updated_at,
       lines: lines, total: total, bill: billOut(bill), adjust: r.adjust || {}, unavailable: gone, kitchen: null,
       paidOnKiosk: r.kiosk_paid ? { ref: r.kiosk_paid.ref, amount: Number(r.kiosk_paid.amount), channel: r.kiosk_paid.channel } : null, fromKiosk: !!r.from_kiosk,
+      paidAtTable: (r.table_paid || []).map(function (x) { return { ref: x.ref, amount: Number(x.amount), tip: Number(x.tip), payer: x.payer || '', channel: x.channel || '' }; }),
       guests: r.guests || null, allergy: r.allergy || null, firedCourse: r.fired_course || 0
     });
   }
@@ -1406,6 +1414,7 @@ async function voidOrder(ctx, id) {
     await kitchen.cancelForOrder(client, res.rows[0].company_id, id);
     await money.onVoid(client, res.rows[0]);
     await tillMenu.returnForVoid(client, res.rows[0]);
+    await costs().returnForVoid(client, res.rows[0]);
     return true;
   });
 }

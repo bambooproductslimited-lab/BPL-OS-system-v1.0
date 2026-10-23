@@ -169,13 +169,17 @@ export function CardSettings({ token, pin, draft, set, paystackReady, onFail }) 
         note={paystackReady ? tr('The till shows a QR code; the customer pays on their phone by card or Mobile Money, and the till moves on by itself. Paystack keeps its fee.')
           : tr('Not set up: an administrator adds the Paystack secret key (PAYSTACK_SECRET_KEY) on the server first.')}
         onChange={(v) => set(['card'], { ...c, paystack: v })} />
+      <Toggle on={draft.tablePay.on && paystackReady} disabled={!paystackReady} title={'🪑 ' + tr('Pay at the table')}
+        note={paystackReady ? tr('Guests scan the table\'s QR code, or the one on the printed bill, and pay all of it or their share, with a tip, by card or Mobile Money. The till closes the bill with it.')
+          : tr('Not set up: an administrator adds the Paystack secret key (PAYSTACK_SECRET_KEY) on the server first.')}
+        onChange={(v) => set(['tablePay'], { ...draft.tablePay, on: v })} />
       {paid && paid.payments.length > 0 && (
         <table className="ts-table ga-table">
           <thead><tr><th>{tr('Paid')}</th><th>{tr('How')}</th><th>{tr('Sale')}</th><th className="is-num">{tr('Amount')}</th><th className="is-num">{tr('Paystack fee')}</th></tr></thead>
           <tbody>
             {paid.payments.map((p) => (
               <tr key={p.reference}><td>{new Date(p.paidAt).toLocaleString(activeIntlLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                <td>{p.channel === 'mobile_money' ? tr('Mobile Money') : (p.cardBrand || tr('Card')) + (p.cardLast4 ? ' •••• ' + p.cardLast4 : '')}{p.purpose === 'kiosk' ? ' · ' + tr('Kiosk') : ''}</td>
+                <td>{p.channel === 'mobile_money' ? tr('Mobile Money') : (p.cardBrand || tr('Card')) + (p.cardLast4 ? ' •••• ' + p.cardLast4 : '')}{p.purpose === 'kiosk' ? ' · ' + tr('Kiosk') : p.purpose === 'table' ? ' · ' + tr('At the table') + (p.payer ? ' (' + p.payer + ')' : '') : ''}</td>
                 <td>{p.orderNo || <span className="dk-muted">{tr('not used yet')}</span>}</td><td className="is-num">{money(p.amount)}</td><td className="is-num">{p.fees != null ? money(p.fees) : '—'}</td></tr>
             ))}
           </tbody>

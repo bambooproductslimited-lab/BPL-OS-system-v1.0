@@ -58,3 +58,6 @@ export function useCustomerDisplay({ token, state }) {
   }, [paying, ref, displays.length, token, device, setTip]);
   return { device, displays, reload, tip };
 }
+
+// Where the ready-for-pickup board opens (till/ReadyBoards.jsx): /ready-board on either site.
+export function boardUrl() { return window.location.origin + '/ready-board'; }

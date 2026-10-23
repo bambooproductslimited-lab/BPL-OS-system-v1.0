@@ -57,11 +57,15 @@ function emailFor(code) {
 }
 
 function out(r) {
-  return { reference: r.reference, amount: round2(r.amount), status: r.status, url: r.url, channel: r.channel || '', cardBrand: r.card_brand || null, cardLast4: r.card_last4 || null, paidAt: r.paid_at || null, used: !!r.used_by_order };
+  return { reference: r.reference, amount: round2(r.amount), status: r.status, url: r.url, channel: r.channel || '', cardBrand: r.card_brand || null, cardLast4: r.card_last4 || null, paidAt: r.paid_at || null, used: !!r.used_by_order,
+    tip: round2(r.tip || 0), payer: r.payer || '' };
 }
 
 // Starts a payment of `amount` cedis for a restaurant: its page to pay on.
-async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callbackUrl) {
+// extra (paying at the table): { tabId, tip, payer } — the open order it is
+// for, the tip in it, and the payer's name.
+async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callbackUrl, extra) {
+  extra = extra || {};
   amount = round2(amount);
   if (!(amount >= 1 && amount <= 100000)) fail('invalid', 'A payment is from GHS 1 to GHS 100,000.');
   var co = (await pool.query('SELECT code FROM companies WHERE id = $1', [companyId])).rows[0];
@@ -72,8 +76,8 @@ async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callb
     metadata: { restaurant: co.code, purpose: purpose }
   });
   var row = (await pool.query(
-    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-    [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null])).rows[0];
+    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
+    [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null, extra.tabId || null, round2(extra.tip || 0), String(extra.payer || '').slice(0, 60)])).rows[0];
   return out(row);
 }
 

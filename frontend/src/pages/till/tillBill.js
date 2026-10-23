@@ -95,3 +95,12 @@ export const CARD_ENTRIES = [['tap', msg('Tap')], ['chip', msg('Chip')], ['swipe
 export function contactOf(g) {
   return { email: (g && g.email) || '', birthday: g && g.birthday ? String(g.birthday).slice(0, 10) : '', marketing: (g && g.marketing) || 'unknown' };
 }
+
+// What an open order was paid ahead through Paystack, for the pay screen
+// (PayDialog paidAhead): on the self-order kiosk, and by guests from the
+// table (their part of the bill, with any tip).
+export function paidAheadOf(tab) {
+  if (!tab) return [];
+  return (tab.paidOnKiosk ? [{ ref: tab.paidOnKiosk.ref, amount: tab.paidOnKiosk.amount, tip: 0, payer: '', channel: tab.paidOnKiosk.channel, from: 'kiosk' }] : [])
+    .concat((tab.paidAtTable || []).map((p) => ({ ref: p.ref, amount: p.amount, tip: p.tip || 0, payer: p.payer || '', channel: p.channel, from: 'table' })));
+}

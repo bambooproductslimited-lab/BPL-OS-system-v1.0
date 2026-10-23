@@ -22,7 +22,7 @@ import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
 import { CustomItemDialog, DeliveryDialog, DisputeDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
 import { AddOnsDialog, DiscountDialog } from './till/BillDialogs';
-import { billOf, contactOf, serviceWords, modsPrice, modsWords, withMarkup } from './till/tillBill';
+import { billOf, contactOf, serviceWords, modsPrice, modsWords, paidAheadOf, withMarkup } from './till/tillBill';
 import { ReceiptLines, ReceiptQr, SendReceipt } from './till/ReceiptParts';
 import MoveBill from './till/MoveBill';
 import { AllergyDialog, AllergyStrip, KitchenChits } from './till/ServiceParts';
@@ -30,6 +30,7 @@ import { allergenWords, categoryOpen, clashes, courseName, courseOf, happyFor, h
 import { StockTab } from './till/MenuStock';
 import PayInOutDialog from './till/PayInOutDialog';
 import TableInbox from './till/TableInbox';
+import TableBill from './till/TableBill';
 import OfflineQueue from './till/OfflineQueue';
 import Bookings from './till/Bookings';
 import GiftCards from './till/GiftCards';
@@ -37,6 +38,7 @@ import CustomerScreen from './till/CustomerScreen';
 import Rewards from './till/Rewards';
 import Downloads from './till/Downloads';
 import Kiosks from './till/Kiosks';
+import ReadyBoards from './till/ReadyBoards';
 import { AppBanner, AppPicker } from './till/AppOrder';
 import GuestContactDialog, { ContactFields } from './till/GuestContact';
 import { useCustomerDisplay } from './till/customerScreenLink';
@@ -343,12 +345,14 @@ export default function RestaurantPosPage() {
   const [rewardsOpen, setRewardsOpen] = useState(false);
   const [downloadsOpen, setDownloadsOpen] = useState(false); // till/Downloads.jsx: Square-format files
   const [kiosksOpen, setKiosksOpen] = useState(false); // till/Kiosks.jsx: pairing the self-order kiosk
+  const [boardsOpen, setBoardsOpen] = useState(false); // till/ReadyBoards.jsx: pairing the ready-for-pickup board
   const [appOrder, setAppOrder] = useState(null); // a delivery app's order being rung up (till/AppOrder.jsx)
   const [appPickOpen, setAppPickOpen] = useState(false);
   const [payInfo, setPayInfo] = useState(null); // the bill being paid and its tip, for the customer's screen
   const [deliveryPrompt, setDeliveryPrompt] = useState(null); // a delivery's food ready to go out
   const [tableBox, setTableBox] = useState(null); // what the tables ask for from their QR codes
   const [tableBoxOpen, setTableBoxOpen] = useState(false);
+  const [billOpen, setBillOpen] = useState(false); // a table's bill, with its QR code to pay from a phone
   const tableSeen = useRef(null);
   // Without the internet (till/tillOffline.js): the till keeps selling;
   // what it makes waits on this device (queued) until the server answers.
@@ -669,14 +673,19 @@ export default function RestaurantPosPage() {
   async function loadTableBox(token) {
     let b;
     try { b = await posFetch('GET', '/pos/table-orders', token || session.token); } catch { return; }
-    const ids = b.orders.map((o) => o.id).concat(b.calls.map((c) => c.id));
+    const paidKey = (x) => 'paid:' + x.tabId + ':' + x.payments;
+    const paidList = b.paidAtTable || [];
+    const ids = b.orders.map((o) => o.id).concat(b.calls.map((c) => c.id), paidList.map(paidKey));
     if (tableSeen.current) {
       const fresh = b.orders.filter((o) => !tableSeen.current.has(o.id));
       const calls = b.calls.filter((c) => !tableSeen.current.has(c.id));
-      if (fresh.length || calls.length) {
+      const paidNow = paidList.filter((x) => !tableSeen.current.has(paidKey(x)));
+      if (fresh.length || calls.length || paidNow.length) {
         playNewTicket();
         setToast(fresh.length ? tr('{table} ordered from the table.', { table: fresh[0].tableName })
-          : calls[0].kind === 'bill' ? tr('{table} asks for the bill.', { table: calls[0].tableName }) : tr('{table} calls the waiter.', { table: calls[0].tableName }));
+          : calls.length ? (calls[0].kind === 'bill' ? tr('{table} asks for the bill.', { table: calls[0].tableName }) : tr('{table} calls the waiter.', { table: calls[0].tableName }))
+            : tr('{table} paid {amount} from the table.', { table: paidNow[0].tableName, amount: money(paidNow[0].amount) }));
+        if (paidNow.length) loadTabs();
       }
     }
     tableSeen.current = new Set(ids);
@@ -687,7 +696,7 @@ export default function RestaurantPosPage() {
     setTableBoxOpen(false);
     let list = tabs;
     try { list = await posFetch('GET', '/pos/tabs', session.token); setTabs(list); } catch { /* the list as it was */ }
-    const t = list.find((x) => x.tableId === c.tableId);
+    const t = list.find((x) => (c.tabId ? x.id === c.tabId : x.tableId === c.tableId));
     if (t) openTab(t, true); else setToast(tr('{table} has no open order on the till.', { table: c.tableName }));
   }
   async function loadTabs(token) {
@@ -1837,8 +1846,12 @@ export default function RestaurantPosPage() {
             {currentTab ? tr('Open since {time}. Add to it, send the new round, or charge it.', { time: timeOf(currentTab.createdAt) }) : cartCount ? (cartCount === 1 ? tr('1 item') : tr('{n} items', { n: cartCount })) : tr('Tap a dish to start.')}
           </p>
           {liveTab && liveTab.kitchen && <KitchenTag kitchen={liveTab.kitchen} />}
+          {liveTab && (liveTab.paidAtTable || []).length > 0 && (
+            <span className="tbill-chip">💳 {tr('Paid at the table: {amount}', { amount: money(liveTab.paidAtTable.reduce((a, p) => a + p.amount - (p.tip || 0), 0)) })}</span>
+          )}
         </div>
         <div className="pos-order-head-tools">
+          {liveTab && liveTab.tableId && <button type="button" className="pos-link tbill-open" onClick={() => setBillOpen(true)}>🧾 {tr('Bill')}</button>}
           {(cart.length > 0 || currentTab) && <button type="button" className="pos-link" onClick={clearOrder}>{currentTab ? tr('Put aside') : tr('Clear')}</button>}
           <button type="button" className="pos-icon-btn pos-sheet-close" onClick={() => setCartOpen(false)} aria-label={tr('Close')}>×</button>
         </div>
@@ -2096,14 +2109,15 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
-          {tableBox && (tableBox.settings.on || tableBox.orders.length > 0 || tableBox.calls.length > 0) && (
-            <button type="button" className={'pos-stat is-qr' + (tableBox.orders.length || tableBox.calls.length ? ' is-asking' : '')} onClick={() => { loadTableBox(); setTableBoxOpen(true); }}>
+          {tableBox && (tableBox.settings.on || tableBox.orders.length > 0 || tableBox.calls.length > 0 || (tableBox.paidAtTable || []).length > 0) && (
+            <button type="button" className={'pos-stat is-qr' + (tableBox.orders.length || tableBox.calls.length || (tableBox.paidAtTable || []).length ? ' is-asking' : '')} onClick={() => { loadTableBox(); setTableBoxOpen(true); }}>
               <span className="pos-stat-ico" aria-hidden="true">📱</span>
               <span className="pos-stat-text">
                 <small>{tr('From the tables')}</small>
-                <strong>{tableBox.orders.length + tableBox.calls.length}</strong>
+                <strong>{tableBox.orders.length + tableBox.calls.length + (tableBox.paidAtTable || []).length}</strong>
                 <span>{tableBox.orders.length ? (tableBox.orders.length === 1 ? tr('1 order to accept') : tr('{n} orders to accept', { n: tableBox.orders.length }))
-                  : tableBox.calls.length ? (tableBox.calls.length === 1 ? tr('1 call') : tr('{n} calls', { n: tableBox.calls.length })) : tr('QR orders')}</span>
+                  : tableBox.calls.length ? (tableBox.calls.length === 1 ? tr('1 call') : tr('{n} calls', { n: tableBox.calls.length }))
+                    : (tableBox.paidAtTable || []).length ? tr('Paid at the table') : tr('QR orders')}</span>
               </span>
             </button>
           )}
@@ -2141,6 +2155,7 @@ export default function RestaurantPosPage() {
               can('charge') && (tillSettings.apps && tillSettings.apps.list || []).some((a) => a.on) && { key: 'app', icon: <span className="tl-more-emo">🛵</span>, tone: 'app', label: tr('Delivery-app order'),
                 note: (tillSettings.apps.list || []).filter((a) => a.on).map((a) => a.name).join(', '), onClick: () => (currentTab ? setToast(tr('Put the open order aside first: an app\'s order is rung up on its own.')) : setAppPickOpen(true)) },
               { key: 'kiosk', icon: <span className="tl-more-emo">🧾</span>, tone: 'kiosk', label: tr('Self-order kiosk'), note: tillSettings.kiosk && tillSettings.kiosk.on ? tr('Taking orders') : tr('Pair a tablet for customers to order'), onClick: () => setKiosksOpen(true) },
+              { key: 'board', icon: <span className="tl-more-emo">📺</span>, tone: 'kiosk', label: tr('Ready board'), note: tr('A TV for customers: preparing and ready orders'), onClick: () => setBoardsOpen(true) },
               { key: 'dispute', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
               { key: 'downloads', icon: <span className="tl-more-emo">⬇️</span>, tone: 'downloads', label: tr('Downloads (Square format)'), note: tr('Item library and item sales'), onClick: () => setDownloadsOpen(true) },
               isManager ? { key: 'office', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
@@ -2245,6 +2260,7 @@ export default function RestaurantPosPage() {
         onSaved={(g) => { setContactFor(null); if (selectedGuest && selectedGuest.id === g.id) setSelectedGuest(g); setToast(tr('Saved for {name}.', { name: g.name })); }} />}
       {downloadsOpen && <Downloads token={session.token} isManager={isManager} companyName={session.companyName} onToast={setToast} onClose={() => setDownloadsOpen(false)} />}
       {kiosksOpen && <Kiosks token={session.token} onToast={setToast} onClose={() => setKiosksOpen(false)} />}
+      {boardsOpen && <ReadyBoards token={session.token} onToast={setToast} onClose={() => setBoardsOpen(false)} />}
       {appPickOpen && <AppPicker apps={(tillSettings.apps && tillSettings.apps.list) || []} current={appOrder} onClose={() => setAppPickOpen(false)}
         onPick={(a) => { setAppOrder(a); setAppPickOpen(false); setCurrentTab(null); }} />}
       {giftOpen && <GiftCards token={session.token} settings={tillSettings} companyName={session.companyName} can={can} onToast={setToast} onClose={() => { setGiftOpen(false); refreshDrawer(); loadShift(); }} />}
@@ -2264,7 +2280,7 @@ export default function RestaurantPosPage() {
               : cart.length !== sentLines.length || cart.some((l) => { const s0 = sentLines.find((x) => lineKey(x) === lineKey(l)); return !s0 || s0.qty !== l.qty; })
                 ? tr('Send the new dishes to the kitchen first, then pay by dish.') : null
           } : null}
-          screenTip={screen.tip} onTip={setPayInfo} paidOnKiosk={liveTab ? liveTab.paidOnKiosk : null}
+          screenTip={screen.tip} onTip={setPayInfo} paidAhead={paidAheadOf(liveTab)}
           onCancel={() => { setCheckoutOpen(false); setPayInfo(null); }} onComplete={submitCheckout} />
       )}
 
@@ -2480,6 +2496,10 @@ export default function RestaurantPosPage() {
       )}
 
       {queueOpen && <OfflineQueue items={queued} offline={offline} onSend={sendKept} onClose={() => setQueueOpen(false)} />}
+      {billOpen && liveTab && (
+        <TableBill token={session.token} tab={liveTab} companyName={session.companyName} printer={printer} onClose={() => setBillOpen(false)}
+          onFail={(e) => { if (e.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); } else setToast(e.message); }} />
+      )}
       {tableBoxOpen && tableBox && (
         <TableInbox token={session.token} box={tableBox} waiters={waiters} canSend={can('keepOpen')} onClose={() => setTableBoxOpen(false)}
           onChanged={() => { loadTableBox(); loadTabs(); loadKitchen(); }} onToast={setToast} onOpenBill={openBill}

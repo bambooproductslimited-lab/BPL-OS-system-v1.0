@@ -23,8 +23,12 @@ var DEFAULTS = {
   // ahead; confirmed by the till unless autoConfirm. A booking keeps its
   // table `minutes`.
   bookings: { online: false, autoConfirm: false, from: '12:00', to: '21:00', days: [], step: 30, perSlot: 4, maxParty: 10, daysAhead: 30, minutes: 90 },
-  // Tips on the pay screen and the customer's screen: the percentages to tap.
-  tips: { on: false, percents: [5, 10, 15] },
+  // Tips on the pay screen and the customer's screen: the percentages to tap;
+  // and how they are shared (restaurantTips): each to the person who served
+  // the bill ('direct'), each sale's split among the tip-eligible staff
+  // clocked in at the time ('sale'), or each day's split by the hours they
+  // worked ('hours'). Tip-eligible: the till roles listed.
+  tips: { on: false, percents: [5, 10, 15], pool: { method: 'direct', roles: ['cashier', 'waiter'] } },
   // A text to a pickup customer when the kitchen has their order ready.
   readyText: { on: false, message: READY_TEXT },
   // Loyalty: a point for every `spend` cedis paid; rewards to spend them on
@@ -57,8 +61,18 @@ var DEFAULTS = {
   // Cards: the terminals the till takes them on (their names, for the
   // reconciliation), and card and Mobile Money paid by the customer's phone
   // through Paystack (a QR code on the till).
-  card: { terminals: ['Card terminal'], paystack: false }
+  card: { terminals: ['Card terminal'], paystack: false },
+  // Paying at the table (restaurantTablePay): the table's QR code, and the
+  // printed bill's, let guests pay the bill or their share, with a tip,
+  // by card or Mobile Money through Paystack.
+  tablePay: { on: false },
+  // Feedback from the receipt (restaurantFeedback): asked on every
+  // receipt's page; happy guests are offered the review page (reviewUrl,
+  // e.g. the restaurant's Google page).
+  feedback: { on: true, reviewUrl: '' }
 };
+var POOL_METHODS = ['direct', 'sale', 'hours'];
+var POOL_ROLES = ['manager', 'cashier', 'waiter', 'kitchen'];
 function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function num(v) { return Math.round(Number(v) * 100) / 100; }
 function days(list) { return Array.isArray(list) ? list.map(Number).filter(function (d, i, a) { return d >= 0 && d <= 6 && Math.floor(d) === d && a.indexOf(d) === i; }).sort() : []; }
@@ -79,6 +93,15 @@ function merge(out, s) {
   if (s.tips && typeof s.tips === 'object') {
     if (typeof s.tips.on === 'boolean') out.tips.on = s.tips.on;
     if (Array.isArray(s.tips.percents)) { var p = s.tips.percents.map(num).filter(function (x) { return x > 0 && x <= 50; }).slice(0, 4); if (p.length) out.tips.percents = p; }
+    if (s.tips.pool && typeof s.tips.pool === 'object') {
+      if (POOL_METHODS.indexOf(s.tips.pool.method) >= 0) out.tips.pool.method = s.tips.pool.method;
+      if (Array.isArray(s.tips.pool.roles)) out.tips.pool.roles = s.tips.pool.roles.filter(function (r) { return POOL_ROLES.indexOf(r) >= 0; });
+    }
+  }
+  if (s.tablePay && typeof s.tablePay.on === 'boolean') out.tablePay.on = s.tablePay.on;
+  if (s.feedback && typeof s.feedback === 'object') {
+    if (typeof s.feedback.on === 'boolean') out.feedback.on = s.feedback.on;
+    if (typeof s.feedback.reviewUrl === 'string') out.feedback.reviewUrl = s.feedback.reviewUrl.slice(0, 300);
   }
   if (s.readyText && typeof s.readyText === 'object') {
     if (typeof s.readyText.on === 'boolean') out.readyText.on = s.readyText.on;
@@ -142,7 +165,14 @@ function clean(out, p, text) {
     var percents = Array.isArray(p.tips.percents) ? p.tips.percents.map(num).filter(function (x) { return x > 0; }) : [];
     if (p.tips.on && !percents.length) fail('invalid', 'Tips: give at least one percentage to tap, e.g. 10.');
     if (percents.some(function (x) { return x > 50; }) || percents.length > 4) fail('invalid', 'Tips: up to 4 percentages, each at most 50.');
-    out.tips = { on: !!p.tips.on, percents: percents.length ? percents : out.tips.percents };
+    var pool = clone(out.tips.pool);
+    if (p.tips.pool) {
+      if (POOL_METHODS.indexOf(p.tips.pool.method) < 0) fail('invalid', 'Tips: shared how? To whoever served, by sale, or by hours worked.');
+      var roles = Array.isArray(p.tips.pool.roles) ? p.tips.pool.roles.filter(function (r, i, a) { return POOL_ROLES.indexOf(r) >= 0 && a.indexOf(r) === i; }) : [];
+      if (p.tips.pool.method !== 'direct' && !roles.length) fail('invalid', 'Tips: pick who shares them (waiters, cashiers, the kitchen…).');
+      pool = { method: p.tips.pool.method, roles: roles };
+    }
+    out.tips = { on: !!p.tips.on, percents: percents.length ? percents : out.tips.percents, pool: pool };
   }
   if (p.readyText) {
     var message = text(p.readyText.message, 300);
@@ -228,6 +258,12 @@ function clean(out, p, text) {
     var idle = Math.round(Number(k.idleSeconds === undefined ? out.kiosk.idleSeconds : k.idleSeconds));
     if (!(idle >= 30 && idle <= 600)) fail('invalid', 'The kiosk: back to the start after 30 to 600 seconds.');
     out.kiosk = { on: !!k.on, straightToKitchen: !!k.straightToKitchen, payHere: !!k.payHere, idleSeconds: idle, welcome: text(k.welcome, 120) || out.kiosk.welcome };
+  }
+  if (p.tablePay) out.tablePay = { on: !!p.tablePay.on };
+  if (p.feedback) {
+    var review = String(p.feedback.reviewUrl || '').trim().slice(0, 300);
+    if (review && !/^https:\/\/[^\s]+\.[^\s]+$/.test(review)) fail('invalid', 'Feedback: the review page as a full link starting with https://');
+    out.feedback = { on: !!p.feedback.on, reviewUrl: review };
   }
   if (p.card) {
     var terminals = Array.isArray(p.card.terminals) ? p.card.terminals.map(function (x) { return text(x, 40); }).filter(Boolean) : [];

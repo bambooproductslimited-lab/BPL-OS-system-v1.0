@@ -144,6 +144,60 @@ function modsEn(mods) {
 var FULFILLMENT_EN = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
 var METHOD_EN = { cash: 'Cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'Other', split: 'Split payment', card: 'Card', app: 'Paid on the app', gift_card: 'Gift card' };
 
+// A QR code (ESC/POS GS ( k: model 2, module size, error correction M,
+// stored then printed) — the printers that cannot print one skip it.
+function qrBytes(data, size) {
+  var d = textBytes(data);
+  var len = d.length + 3;
+  return bytes(
+    [GS, 0x28, 0x6b, 4, 0, 0x31, 0x41, 0x32, 0x00],
+    [GS, 0x28, 0x6b, 3, 0, 0x31, 0x43, size || 6],
+    [GS, 0x28, 0x6b, 3, 0, 0x31, 0x45, 0x31],
+    [GS, 0x28, 0x6b, len & 0xff, (len >> 8) & 0xff, 0x31, 0x50, 0x30], d,
+    [GS, 0x28, 0x6b, 3, 0, 0x31, 0x51, 0x30]);
+}
+
+// buildBillBytes(tab, companyName, opts) -> the bill for a table's open
+// order (not a receipt): its dishes, the service charge and taxes, what
+// guests paid from their phones already, what is left; and opts.payUrl's
+// QR code to pay it from a phone (restaurantTablePay).
+export function buildBillBytes(tab, companyName, opts) {
+  opts = opts || {};
+  var width = opts.lineWidth || LINE_WIDTH_58MM;
+  var bill = tab.bill || {};
+  var out = [].concat(INIT, ALIGN_CENTER, BOLD_ON, DOUBLE_ON, line(companyName || ''), DOUBLE_OFF);
+  out = out.concat(line('BILL - ' + (tab.tableName || tab.label || '')), BOLD_OFF);
+  out = out.concat(line(new Date().toLocaleString()));
+  if (tab.waiterName) out = out.concat(line('Served by ' + tab.waiterName));
+  out = out.concat(ALIGN_LEFT, line(new Array(width + 1).join('-')));
+  (tab.lines || []).forEach(function (it) {
+    out = out.concat(line(it.qty + ' x ' + it.name));
+    if (it.modifiers && it.modifiers.length) out = out.concat(line('   + ' + modsEn(it.modifiers)));
+    if (it.compReason) out = out.concat(line('   On the house'));
+    else if (it.discount > 0) out = out.concat(line('   ' + (it.discountName || 'Discount') + ' -' + Number(it.discount).toFixed(2)));
+    out = out.concat(line(twoColumn('', money2(it.lineTotal), width)));
+  });
+  out = out.concat(line(new Array(width + 1).join('-')));
+  if (bill.serviceCharge > 0) out = out.concat(line(twoColumn((bill.serviceName || 'Service charge') + (bill.serviceRate ? ' ' + bill.serviceRate + '%' : ''), money2(bill.serviceCharge), width)));
+  (bill.taxes || []).filter(function (t) { return !t.included; }).forEach(function (t) { out = out.concat(line(twoColumn(t.name + ' ' + t.rate + '%', money2(t.amount), width))); });
+  out = out.concat(BOLD_ON, line(twoColumn('TOTAL', money2(tab.total), width)), BOLD_OFF);
+  (bill.taxes || []).filter(function (t) { return t.included; }).forEach(function (t) { out = out.concat(line(twoColumn('incl. ' + t.name + ' ' + t.rate + '%', money2(t.amount), width))); });
+  var paid = (tab.paidAtTable || []).reduce(function (a, p) { return a + p.amount - (p.tip || 0); }, 0);
+  if (paid > 0) {
+    out = out.concat(line(twoColumn('Paid from phones', '-' + money2(paid), width)));
+    out = out.concat(BOLD_ON, line(twoColumn('LEFT TO PAY', money2(Math.max(0, tab.total - paid)), width)), BOLD_OFF);
+  }
+  out = out.concat(ALIGN_CENTER, line(''));
+  if (opts.payUrl) {
+    out = out.concat(BOLD_ON, line('Scan to pay: card or MoMo'), BOLD_OFF, line('Split it, add a tip'));
+    out = out.concat(qrBytes(opts.payUrl, 6), line(''));
+  }
+  out = out.concat(line('This is not a receipt.'));
+  out = out.concat(FEED(3));
+  if (opts.cutAfter !== false) out = out.concat(CUT);
+  return out;
+}
+
 // buildRunnerTicketBytes(ticket, companyName) -> the ticket the kitchen
 // prints when an order's food is done (pages/KdsPage.jsx): big number, who
 // it is for and where it goes (the table, the counter, or a delivery's

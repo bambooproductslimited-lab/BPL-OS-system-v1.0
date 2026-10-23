@@ -202,7 +202,13 @@ async function inbox(token) {
     'SELECT c.id, c.kind, c.created_at, c.table_id, t.name AS table_name, t.area FROM restaurant_table_calls c JOIN restaurant_tables t ON t.id = c.table_id ' +
     'WHERE c.company_id = $1 AND c.answered_at IS NULL ORDER BY c.created_at', [company])).rows
     .map(function (c) { return { id: c.id, kind: c.kind, tableId: c.table_id, tableName: c.table_name, area: c.area || '', at: c.created_at, minutes: minutesSince(c.created_at) }; });
-  return { orders: orders, calls: calls, settings: session.access.settings.qrOrders, requireWaiter: session.access.settings.requireWaiter };
+  // Paid by guests from the table (restaurantTablePay), waiting for the cashier to close the bill.
+  var paid = (await pool.query(
+    "SELECT o.id AS tab_id, t.name AS table_name, sum(p.amount - p.tip) AS amount, sum(p.tip) AS tip, count(*)::int AS n, max(p.paid_at) AS at FROM restaurant_paystack_payments p " +
+    "JOIN restaurant_open_tabs o ON o.id = p.tab_id LEFT JOIN restaurant_tables t ON t.id = o.table_id WHERE p.company_id = $1 AND p.purpose = 'table' AND p.status = 'success' AND p.used_by_order IS NULL " +
+    'GROUP BY 1, 2 ORDER BY max(p.paid_at)', [company])).rows
+    .map(function (r) { return { tabId: r.tab_id, tableName: r.table_name || '', amount: round2(r.amount), tip: round2(r.tip), payments: r.n, at: r.at }; });
+  return { orders: orders, calls: calls, paidAtTable: paid, settings: session.access.settings.qrOrders, requireWaiter: session.access.settings.requireWaiter };
 }
 
 // An order from the table onto its open order on the till (made if there is
@@ -332,4 +338,4 @@ async function qrCodes(token, p, ip) {
 }
 
 module.exports = { page: page, place: place, track: track, cancel: cancel, call: call, inbox: inbox, accept: accept, reject: reject, answer: answer, qrCodes: qrCodes, ref: ref, refOf: refOf,
-  acceptRow: acceptRow, throttle: throttle, orderOut: orderOut, STAFF_SELECT: STAFF_SELECT, staffOut: staffOut };
+  acceptRow: acceptRow, throttle: throttle, orderOut: orderOut, STAFF_SELECT: STAFF_SELECT, staffOut: staffOut, tableOf: tableOf };

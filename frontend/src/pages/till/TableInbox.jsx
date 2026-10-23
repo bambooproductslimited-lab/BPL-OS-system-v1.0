@@ -12,6 +12,8 @@ import { tr } from '../../lib/i18n.jsx';
 // Orders from the self-order kiosk wait here too (K-0012; backend
 // restaurantKiosk): eaten here or taken away, paid on the kiosk or at the
 // counter; accepted, they open as their own order and go to the kitchen.
+// Tables whose guests paid from their phones (backend restaurantTablePay)
+// show here too, to open the bill and close it with what was paid.
 
 const REASONS = [() => tr('A dish is sold out'), () => tr('The kitchen is closing'), () => tr('A waiter will come and take it')];
 
@@ -88,7 +90,8 @@ export default function TableInbox({ token, box, waiters, canSend, onClose, onCh
       if (bill) onOpenBill(c); else onToast(tr('{table}: on your way.', { table: c.tableName }));
     } catch (e) { failed(e); } finally { setBusy(null); }
   }
-  const empty = !box.orders.length && !box.calls.length;
+  const paid = box.paidAtTable || [];
+  const empty = !box.orders.length && !box.calls.length && !paid.length;
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="dialog tl-dialog tq-inbox" role="dialog" aria-modal="true" aria-labelledby="tq-title" onClick={(e) => e.stopPropagation()}>
@@ -106,6 +109,18 @@ export default function TableInbox({ token, box, waiters, canSend, onClose, onCh
                   <small>{c.minutes < 1 ? tr('just now') : tr('{n} min ago', { n: c.minutes })}</small></span>
                 {c.kind === 'bill' && <button type="button" className="btn btn-primary" disabled={busy === c.id} onClick={() => answer(c, true)}>{tr('Open the bill')}</button>}
                 <button type="button" className="btn btn-secondary" disabled={busy === c.id} onClick={() => answer(c, false)}>{tr('On my way')}</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {paid.length > 0 && (
+          <ul className="tq-calls is-plain">
+            {paid.map((x) => (
+              <li key={x.tabId} className="is-paid">
+                <span className="tq-call-ico" aria-hidden="true">💳</span>
+                <span className="tq-call-text"><strong>{tr('{table} paid {amount} from the table', { table: x.tableName, amount: money(x.amount) })}</strong>
+                  <small>{[x.payments === 1 ? tr('1 payment') : tr('{n} payments', { n: x.payments }), x.tip > 0 ? tr('a tip of {amount}', { amount: money(x.tip) }) : null].filter(Boolean).join(' · ')}</small></span>
+                <button type="button" className="btn btn-primary" onClick={() => onOpenBill({ tabId: x.tabId, tableName: x.tableName })}>{tr('Open the bill')}</button>
               </li>
             ))}
           </ul>

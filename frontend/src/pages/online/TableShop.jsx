@@ -8,6 +8,7 @@ import ThemeSwitch from '../../components/ThemeSwitch';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { timeOf } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
+import { TablePaidBanner, TablePaySheet } from './TablePay';
 import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
 import { happySaved, lineKey, photo, tint } from './onlineShared';
 import { modsWords, serviceWords } from '../till/tillBill';
@@ -19,7 +20,9 @@ import './online.css';
 // (or it goes straight to the kitchen, if the restaurant says so). Each
 // order sent from this phone is followed here (kept on the phone for the
 // day), with what the table has had so far; and the waiter can be called
-// or the bill asked for. Paid at the table at the end, as usual.
+// or the bill asked for. Paid at the end: to the waiter as usual, or from
+// the phone (TablePay: the bill or a share, with a tip, through Paystack,
+// when the restaurant takes it; ?pay=1 from the printed bill's QR code).
 
 const POLL_MS = 5000;
 const OVER = ['served', 'rejected', 'cancelled'];
@@ -50,13 +53,40 @@ export default function TableShop({ code }) {
   const [orders, setOrders] = useState({}); // token → where it stands
   const [calling, setCalling] = useState(null);
   const [toast, setToast] = useState(null);
+  const [pay, setPay] = useState(null); // paying from the phone: the bill as it stands
+  const [paying, setPaying] = useState(false);
+  const [returned] = useState(() => { try { return new URLSearchParams(window.location.search).get('reference') || ''; } catch { return ''; } });
+  const [payState, setPayState] = useState(returned ? { status: 'checking' } : null);
+  const askedToPay = useRef((() => { try { return new URLSearchParams(window.location.search).get('pay') === '1'; } catch { return false; } })());
   const sections = useRef({});
   useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
 
   const load = useCallback(() => posFetch('GET', '/pos/table/' + encodeURIComponent(code)).then((d) => {
     setData(d); setError(null); document.title = d.table.name + ' · ' + d.restaurant.name;
   }).catch((e) => { if (e.status) setError(e.message); }), [code]);
-  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  const loadPay = useCallback(() => posFetch('GET', '/pos/table/' + encodeURIComponent(code) + '/pay').then((p) => {
+    setPay(p);
+    // From the printed bill's QR code: straight to paying.
+    if (askedToPay.current && p.on && p.left > 0) { askedToPay.current = false; setPaying(true); }
+  }).catch(() => { /* paying from the phone is not offered */ }), [code]);
+  useEffect(() => { load(); loadPay(); const t = setInterval(() => { load(); loadPay(); }, 15000); return () => clearInterval(t); }, [load, loadPay]);
+  // Back from Paystack (?reference=…): asked until Paystack says paid or not.
+  useEffect(() => {
+    if (!returned) return undefined;
+    try { window.history.replaceState(null, '', window.location.pathname); } catch { /* the address keeps it */ }
+    let live = true, tries = 0, timer = null;
+    async function ask() {
+      try {
+        const r = await posFetch('GET', '/pos/table/' + encodeURIComponent(code) + '/pay/' + encodeURIComponent(returned));
+        if (!live) return;
+        setPay(r.bill);
+        if (r.payment.status === 'pending' && tries++ < 20) { timer = setTimeout(ask, 2500); return; }
+        setPayState(r.payment);
+      } catch (e) { if (live) setPayState({ status: 'failed', message: e.message }); }
+    }
+    ask();
+    return () => { live = false; clearTimeout(timer); };
+  }, [returned, code]);
   // The orders sent from this phone, asked again until they are over.
   useEffect(() => {
     let live = true;
@@ -111,6 +141,7 @@ export default function TableShop({ code }) {
   const logo = restaurantLogoUrl(r.code);
   const called = (kind) => data.calls.some((c) => c.kind === kind);
   const recent = mine.filter((o) => orders[o.token]);
+  const canPay = !!(pay && pay.on && pay.open && pay.left > 0);
   return (
     <div className="on-shell on-table" data-brand={r.code}>
       <header className="on-hero is-table">
@@ -125,7 +156,7 @@ export default function TableShop({ code }) {
         </div>
         <div className="on-facts">
           <span>📱 <b>{tr('Order from your table')}</b> {data.straight ? tr('straight to the kitchen') : tr('a waiter checks it first')}</span>
-          <span>💵 {tr('Pay at the end, as usual')}</span>
+          <span>💵 {pay && pay.on ? tr('Pay the waiter, or from your phone') : tr('Pay at the end, as usual')}</span>
         </div>
         <div className="tb-actions">
           <button type="button" className={called('waiter') ? 'is-on' : ''} disabled={!!calling} onClick={() => call('waiter')}>
@@ -134,6 +165,11 @@ export default function TableShop({ code }) {
           <button type="button" className={called('bill') ? 'is-on' : ''} disabled={!!calling} onClick={() => call('bill')}>
             <span aria-hidden="true">🧾</span><strong>{called('bill') ? tr('The bill is coming') : tr('Ask for the bill')}</strong>
           </button>
+          {canPay && (
+            <button type="button" className="tb-pay" onClick={() => setPaying(true)}>
+              <span aria-hidden="true">💳</span><strong>{pay.paid > 0 ? tr('Pay what is left · {amount}', { amount: money(pay.left) }) : tr('Pay the bill from your phone · {amount}', { amount: money(pay.left) })}</strong><em>{tr('Card or MoMo · split it · tip')}</em>
+            </button>
+          )}
         </div>
       </header>
 
@@ -181,6 +217,13 @@ export default function TableShop({ code }) {
               {(data.bill.taxes || []).filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
             </div>
           )}
+          {pay && pay.paid > 0 && (
+            <div className="on-total tb-bill-sums">
+              <div className="is-paid"><span>✓ {tr('Paid from phones')}</span><b>−{money(pay.paid)}</b></div>
+              <div className="is-total"><span>{tr('Left to pay')}</span><strong>{money(pay.left)}</strong></div>
+            </div>
+          )}
+          {canPay && <button type="button" className="on-go tp-go" onClick={() => setPaying(true)}>💳 {tr('Pay from your phone')}</button>}
         </details>
       )}
 
@@ -234,6 +277,8 @@ export default function TableShop({ code }) {
             load();
           }} />
       )}
+      {paying && pay && <TablePaySheet code={code} info={pay} onClose={() => setPaying(false)} />}
+      <TablePaidBanner state={payState} left={pay ? pay.left : 0} onAgain={() => { setPayState(null); setPaying(true); }} onClose={() => setPayState(null)} />
       {toast && <div className="on-toast" role="status">{toast}</div>}
     </div>
   );

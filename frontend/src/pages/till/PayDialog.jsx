@@ -5,6 +5,7 @@ import { tr } from '../../lib/i18n.jsx';
 import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, methodName, round2 } from './tillShared';
 import { CardFields, PhonePay } from './CardPay';
 import { cardOk } from './tillBill';
+import './fifth.css';
 
 // Taking payment (RestaurantPosPage.jsx's Charge): one way, or the bill
 // split several ways; each in the money that way takes (tillShared
@@ -23,12 +24,13 @@ import { cardOk } from './tillBill';
 // its number checked for what is left on it (backend restaurantGiftCards).
 // A card on the bank's terminal (its brand, last 4 and approval code noted),
 // or paid on the customer's phone through Paystack (a QR code; CardPay.jsx).
-// An order paid on the self-order kiosk already (paidOnKiosk) is taken with
-// that payment.
+// An order paid ahead through Paystack — on the self-order kiosk, or by
+// guests from the table (paidAhead: their part of the bill, with any tip)
+// — is taken with those payments, and what is left another way.
 
 const NEEDS_CUSTOMER = { vip: true, iou: true };
 
-export default function PayDialog({ token, title, total: wholeTotal, methods: tillMethods, settings, customer, refreshKey, busy, error, dishes, screenTip, paidOnKiosk, onTip, onPickCustomer, onTopUp, onCancel, onComplete }) {
+export default function PayDialog({ token, title, total: wholeTotal, methods: tillMethods, settings, customer, refreshKey, busy, error, dishes, screenTip, paidAhead, onTip, onPickCustomer, onTopUp, onCancel, onComplete }) {
   const giftOn = !!(settings.giftCards && settings.giftCards.on);
   const phoneOn = !!(settings.card && settings.card.paystack);
   const terminals = (settings.card && settings.card.terminals) || [];
@@ -58,13 +60,18 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
   const [tip, setTip] = useState(0);
   const [tipPct, setTipPct] = useState(null);
   const [tipOwn, setTipOwn] = useState(false);
-  const total = round2(bill + tip);
+  // Paid ahead (kiosk, table): their payments, and the tips in them, are part of it.
+  const ahead = paidAhead || [];
+  const aheadSum = round2(ahead.reduce((a, p) => a + p.amount, 0));
+  const aheadTip = round2(ahead.reduce((a, p) => a + (p.tip || 0), 0));
+  const tipAll = round2(tip + aheadTip);
+  const total = round2(bill + tipAll);
   function pickTip(pct, amount) { setTipPct(pct); setTip(pct != null ? round2(bill * pct / 100) : round2(amount || 0)); }
   // The customer's choice on their screen.
   useEffect(() => { if (screenTip) { setTipOwn(false); pickTip(screenTip.percent, screenTip.amount); } }, [screenTip]); // eslint-disable-line react-hooks/exhaustive-deps
   // A percentage follows the bill (by dish: the dishes picked).
   useEffect(() => { if (tipPct != null) setTip(round2(bill * tipPct / 100)); }, [bill]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (onTip) onTip({ bill, tip }); }, [bill, tip]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (onTip) onTip({ bill, tip: tipAll }); }, [bill, tipAll]); // eslint-disable-line react-hooks/exhaustive-deps
   // A gift card: its number, and what is left on it.
   const [giftCode, setGiftCode] = useState('');
   const [gift, setGift] = useState(null);
@@ -139,13 +146,20 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
     setParts([{ method: 'gift_card', currency: 'GHS', amount: String(onCard), tendered: '', code: gift.code }, { method: 'cash', currency: 'GHS', amount: String(round2(total - onCard)), tendered: '' }]);
     setMode('split');
   }
-  // Paid on the kiosk: that payment, and anything added since another way (cash).
-  const kioskRest = paidOnKiosk ? round2(total - paidOnKiosk.amount) : 0;
-  function completeKiosk() {
-    onComplete(kioskRest > 0.004 ? [{ paystackRef: paidOnKiosk.ref, amount: paidOnKiosk.amount }, { method: 'cash', currency: 'GHS', amount: kioskRest }] : [{ paystackRef: paidOnKiosk.ref }], null, tip);
+  // Paid ahead: those payments, and what is left (added since, or the
+  // guests' shares not paid yet) in cash, Mobile Money or on the card terminal.
+  const aheadRest = ahead.length ? round2(total - aheadSum) : 0;
+  const restMethods = ['cash', 'mobile_money', 'card'].filter((m) => methods.includes(m));
+  const [restMethod, setRestMethod] = useState(restMethods[0] || 'cash');
+  const [restGiven, setRestGiven] = useState('');
+  const aheadOk = aheadRest > -0.004 && !(restMethod === 'cash' && restGiven !== '' && Number(restGiven) < aheadRest - 0.004);
+  function completeAhead() {
+    const refs = ahead.map((p) => ({ paystackRef: p.ref, amount: p.amount }));
+    onComplete(aheadRest > 0.004 ? refs.concat([{ method: restMethod, currency: 'GHS', amount: aheadRest, tendered: restMethod === 'cash' && restGiven !== '' ? Number(restGiven) : undefined,
+      card: restMethod === 'card' ? { brand: 'Other', entry: null } : undefined }]) : refs, null, tipAll);
   }
   function complete() {
-    if (paidOnKiosk && mode === 'one') { completeKiosk(); return; }
+    if (ahead.length) { completeAhead(); return; }
     if (method === 'paystack') { onComplete([{ paystackRef: phonePaid.reference }], null, tip); return; }
     const one = [{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined, code: method === 'gift_card' ? gift.code : undefined,
       card: method === 'card' ? { brand: card.brand, entry: card.entry, last4: card.last4 || undefined, ref: card.ref || undefined, terminal: card.terminal || undefined } : undefined }];
@@ -162,30 +176,41 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
   const rmbNote = methods.some((m) => (m === 'alipay' || m === 'wechat') && !allowed(m));
   return (
     <div className="dialog-backdrop" onClick={() => !busy && onCancel()}>
-      <form className="dialog pos-pay tl-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (split ? splitOk : (paidOnKiosk && mode === 'one') || singleOk) complete(); }}>
+      <form className="dialog pos-pay tl-pay" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (ahead.length ? aheadOk : split ? splitOk : singleOk) complete(); }}>
         <h2>{tr('Take payment')}</h2>
         <div className="pos-pay-due">
           <span>{title}</span>
           <strong>{money(total)}</strong>
-          {tip > 0 && <small className="tl-pay-tipline">{tr('{bill} + a tip of {tip}', { bill: money(bill), tip: money(tip) })}</small>}
+          {tipAll > 0 && <small className="tl-pay-tipline">{tr('{bill} + a tip of {tip}', { bill: money(bill), tip: money(tipAll) })}</small>}
           {currencies.length > 1 && <small className="tl-pay-fx">{currencies.filter((c) => c.code !== 'GHS').map((c) => fmt(round2(total / c.rate), c.code)).join(' · ')}</small>}
         </div>
-        {paidOnKiosk && mode === 'one' && (
-          <div className={'cp-kiosk' + (kioskRest < -0.004 ? ' is-bad' : '')}>
+        {ahead.length > 0 && (
+          <div className={'cp-kiosk' + (aheadRest < -0.004 ? ' is-bad' : '')}>
             <span className="cp-tick" aria-hidden="true">✓</span>
             <div>
-              <strong>{tr('Paid on the kiosk: {amount}', { amount: money(paidOnKiosk.amount) })}</strong>
-              <small>{paidOnKiosk.channel === 'mobile_money' ? methodName('mobile_money') : methodName('card')}{' · '}{'Paystack'}{' · '}{paidOnKiosk.ref}</small>
-              {kioskRest > 0.004 && <small className="cp-kiosk-rest">{tr('{amount} was added since: take it in cash.', { amount: money(kioskRest) })}</small>}
-              {kioskRest < -0.004 && <small className="cp-kiosk-rest">{tr('The bill is now less than what was paid: put the dishes back, or refund the difference after.')}</small>}
+              <strong>{ahead.some((p) => p.from === 'table') ? tr('Paid at the table: {amount}', { amount: money(aheadSum) }) : tr('Paid on the kiosk: {amount}', { amount: money(aheadSum) })}</strong>
+              {ahead.map((p) => (
+                <small key={p.ref}>{[p.payer || null, p.channel === 'mobile_money' ? methodName('mobile_money') : methodName('card'), 'Paystack', p.tip > 0 ? tr('a tip of {amount}', { amount: money(p.tip) }) : null, p.ref].filter(Boolean).join(' · ')}</small>
+              ))}
+              {aheadRest > 0.004 && (
+                <div className="cp-rest">
+                  <small className="cp-kiosk-rest">{tr('{amount} is still to pay:', { amount: money(aheadRest) })}</small>
+                  <div className="cp-rest-row" role="radiogroup" aria-label={tr('How the rest is paid')}>
+                    {restMethods.map((m) => <button key={m} type="button" role="radio" aria-checked={restMethod === m} className={'tl-chip' + (restMethod === m ? ' is-on' : '')} onClick={() => setRestMethod(m)}>{methodName(m)}</button>)}
+                    {restMethod === 'cash' && <input className="input cp-rest-given" type="number" min="0" step="0.5" inputMode="decimal" value={restGiven} onChange={(e) => setRestGiven(e.target.value)} aria-label={tr('Cash received')} placeholder={tr('Cash received')} />}
+                  </div>
+                  {restMethod === 'cash' && restGiven !== '' && Number(restGiven) >= aheadRest && <small>{tr('Change: {amount}', { amount: money(round2(Number(restGiven) - aheadRest)) })}</small>}
+                </div>
+              )}
+              {aheadRest < -0.004 && <small className="cp-kiosk-rest">{tr('The bill is now less than what was paid: put the dishes back, or refund the difference after.')}</small>}
             </div>
           </div>
         )}
-        <div className="dk-segment tl-pay-mode" role="radiogroup" aria-label={tr('How it is paid')}>
+        {!ahead.length && <div className="dk-segment tl-pay-mode" role="radiogroup" aria-label={tr('How it is paid')}>
           <button type="button" role="radio" aria-checked={mode === 'one'} className={mode === 'one' ? 'is-on' : ''} onClick={() => setMode('one')}>{tr('One payment')}</button>
           <button type="button" role="radio" aria-checked={split} className={split ? 'is-on' : ''} onClick={() => (parts.length ? setMode('split') : startSplit(2))}>{tr('Split the bill')}</button>
           {dishes && <button type="button" role="radio" aria-checked={mode === 'dish'} className={mode === 'dish' ? 'is-on' : ''} onClick={() => setMode('dish')}>{tr('By dish')}</button>}
-        </div>
+        </div>}
         {mode === 'dish' && (dishes.why ? <p className="tl-pay-lock"><span>{dishes.why}</span></p> : (
           <div className="tl-bydish">
             <p className="dk-muted tl-small">{tr('Pick what this guest had: they pay for it now, and the rest of the order stays open.')}</p>
@@ -240,7 +265,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
             </div>
           </div>
         )}
-        {(mode === 'dish' && (dishes.why || !picked)) || (paidOnKiosk && mode === 'one') ? null : !split ? (
+        {(mode === 'dish' && (dishes.why || !picked)) || ahead.length ? null : !split ? (
           <>
             <div className="pos-methods tl-methods" role="radiogroup" aria-label={tr('Payment method')}>
               {methods.map((k) => {
@@ -384,7 +409,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
         {error && <div className="error-banner">{error}</div>}
         <div className="dialog-actions">
           <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={busy}>{tr('Cancel')}</button>
-          <button type="submit" className="btn btn-primary pos-complete" disabled={busy || !(split ? splitOk : paidOnKiosk && mode === 'one' ? kioskRest > -0.004 : singleOk)}>{busy ? tr('Processing…') : tr('Complete sale')}</button>
+          <button type="submit" className="btn btn-primary pos-complete" disabled={busy || !(ahead.length ? aheadOk : split ? splitOk : singleOk)}>{busy ? tr('Processing…') : tr('Complete sale')}</button>
         </div>
       </form>
     </div>

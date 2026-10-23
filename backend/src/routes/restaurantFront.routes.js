@@ -9,6 +9,11 @@ var apps = require('../services/restaurantApps.service');
 var kiosk = require('../services/restaurantKiosk.service');
 var paystack = require('../services/restaurantPaystack.service');
 var insights = require('../services/restaurantTillInsights.service');
+var tablePay = require('../services/restaurantTablePay.service');
+var tips = require('../services/restaurantTips.service');
+var costs = require('../services/restaurantCosts.service');
+var feedback = require('../services/restaurantFeedback.service');
+var board = require('../services/restaurantBoard.service');
 
 // The guests' side of the till (migrations 0171–0173) — mounted at /api/pos
 // in app.js beside the till's own routes: bookings and the waitlist, the
@@ -115,5 +120,29 @@ router.post('/settings/paystack', h(async function (req) {
   return { on: paystack.onFor(await access.settingsOf(m.session.posCompanyId)), configured: paystack.configured(), from: d.from, to: d.to,
     payments: await paystack.report(m.session.posCompanyId, d.from, d.to) };
 }));
+
+// ── paying at the table (migration 0178): the table's QR code and the till's link for the printed bill ──
+router.get('/table/:code/pay', h(function (req) { return tablePay.info(req.params.code); }));
+router.post('/table/:code/pay', h(function (req) { return tablePay.start(req.params.code, body(req), req.ip); }));
+router.get('/table/:code/pay/:reference', h(function (req) { return tablePay.status(req.params.code, req.params.reference); }));
+router.get('/table-pay/link', h(function (req) { return tablePay.link(posToken(req), req.query.tabId); }));
+
+// ── tips shared out and paid (migration 0178) ──
+router.post('/settings/tips', h(function (req) { return tips.tab(posToken(req), body(req), req.ip); }));
+
+// ── recipes and food cost (migration 0179) ──
+router.post('/settings/costs', h(function (req) { return costs.tab(posToken(req), body(req), req.ip); }));
+
+// ── guests' feedback from their receipt (migration 0180) ──
+router.get('/receipt/:token/feedback', h(function (req) { return feedback.ask(req.params.token); }));
+router.post('/receipt/:token/feedback', h(function (req) { return feedback.give(req.params.token, body(req), req.ip); }));
+router.post('/settings/feedback', h(function (req) { return feedback.tab(posToken(req), body(req), req.ip); }));
+
+// ── the ready-for-pickup board (its key as the bearer token) and the till's side of it ──
+router.post('/board/hello', h(function (req) { return board.hello(body(req).key, req.ip, req.headers['user-agent']); }));
+router.get('/board', h(function (req) { return board.view(posToken(req)); }));
+router.get('/boards', h(function (req) { return board.list(posToken(req)); }));
+router.post('/boards/pair', h(function (req) { return board.pair(posToken(req), body(req)); }));
+router.post('/boards/:id/unpair', h(function (req) { return board.unpair(posToken(req), req.params.id); }));
 
 module.exports = router;

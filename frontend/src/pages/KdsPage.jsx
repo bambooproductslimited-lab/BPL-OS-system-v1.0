@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { posFetch } from '../lib/posApi';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import DeviceLanguage from '../components/DeviceLanguage';
-import { unlockAudio, playNewTicket } from '../kiosk/kioskSounds';
+import { unlockAudio, playNewTicket, playOrderReady } from '../kiosk/kioskSounds';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
@@ -45,6 +45,11 @@ import './KdsPage.css';
 // (kitchen.printReady), finishing a ticket prints one for the runner: the
 // number, who it is for and where it goes, every dish — on a thermal
 // printer connected here, else through the device's print dialog.
+//
+// A screen for every station can show the Expo view instead (Square's
+// expeditor screen): each order as one card with how far each station has
+// got, glowing when all of it is ready, and "Hand over" to serve it — which
+// also takes it off the ready-for-pickup board (ReadyBoardPage.jsx).
 
 const SESSION_KEY = 'bamboo.kds.session';
 const SCREEN_KEY = 'bamboo.kds.screen';
@@ -52,6 +57,52 @@ const SETUP_POLL_MS = 4000;
 const SOUND_KEY = 'bamboo.kds.sound';
 const PIN_LENGTH = 4;
 const POLL_MS = 4000;
+
+const EXPO_KEY = 'bamboo.kds.expo';
+
+// The Expo view: every order, cooking or ready, with each station's part.
+function ExpoBoard({ board, now, timing, busy, whereOf, onServe }) {
+  const cards = board.ready.filter((t) => t.status !== 'cooking').map((t) => ({ t, ready: true }))
+    .concat(board.ready.filter((t) => t.status === 'cooking').map((t) => ({ t, ready: false })))
+    .concat(board.cooking.filter((t) => t.status !== 'cancelled' && !board.ready.some((r) => r.id === t.id)).map((t) => ({ t, ready: false })));
+  if (!cards.length) {
+    return <div className="kds-empty"><span className="kds-empty-art" aria-hidden="true">🧭</span><strong>{tr('Nothing to hand over')}</strong><p>{tr('Each order shows here with how far each station has got.')}</p></div>;
+  }
+  return cards.map(({ t, ready }, idx) => {
+    const items = t.items.filter((i) => i.status !== 'cancelled');
+    const done = items.filter((i) => i.status === 'done').length;
+    const byStation = [];
+    items.forEach((i) => {
+      const k = i.stationName || tr('Kitchen');
+      let s = byStation.find((x) => x.name === k);
+      if (!s) { s = { name: k, done: 0, all: 0 }; byStation.push(s); }
+      s.all += 1; if (i.status === 'done') s.done += 1;
+    });
+    const waitingOn = byStation.filter((s) => s.done < s.all).map((s) => s.name);
+    const mins = (now - new Date(t.firedAt || t.createdAt).getTime()) / 60000;
+    const tone = ready ? 'ready' : mins >= timing.lateAfter ? 'late' : mins >= timing.warnAfter ? 'warn' : 'ok';
+    return (
+      <article key={t.id} className={'kds-expo is-' + tone} style={{ '--d': Math.min(idx, 12), '--p': items.length ? done / items.length : 0 }}>
+        <header className="kds-expo-head">
+          <span className="kds-no">#{t.number}</span>
+          <span className="kds-where"><strong>{whereOf(t)}</strong><small>{t.waiterName || ''}</small></span>
+          <span className="kds-timer">{ready && t.readyAt ? '✓ ' + mmss(now - new Date(t.readyAt).getTime()) : mmss(now - new Date(t.firedAt || t.createdAt).getTime())}</span>
+        </header>
+        <div className="kds-expo-bar" aria-label={tr('{done} of {all} dishes ready', { done, all: items.length })}><i /></div>
+        <ul className="kds-expo-st is-plain">
+          {byStation.map((s) => <li key={s.name} className={s.done === s.all ? 'is-done' : ''}><b>{s.done === s.all ? '✓' : s.done + '/' + s.all}</b>{s.name}</li>)}
+        </ul>
+        <ul className="kds-expo-items is-plain">
+          {items.map((i) => <li key={i.id} className={'is-' + i.status}><b>{qtyText(i.qty)}×</b><span>{i.name}</span><i aria-hidden="true">{i.status === 'done' ? '✓' : ''}</i></li>)}
+        </ul>
+        <footer className="kds-ticket-foot">
+          {ready ? <button type="button" className="kds-btn is-serve kds-expo-go" disabled={busy.has(t.id)} onClick={() => onServe(t)}>🛎️ {tr('Hand over')}</button>
+            : <p className="kds-expo-wait">{tr('Waiting for {stations}', { stations: waitingOn.join(', ') })}</p>}
+        </footer>
+      </article>
+    );
+  });
+}
 
 function readKey(key, fallback) { try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch { return fallback; } }
 function writeKey(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
@@ -85,6 +136,8 @@ export default function KdsPage() {
   const [fresh, setFresh] = useState(() => new Set());
   const [busy, setBusy] = useState(() => new Set());
   const [showRecent, setShowRecent] = useState(false);
+  const [expo, setExpo] = useState(() => readKey(EXPO_KEY, 'off') === 'on');
+  const readySeen = useRef(null); // orders already all ready, to chime in the Expo view for new ones
   const [theme, setTheme] = useState(getInitialTheme);
   // A thermal printer at the kitchen, and the ticket being printed through
   // the print dialog when there is none.
@@ -97,6 +150,7 @@ export default function KdsPage() {
   const autoRef = useRef({ on: autoPrint, printer: null, company: '' });
   const soundRef = useRef(sound);
   useEffect(() => { soundRef.current = sound; }, [sound]);
+  const expoRef = useRef(false);
   useEffect(() => { autoRef.current = { on: autoPrint, printer, company: session ? session.companyName : '' }; }, [autoPrint, printer, session]);
 
   useEffect(() => {
@@ -194,6 +248,10 @@ export default function KdsPage() {
         }
         ids.forEach((id) => seenRef.current.add(id));
       } else seenRef.current = new Set(ids);
+      // In the Expo view: a ding-dong when an order is all ready.
+      const readyIds = b.ready.filter((t) => t.status !== 'cooking').map((t) => t.id);
+      if (readySeen.current && expoRef.current && soundRef.current && readyIds.some((id) => !readySeen.current.has(id))) playOrderReady();
+      readySeen.current = new Set(readyIds);
       setBoard(b);
       return true;
     } catch (err) {
@@ -397,6 +455,8 @@ export default function KdsPage() {
   // The station is the manager's (Till settings → Kitchen screens), not picked here.
   const station = board ? board.station : 'all';
   const here = (board && board.screen) || session.screen || null;
+  const expoOn = expo && station === 'all';
+  expoRef.current = expoOn;
   const stationName = here && here.stationName ? here.stationName : tr('All stations');
   // A course that waited counts from when it was called.
   function toneOf(t) {
@@ -423,6 +483,10 @@ export default function KdsPage() {
           <span className="kds-clock">{clock}</span>
           <button type="button" className={'kds-tool' + (sound ? ' is-on' : '')} onClick={toggleSound} aria-pressed={sound} title={sound ? tr('Sound on: a ding for each new ticket') : tr('Sound off')}>{sound ? '🔔' : '🔕'}</button>
           <button type="button" className="kds-tool" onClick={fullScreen} title={tr('Full screen')} aria-label={tr('Full screen')}>⛶</button>
+          {station === 'all' && (
+            <button type="button" className={'kds-tool is-text' + (expoOn ? ' is-on' : '')} aria-pressed={expoOn} title={tr('Each order with every station\'s part, to hand over when all of it is ready')}
+              onClick={() => { const on = !expo; setExpo(on); writeKey(EXPO_KEY, on ? 'on' : 'off'); }}>🧭 {tr('Expo')}</button>
+          )}
           <button type="button" className={'kds-tool is-text' + (autoPrint ? ' is-on' : '')} aria-pressed={autoPrint} onClick={toggleAutoPrint}
             title={tr('Print each new ticket on this screen\'s printer as it comes')}>🧾 {autoPrint ? tr('Printing new tickets') : tr('Print new tickets')}</button>
           {(printReady || autoPrint) && (printer
@@ -450,8 +514,8 @@ export default function KdsPage() {
       )}
 
       <div className="kds-body">
-        <main className="kds-board" aria-label={tr('Tickets cooking')}>
-          {!board ? <p className="kds-empty">{tr('Loading…')}</p> : !board.cooking.length ? (
+        <main className={'kds-board' + (expoOn ? ' is-expo' : '')} aria-label={expoOn ? tr('Orders to hand over') : tr('Tickets cooking')}>
+          {!board ? <p className="kds-empty">{tr('Loading…')}</p> : expoOn ? <ExpoBoard board={board} now={now} timing={timing} busy={busy} whereOf={whereOf} onServe={serve} /> : !board.cooking.length ? (
             <div className="kds-empty">
               <span className="kds-empty-art" aria-hidden="true">🍳</span>
               <strong>{tr('Nothing to cook right now')}</strong>

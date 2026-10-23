@@ -16,6 +16,9 @@ import { GiftCardsReport, LoyaltyReport } from './till/GuestReports';
 import CampaignsTab from './till/Campaigns';
 import Insights from './till/Insights';
 import { AppsTab, CardSettings, KioskTab } from './till/GrowthSettings';
+import TipsReport from './till/TipsReport';
+import FeedbackReport from './till/FeedbackReport';
+import FoodCostReport, { RecipesTab } from './till/FoodCost';
 import './TillSettings.css';
 // The monthly report brings the OS's report and its styles: loaded when opened.
 const MonthlyReport = lazy(() => import('./till/MonthlyReport'));
@@ -75,9 +78,9 @@ const METHOD = {
 const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat Pay') };
 // The tabs, in three groups: what happened, what is sold, how the till works.
 const GROUPS = [
-  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['insights', () => tr('Insights'), 'pulse'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
-  ['guestsGroup', () => tr('Guests'), [['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card']]],
-  ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
+  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['insights', () => tr('Insights'), 'pulse'], ['tips', () => tr('Tips'), 'cash'], ['foodcost', () => tr('Food cost'), 'percent'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['guestsGroup', () => tr('Guests'), [['feedback', () => tr('Feedback'), 'star'], ['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card']]],
+  ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['recipes', () => tr('Recipes and costs'), 'percent'], ['stock', () => tr('Stock'), 'layers']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
     ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'],
     ['apps', () => tr('Delivery apps'), 'send'], ['kiosk', () => tr('Self-order kiosk'), 'receipt'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
@@ -352,6 +355,10 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'loyalty' && <LoyaltyReport token={token} pin={pin} onFail={fail} />}
             {tab === 'giftcards' && <GiftCardsReport token={token} pin={pin} onFail={fail} />}
             {tab === 'insights' && <Insights token={token} pin={pin} onFail={fail} />}
+            {tab === 'tips' && <TipsReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'foodcost' && <FoodCostReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'feedback' && <FeedbackReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'recipes' && <RecipesTab token={token} pin={pin} onFail={fail} />}
             {tab === 'campaigns' && <CampaignsTab token={token} pin={pin} draft={draft} set={set} companyName={companyName} onFail={fail} />}
             {tab === 'apps' && <AppsTab token={token} pin={pin} draft={draft} set={set} onFail={fail} />}
             {tab === 'kiosk' && <KioskTab draft={draft} set={set} paystackReady={!!data.choices.paystack} />}

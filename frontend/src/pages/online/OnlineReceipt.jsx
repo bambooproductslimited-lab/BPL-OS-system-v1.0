@@ -7,6 +7,7 @@ import { applyTheme, getInitialTheme } from '../../lib/theme';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { fmt, methodName } from '../till/tillShared';
 import { modsWords, serviceWords } from '../till/tillBill';
+import FeedbackCard from './FeedbackCard';
 import './online.css';
 
 // A sale's receipt on the customer's phone (online.starbartema.com/receipt/
@@ -14,7 +15,8 @@ import './online.css';
 // code, WhatsApp message or text message gives them (backend restaurantPos
 // sendReceipt, publicReceipt). Its dishes with their add-ons and discounts,
 // the service charge and taxes, how it was paid and anything refunded —
-// and no phone number or name of the customer.
+// and no phone number or name of the customer. Then "How was your visit?"
+// (FeedbackCard), when the restaurant asks.
 
 function whenText(at) {
   return new Date(at).toLocaleString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -106,6 +108,8 @@ export default function OnlineReceipt({ token }) {
         {(r.footer || r.extra) && <p className="on-rc-foot">{[r.footer, r.extra].filter(Boolean).join(' · ')}</p>}
         <span className="on-rc-edge" aria-hidden="true" />
       </article>
+
+      {!voided && <FeedbackCard token={token} />}
 
       <div className="on-rc-actions">
         <button type="button" className="on-go is-ghost" onClick={() => window.print()}>🖨️ {tr('Print or save it')}</button>

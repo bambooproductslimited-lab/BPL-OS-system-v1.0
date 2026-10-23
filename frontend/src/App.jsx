@@ -32,6 +32,7 @@ import RestaurantPosPage from './pages/RestaurantPosPage';
 import KdsPage from './pages/KdsPage';
 import CustomerDisplay from './pages/CustomerDisplay';
 import SelfOrderPage from './pages/SelfOrderPage';
+import ReadyBoardPage from './pages/ReadyBoardPage';
 import OwnerPage from './pages/OwnerPage';
 import ProductionPage from './pages/ProductionPage';
 import ProcurementPage from './pages/ProcurementPage';
@@ -135,6 +136,7 @@ export default function App() {
       <Route path="/kds" element={<KdsPage />} />
       <Route path="/customer-display" element={<CustomerDisplay />} />
       <Route path="/self-order" element={<SelfOrderPage />} />
+      <Route path="/ready-board" element={<ReadyBoardPage />} />
       <Route path="/delivery/*" element={<Suspense fallback={null}><DeliverySite /></Suspense>} />
       <Route path="/share/:token" element={<SharePage />} />
       <Route path="/meet/:token" element={<MeetPage />} />

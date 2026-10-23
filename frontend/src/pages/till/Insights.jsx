@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
+import { RANGES, rangeOf, useTip } from './ranges';
 import './growth.css';
 
 // The reports Square has that the sales report did not (back office →
@@ -14,18 +15,6 @@ import './growth.css';
 // "before"; sales and labour cost share one cedi axis (blue and orange,
 // validated for colour-blind readers).
 
-function iso(d) { return d.toISOString().slice(0, 10); }
-function addDays(s, n) { const d = new Date(s + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return iso(d); }
-const RANGES = [['today', msg('Today')], ['yesterday', msg('Yesterday')], ['7', msg('Last 7 days')], ['30', msg('Last 30 days')], ['month', msg('This month')], ['lastMonth', msg('Last month')]];
-function rangeOf(k) {
-  const t = iso(new Date());
-  if (k === 'today') return { from: t, to: t };
-  if (k === 'yesterday') return { from: addDays(t, -1), to: addDays(t, -1) };
-  if (k === '30') return { from: addDays(t, -29), to: t };
-  if (k === 'month') return { from: t.slice(0, 8) + '01', to: t };
-  if (k === 'lastMonth') { const end = addDays(t.slice(0, 8) + '01', -1); return { from: end.slice(0, 8) + '01', to: end }; }
-  return { from: addDays(t, -6), to: t };
-}
 const COMPARE = [['previous', msg('The period before')], ['year', msg('A year ago')], ['none', msg('Nothing')]];
 const PART = { breakfast: msg('Breakfast'), lunch: msg('Lunch'), afternoon: msg('Afternoon'), dinner: msg('Dinner'), late: msg('Late night') };
 // The server's names for the areas that are not the floor's or an app's, in the reader's language.
@@ -44,21 +33,6 @@ function Delta({ now, before, invert }) {
   const up = p > 0;
   const good = invert ? !up : up;
   return <small className={'in-delta ' + (p === 0 ? 'is-flat' : good ? 'is-good' : 'is-bad')}><span aria-hidden="true">{p === 0 ? '→' : up ? '▲' : '▼'}</span> {up ? '+' : ''}{p}%</small>;
-}
-
-// A hover card for a mark: what it is, exactly.
-function useTip() {
-  const [tip, setTip] = useState(null);
-  const on = (text) => ({
-    onPointerEnter: (e) => setTip({ text, x: e.clientX, y: e.clientY }),
-    onPointerMove: (e) => setTip({ text, x: e.clientX, y: e.clientY }),
-    onPointerLeave: () => setTip(null),
-    onFocus: (e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ text, x: r.left + r.width / 2, y: r.top }); },
-    onBlur: () => setTip(null),
-    tabIndex: 0, 'aria-label': text
-  });
-  const node = tip ? <div className="in-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div> : null;
-  return [on, node];
 }
 
 // Horizontal bars, now, with a grey tick where it stood before.

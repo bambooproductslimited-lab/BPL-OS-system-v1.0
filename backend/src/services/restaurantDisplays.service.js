@@ -89,10 +89,11 @@ async function viewOf(d) {
 // POST /api/pos/display/hello { key } — a screen with its key (as it was),
 // or a new one: its key (kept on the screen) and its code.
 async function hello(key, ip, ua, kind) {
-  kind = kind === 'kiosk' ? 'kiosk' : 'screen';
+  // A screen facing the customer, a self-order kiosk, or the ready-for-pickup board.
+  kind = kind === 'kiosk' || kind === 'board' ? kind : 'screen';
   var d = key ? await byKey(key) : null;
   if (d && d.kind !== kind) d = null;
-  if (d) return Object.assign({ key: key }, kind === 'kiosk' ? { kind: kind } : await viewOf(d));
+  if (d) return Object.assign({ key: key }, kind !== 'screen' ? { kind: kind } : await viewOf(d));
   var now = Date.now(), who = String(ip || '');
   var list = (made.get(who) || []).filter(function (t) { return now - t < 3600000; });
   if (list.length >= NEW_PER_IP_HOUR) fail('ratelimited', 'Too many new screens from here. Try again in an hour.');
@@ -100,7 +101,7 @@ async function hello(key, ip, ua, kind) {
   if (made.size > 5000) made.clear();
   var fresh = crypto.randomBytes(24).toString('base64url');
   var row = (await pool.query('INSERT INTO restaurant_displays (key_hash, ip, user_agent, kind) VALUES ($1, $2, $3, $4) RETURNING *', [hash(fresh), str(ip, 60), str(ua, 200), kind])).rows[0];
-  return Object.assign({ key: fresh }, kind === 'kiosk' ? { kind: kind } : await viewOf(row));
+  return Object.assign({ key: fresh }, kind !== 'screen' ? { kind: kind } : await viewOf(row));
 }
 
 // GET /api/pos/display — the screen asking what to show (its key as the
