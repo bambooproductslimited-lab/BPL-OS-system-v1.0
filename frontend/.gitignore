@@ -13,6 +13,7 @@ dist-pos
 dist-kds
 dist-delivery
 dist-online
+dist-bamboogarden-*
 dist-ssr
 *.local
 

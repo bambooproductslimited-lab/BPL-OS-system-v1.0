@@ -88,6 +88,17 @@ module.exports = {
   // The restaurant the ordering website opens on (frontend ONLINE_COMPANY);
   // any other restaurant's menu is that address with ?r=<its code>.
   onlineSiteCompany: (process.env.ONLINE_SITE_COMPANY || 'SBR').trim().toUpperCase(),
+  // A restaurant with sites of its own (Bamboo Garden on bamboogarden.biz):
+  // ONLINE_SITE_URL_<code> and DELIVERY_SITE_URL_<code>, by any of its codes
+  // (restaurantOnline siteUrlFor). Without them, the shared sites above.
+  restaurantSiteUrl: function (kind, codes) {
+    var prefix = kind === 'delivery' ? 'DELIVERY_SITE_URL_' : 'ONLINE_SITE_URL_';
+    for (var i = 0; i < codes.length; i++) {
+      var v = (process.env[prefix + String(codes[i]).toUpperCase()] || '').trim().replace(/\/+$/, '');
+      if (/^https?:\/\//.test(v)) return v;
+    }
+    return null;
+  },
   // The maps on those sites: Google's own map (its Map Tiles API: streets,
   // places, satellite, traffic) with this key — a browser key, limited in
   // Google Cloud to those addresses and to that API. Without it, OpenStreetMap.

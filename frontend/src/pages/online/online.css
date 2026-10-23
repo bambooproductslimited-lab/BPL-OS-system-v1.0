@@ -413,3 +413,81 @@
 .on-total .is-happy, .on-total .is-happy b { color: #db2777; font-weight: 800; }
 .on-lines i.is-happy { display: flex; flex-direction: column; align-items: flex-end; color: #db2777; }
 .on-lines i.is-happy s { font-size: 11.5px; }
+
+/* ── bookings (BookSheet.jsx) ── */
+.on-book-btn { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; padding: 13px 16px; font: inherit; font-size: 15.5px; font-weight: 800; color: var(--on-a); text-align: left; border: 0; border-radius: 18px; background: #fff; box-shadow: 0 14px 30px -18px rgba(0, 0, 0, .55); cursor: pointer; transition: transform .15s ease; }
+.on-book-btn span { font-size: 22px; }
+.on-book-btn b { margin-left: auto; font-size: 18px; transition: transform .2s ease; }
+.on-book-btn:hover b { transform: translateX(4px); }
+.on-book-btn:active { transform: scale(.98); }
+.on-book { padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.on-book-party { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 18px; background: var(--on-soft); font-weight: 800; }
+.on-qty.is-big button { width: 40px; height: 40px; font-size: 22px; }
+.on-qty.is-big b { min-width: 40px; font-size: 22px; font-family: var(--font-heading); }
+.on-book-days { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+.on-book-days button { flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px; width: 64px; padding: 9px 4px; font: inherit; color: var(--on-ink); border-radius: 16px; border: 1px solid var(--on-line); background: var(--on-card); cursor: pointer; scroll-snap-align: start; transition: transform .15s ease; }
+.on-book-days button small { font-size: 11.5px; font-weight: 700; color: var(--on-muted); text-transform: capitalize; }
+.on-book-days button b { font-family: var(--font-heading); font-size: 22px; line-height: 1.1; }
+.on-book-days button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--on-a), var(--on-b)); box-shadow: 0 12px 24px -14px var(--on-a); transform: translateY(-2px); }
+.on-book-days button.is-on small { color: rgba(255, 255, 255, .85); }
+.on-book-part { display: flex; flex-direction: column; gap: 8px; }
+.on-book-part-h { font-size: 12.5px; font-weight: 800; color: var(--on-muted); }
+.on-book-times { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px; }
+.on-book-times button { display: flex; flex-direction: column; align-items: center; padding: 10px 4px; font: inherit; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--on-ink); border-radius: 14px; border: 1px solid var(--on-line); background: var(--on-card); cursor: pointer; }
+.on-book-times button.is-on { color: #fff; border-color: transparent; background: var(--on-go); box-shadow: 0 10px 20px -12px var(--on-go); }
+.on-book-times button.is-full { opacity: .45; text-decoration: line-through; cursor: not-allowed; }
+.on-book-times button small { font-size: 10.5px; font-weight: 700; text-decoration: none; }
+.on-bk-page, .on-gift-page { max-width: 520px; margin: 0 auto; padding: 0 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+.on-bk { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 26px 20px; text-align: center; border-radius: 26px; background: var(--on-card); border: 1px solid var(--on-line); box-shadow: 0 30px 60px -40px rgba(0, 0, 0, .55); }
+.on-bk h1 { margin: 0; font-family: var(--font-heading); font-size: 24px; }
+.on-bk-art { display: grid; place-items: center; width: 80px; height: 80px; font-size: 40px; border-radius: 50%; background: var(--on-soft); animation: on-rc-pop .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+.on-bk.is-booked .on-bk-art { background: linear-gradient(135deg, #bbf7d0, #86efac); }
+.on-bk.is-cancelled .on-bk-art, .on-bk.is-declined .on-bk-art { background: #fee2e2; }
+.on-bk-ticket { display: grid; grid-template-columns: 1fr auto; gap: 1px; width: 100%; margin-top: 6px; overflow: hidden; text-align: left; border-radius: 18px; background: var(--on-line); }
+.on-bk-ticket > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--on-bg); }
+.on-bk-ticket > div:nth-child(3), .on-bk-ticket .is-wide { grid-column: 1 / -1; }
+.on-bk-ticket small { font-size: 11.5px; font-weight: 800; color: var(--on-muted); text-transform: uppercase; letter-spacing: .05em; }
+.on-bk-ticket strong { font-size: 16px; }
+.on-bk-ticket strong::first-letter { text-transform: uppercase; }
+
+/* ── loyalty points in the account ── */
+.on-points { display: flex; gap: 14px; align-items: flex-start; padding: 16px; color: #fff; border-radius: 22px; background: radial-gradient(circle at 85% 10%, rgba(255, 255, 255, .35), transparent 45%), linear-gradient(135deg, #f59e0b, #ef4444 60%, #a855f7); box-shadow: 0 20px 40px -24px rgba(239, 68, 68, .8); }
+.on-points-star { font-size: 34px; animation: on-wave 2.4s ease-in-out infinite; }
+.on-points-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.on-points-main small { font-weight: 700; opacity: .9; }
+.on-points-main strong { font-family: var(--font-heading); font-size: 34px; line-height: 1; }
+.on-points-main p { margin: 2px 0 0; font-weight: 700; font-size: 14px; }
+.on-points-main em { font-style: normal; font-size: 12px; opacity: .85; }
+.on-points-bar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, .3); overflow: hidden; }
+.on-points-bar i { display: block; height: 100%; border-radius: inherit; background: #fff; }
+
+/* ── the receipt: tip, points, paid ── */
+.on-rc-sums .is-tip b { color: #d97706; }
+.on-rc-sums .is-paid { opacity: .85; }
+.on-rc-points { margin: 0; padding: 10px 14px; font-size: 14px; font-weight: 800; text-align: center; color: #92400e; border-radius: 14px; background: #fef3c7; }
+
+/* ── a gift card's page (GiftPage.jsx) ── */
+.on-gift-hi { margin: 6px 0 0; text-align: center; font-family: var(--font-heading); font-size: 26px; }
+.on-gift { position: relative; display: block; width: 100%; aspect-ratio: 1.586; padding: 0; font: inherit; color: #fff; text-align: left; border: 0; background: none; cursor: pointer; perspective: 1200px; }
+.on-gift-face { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 4px; padding: 20px 22px; overflow: hidden; border-radius: 24px; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform .7s cubic-bezier(.2, .8, .2, 1); box-shadow: 0 30px 60px -30px rgba(0, 0, 0, .7); }
+.on-gift-face.is-front { background: radial-gradient(circle at 80% 0%, rgba(255, 255, 255, .35), transparent 50%), linear-gradient(135deg, var(--on-a), var(--on-b) 60%, #facc15); }
+.on-gift-face.is-back { align-items: center; justify-content: center; color: var(--on-ink); background: var(--on-card); border: 1px solid var(--on-line); transform: rotateY(180deg); }
+.on-gift.is-flipped .is-front { transform: rotateY(-180deg); }
+.on-gift.is-flipped .is-back { transform: rotateY(0deg); }
+.on-gift-face.is-back img { width: 46%; max-width: 180px; border-radius: 12px; }
+.on-gift-face.is-back small { color: var(--on-muted); font-weight: 700; }
+.on-gift-shine { position: absolute; inset: -40%; background: linear-gradient(115deg, transparent 40%, rgba(255, 255, 255, .35) 50%, transparent 60%); animation: on-gift-shine 4.5s ease-in-out infinite; pointer-events: none; }
+@keyframes on-gift-shine { 0%, 60% { transform: translateX(-60%); } 100% { transform: translateX(60%); } }
+.on-gift-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 800; }
+.on-gift-top img { width: 46px; height: 46px; object-fit: contain; padding: 4px; border-radius: 12px; background: #fff; }
+.on-gift-amt { margin-top: auto; font-family: var(--font-heading); font-size: clamp(34px, 11vw, 48px); line-height: 1; letter-spacing: -.02em; }
+.on-gift-face.is-front small { font-weight: 700; opacity: .92; }
+.on-gift-face code { font-size: clamp(14px, 4.4vw, 18px); font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+.on-gift.is-used .is-front, .on-gift.is-void .is-front { filter: grayscale(.85); }
+.on-gift-msg { margin: 0; padding: 16px 18px; border-left: 4px solid var(--on-b); border-radius: 0 18px 18px 0; background: var(--on-card); }
+.on-gift-msg p { margin: 0; font-size: 17px; font-style: italic; }
+.on-gift-msg footer { margin-top: 6px; color: var(--on-muted); font-weight: 700; }
+.on-gift-how { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+.on-gift-how li { display: flex; align-items: center; gap: 10px; font-size: 14.5px; }
+.on-gift-how span { display: grid; place-items: center; flex: none; width: 28px; height: 28px; font-weight: 900; color: #fff; border-radius: 50%; background: var(--on-a); }
+@media (prefers-reduced-motion: reduce) { .on-gift-shine, .on-points-star, .on-bk-art { animation: none; } .on-gift-face { transition: none; } }

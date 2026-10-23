@@ -92,6 +92,19 @@ function itemPresentAtLocation(item, variation, locationId) {
   return presentAtLocation(item, locationId) && presentAtLocation(variation, locationId);
 }
 
+// What Square's item library says of an item beyond its name and price
+// (migration 0174), for the item library downloaded in Square's layout.
+var PRODUCT_TYPES = { REGULAR: 'Physical good', FOOD_AND_BEV: 'Prepared food and beverage', APPOINTMENTS_SERVICE: 'Service', DIGITAL: 'Digital', EVENT: 'Event', DONATION: 'Donation', MEMBERSHIP: 'Membership' };
+function catalogFields(item, variation) {
+  var d = item.item_data || {};
+  return {
+    sku: String((variation && variation.item_variation_data && variation.item_variation_data.sku) || '').slice(0, 80),
+    description: String(d.description_plaintext || d.description || '').slice(0, 4000),
+    itemType: PRODUCT_TYPES[d.product_type] || (d.product_type ? String(d.product_type) : ''),
+    alcohol: typeof d.is_alcoholic === 'boolean' ? d.is_alcoholic : null
+  };
+}
+
 async function upsertMenuItem(company, item, variation, categoryNameByExternal) {
   var squareCategoryId = item.item_data.categories && item.item_data.categories[0] && item.item_data.categories[0].id;
   var category = (squareCategoryId && categoryNameByExternal[squareCategoryId]) || 'General';
@@ -99,13 +112,15 @@ async function upsertMenuItem(company, item, variation, categoryNameByExternal) 
   var price = minorToMajor(variation.item_variation_data.price_money);
   var active = !item.is_deleted && !variation.is_deleted;
 
+  var cf = catalogFields(item, variation);
   var res = await pool.query(
-    "INSERT INTO restaurant_menu_items (company_id, name, category, price, active, external_id, source) " +
-    "VALUES ($1,$2,$3,$4,$5,$6,'square') " +
+    "INSERT INTO restaurant_menu_items (company_id, name, category, price, active, external_id, source, sku, description, item_type, contains_alcohol) " +
+    "VALUES ($1,$2,$3,$4,$5,$6,'square',$7,$8,$9,$10) " +
     "ON CONFLICT (company_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
-    "name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price, active = EXCLUDED.active, updated_at = now() " +
+    "name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price, active = EXCLUDED.active, sku = EXCLUDED.sku, description = EXCLUDED.description, " +
+    "item_type = EXCLUDED.item_type, contains_alcohol = EXCLUDED.contains_alcohol, updated_at = now() " +
     "RETURNING id",
-    [company.id, name, category, price, active, variation.id]
+    [company.id, name, category, price, active, variation.id, cf.sku, cf.description, cf.itemType, cf.alcohol]
   );
   return res.rows[0].id;
 }
@@ -137,13 +152,15 @@ async function upsertGroupedMenuItem(company, item, variations, categoryNameByEx
   var fallbackPrice = minorToMajor(variations[0].item_variation_data.price_money);
   var active = !item.is_deleted;
 
+  var pf = catalogFields(item, null);
   var parentRes = await pool.query(
-    "INSERT INTO restaurant_menu_items (company_id, name, category, price, active, external_id, source) " +
-    "VALUES ($1,$2,$3,$4,$5,$6,'square') " +
+    "INSERT INTO restaurant_menu_items (company_id, name, category, price, active, external_id, source, description, item_type, contains_alcohol) " +
+    "VALUES ($1,$2,$3,$4,$5,$6,'square',$7,$8,$9) " +
     "ON CONFLICT (company_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
-    "name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price, active = EXCLUDED.active, updated_at = now() " +
+    "name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price, active = EXCLUDED.active, description = EXCLUDED.description, " +
+    "item_type = EXCLUDED.item_type, contains_alcohol = EXCLUDED.contains_alcohol, updated_at = now() " +
     "RETURNING id",
-    [company.id, item.item_data.name, category, fallbackPrice, active, item.id]
+    [company.id, item.item_data.name, category, fallbackPrice, active, item.id, pf.description, pf.itemType, pf.alcohol]
   );
   var menuItemId = parentRes.rows[0].id;
 
@@ -153,12 +170,12 @@ async function upsertGroupedMenuItem(company, item, variations, categoryNameByEx
     var vName = (v.item_variation_data.name || '').trim() || 'Regular';
     var vPrice = minorToMajor(v.item_variation_data.price_money);
     var vRes = await pool.query(
-      "INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order, external_id) " +
-      "VALUES ($1,$2,$3,$4,$5) " +
+      "INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order, external_id, sku) " +
+      "VALUES ($1,$2,$3,$4,$5,$6) " +
       "ON CONFLICT (menu_item_id, external_id) WHERE external_id IS NOT NULL DO UPDATE SET " +
-      "name = EXCLUDED.name, price = EXCLUDED.price " +
+      "name = EXCLUDED.name, price = EXCLUDED.price, sku = EXCLUDED.sku " +
       "RETURNING id",
-      [menuItemId, vName, vPrice, i, v.id]
+      [menuItemId, vName, vPrice, i, v.id, String(v.item_variation_data.sku || '').slice(0, 80)]
     );
     variationRowIdByExternalId[v.id] = vRes.rows[0].id;
     await pool.query(

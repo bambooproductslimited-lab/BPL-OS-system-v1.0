@@ -133,8 +133,9 @@ function cleanDiscount(d, settings) {
   if (d.presetId) {
     // The manager's ready-made discounts, and the happy hours (anyone may
     // give one, while it is on: restaurantTillTimes).
-    var p = (settings.discounts || []).concat(times.asPresets(settings)).find(function (x) { return x.id === d.presetId; });
-    if (p) return Object.assign({ presetId: p.id, kind: p.kind, value: p.value, name: p.name, open: !!p.open, approval: d.approval || null }, p.happy ? { happy: p.happy } : {});
+    // And the loyalty rewards, paid with a customer's points (restaurantTillFront rewardPresets).
+    var p = (settings.discounts || []).concat(times.asPresets(settings), require('./restaurantTillFront.service').rewardPresets(settings)).find(function (x) { return x.id === d.presetId; });
+    if (p) return Object.assign({ presetId: p.id, kind: p.kind, value: p.value, name: p.name, open: !!p.open, approval: d.approval || null }, p.happy ? { happy: p.happy } : {}, p.loyalty ? { loyalty: p.loyalty } : {});
     // Taken off the list since it was given: it stays as it was, by its size.
     if (!d.kind) fail('invalid', 'That discount is no longer offered. Pick another.');
   }
@@ -186,6 +187,7 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
     var o = Object.assign({}, l, { gross: gross, discount: 0, discountName: null, compReason: null, discountBy: null });
     var comp = cleanComp(l.comp);
     var disc = comp ? null : cleanDiscount(l.discount, settings);
+    if (disc && disc.loyalty) fail('invalid', disc.name + ' is a reward: it goes on the whole bill.');
     var was = before.items.find(function (b) { return identity(b) === identity(l) && (comp ? b.comp && b.comp.reason === comp.reason : disc ? b.discount && discountSpec(b.discount) === discountSpec(disc) : false); });
     if (comp) {
       var cby = allow(ctx, 'comp', 'comp:' + identity(l), comp.approval, was && was.comp && was.comp.by, 'Putting ' + l.name + ' on the house');

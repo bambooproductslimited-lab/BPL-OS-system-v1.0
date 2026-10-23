@@ -5,6 +5,7 @@ import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import { CURRENCY_LABEL, FULFILLMENT, FulfillmentIcon, MethodGlyph, fmt, fulfillmentName, methodName } from './tillShared';
 import { modsWords } from './tillBill';
+import { saveFile } from '../../lib/saveFile';
 
 // The till settings' sales report (TillSettings.jsx → Sales): every sale and
 // refund of some days, newest first, and what a manager reads off them —
@@ -17,7 +18,7 @@ const RANGES = [['today', msg('Today')], ['yesterday', msg('Yesterday')], ['week
 // Where a sale was rung up: this till, or Square before it (brought in by the OS's Square import).
 const SOURCES = [['', msg('Till and Square')], ['till', msg('This till')], ['square', msg('From Square')]];
 const KINDS = [['all', msg('All transactions')], ['sales', msg('Sales')], ['refunds', msg('Refunds')], ['iou', msg('Sold on IOU')], ['voided', msg('Voided')]];
-const METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'card', 'bank_transfer', 'other'];
+const METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'gift_card', 'card', 'bank_transfer', 'other'];
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 function pct(part, whole) { return whole > 0 ? Math.round((part / whole) * 100) : 0; }
 function hourLabel(h) { return new Date(2000, 0, 1, h).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }); }
@@ -85,6 +86,13 @@ export default function SalesReport({ token, pin, onFail }) {
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     } catch (err) { onFail(err); } finally { setBusy(false); }
   }
+  // Every dish sold on these days, laid out exactly like Square's "Item
+  // sales" download (the same columns, a tab-separated UTF-16 file).
+  async function downloadSquare() {
+    setBusy(true);
+    try { saveFile(await posFetch('POST', '/pos/settings/export', token, { managerPin: pin || undefined, kind: 'items', from: dates.from, to: dates.to })); }
+    catch (err) { onFail(err); } finally { setBusy(false); }
+  }
 
   const t = data && data.totals;
   const peak = data && data.byHour.length ? data.byHour.reduce((a, b) => (b.amount > a.amount ? b : a)) : null;
@@ -144,6 +152,8 @@ export default function SalesReport({ token, pin, onFail }) {
               {t.iouOpen > 0 && <span className="is-warn"><b>{money(t.iouOwed)}</b>{tr('still owed on {n} IOUs', { n: t.iouOpen })}</span>}
               {t.voided > 0 && <span><b>{t.voided}</b>{tr('voided ({amount})', { amount: money(t.voidedAmount) })}</span>}
               {t.guests > 0 && <span className="is-guests"><b>{money(t.perGuest)}</b>{tr('per guest, {n} guests', { n: t.guests })}</span>}
+              {t.tips > 0 && <span className="is-tips"><b>{money(t.tips)}</b>{t.tipped === 1 ? tr('in tips on 1 sale') : tr('in tips on {n} sales', { n: t.tipped })}</span>}
+              {(t.pointsGiven > 0 || t.pointsUsed > 0) && <span className="is-points"><b>⭐ {t.pointsGiven}</b>{tr('points earned · {n} spent', { n: t.pointsUsed })}</span>}
               {t.fromSquare && t.fromSquare.sales > 0 && !source && <span className="is-square"><b>{money(t.fromSquare.amount)}</b>{tr('from Square: {n} sales', { n: t.fromSquare.sales })}</span>}
             </div>
           </div>
@@ -227,6 +237,19 @@ export default function SalesReport({ token, pin, onFail }) {
                   ))}
                 </ul>
               </div>
+
+              {(data.tipsBy || []).length > 0 && (
+                <div className="sr-card sr-tips">
+                  <h4>💛 {tr('Tips, by who served')}</h4>
+                  <p className="dk-muted">{tr('Paid on top of the bills: not in the sales. The waiter of a table, else whoever rang it up.')}</p>
+                  <ul className="sr-x-list is-plain">
+                    {data.tipsBy.map((p) => (
+                      <li key={p.id || p.name}><span className="sr-x-ico" aria-hidden="true">💛</span>
+                        <span>{p.name || tr('Someone')}<small>{p.sales === 1 ? tr('1 sale') : tr('{n} sales', { n: p.sales })} · {tr('{share}% of the tips', { share: pct(p.amount, t.tips) })}</small></span><b>{money(p.amount)}</b></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               {(t.discounts > 0 || t.serviceCharge > 0 || (data.taxes || []).length > 0 || (data.addOns || []).length > 0 || (data.comps || []).length > 0) && (
                 <div className="sr-card sr-extras">
@@ -331,6 +354,7 @@ export default function SalesReport({ token, pin, onFail }) {
           <div className="ts-act-foot">
             {data.more && <button type="button" className="btn btn-secondary" disabled={busy} onClick={more}>{busy ? tr('Loading…') : tr('Show more')}</button>}
             {data.rows.length > 0 && <button type="button" className="btn btn-secondary" disabled={busy} onClick={download}>{tr('Download (CSV)')}</button>}
+            <button type="button" className="btn btn-secondary sr-square-dl" disabled={busy} onClick={downloadSquare} title={tr('The same columns as Square\'s Item sales download')}>⬇ {tr('Item sales (Square format)')}</button>
           </div>
         </>
       )}

@@ -9,7 +9,7 @@ import {
   buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
-import { activeIntlLocale, tr } from '../lib/i18n.jsx';
+import { activeIntlLocale, activeLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
 import DeviceLanguage from '../components/DeviceLanguage';
 import { IouDialog, RefundDialog, VipDialog } from './TillMoney';
@@ -31,6 +31,11 @@ import { StockTab } from './till/MenuStock';
 import PayInOutDialog from './till/PayInOutDialog';
 import TableInbox from './till/TableInbox';
 import OfflineQueue from './till/OfflineQueue';
+import Bookings from './till/Bookings';
+import GiftCards from './till/GiftCards';
+import CustomerScreen from './till/CustomerScreen';
+import Rewards from './till/Rewards';
+import { useCustomerDisplay } from './till/customerScreenLink';
 import {
   OFFLINE_METHODS, cacheLoad, cacheSave, draftClear, draftLoad, draftSave, enqueue, fetchOrGiveUp, flush, isLocal, isNetworkError, newRef, onQueue, queueList,
   resolveIds, serverAnswers
@@ -323,6 +328,14 @@ export default function RestaurantPosPage() {
   // and a note sent with the order (restaurantKitchen.service.js).
   const [kitchen, setKitchen] = useState(null); // { inUse, cooking, ready: [...] }
   const [kitchenOpen, setKitchenOpen] = useState(false);
+  // Bookings and the waitlist (what is booked soon, for the top bar and the
+  // floor map), gift cards, the customer's screen, a customer's rewards.
+  const [soon, setSoon] = useState(null);
+  const [bookingsOpen, setBookingsOpen] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false);
+  const [screenOpen, setScreenOpen] = useState(false);
+  const [rewardsOpen, setRewardsOpen] = useState(false);
+  const [payInfo, setPayInfo] = useState(null); // the bill being paid and its tip, for the customer's screen
   const [deliveryPrompt, setDeliveryPrompt] = useState(null); // a delivery's food ready to go out
   const [tableBox, setTableBox] = useState(null); // what the tables ask for from their QR codes
   const [tableBoxOpen, setTableBoxOpen] = useState(false);
@@ -376,7 +389,8 @@ export default function RestaurantPosPage() {
   }, []);
   useEffect(() => {
     if (!session || !session.token) return undefined;
-    const t = setInterval(() => { loadKitchen(session.token); loadTabs(session.token); }, 15000);
+    loadSoon(session.token);
+    const t = setInterval(() => { loadKitchen(session.token); loadTabs(session.token); loadSoon(session.token); }, 15000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -579,6 +593,20 @@ export default function RestaurantPosPage() {
   // a VIP balance on the payment screen are fresh again.
   function moneyChanged() { loadShift(); refreshDrawer(); setVipKey((k) => k + 1); }
   function sessionEnded() { localStorage.removeItem(SESSION_KEY); setSession(null); setRefundFor(null); setVipOpen(null); setIouOpen(false); }
+  async function loadSoon(token) {
+    try { setSoon(await posFetch('GET', '/pos/bookings/soon', token || session.token)); } catch { /* no bookings shown then */ }
+  }
+  // A booking or a guest from the waitlist seated: their order starts at their table.
+  function seatBooking(b) {
+    setBookingsOpen(false);
+    loadSoon();
+    const t = tables.find((x) => x.id === b.tableId);
+    if (cart.length) { setToast(tr('{name} is seated at {table}.', { name: b.name, table: t ? t.name : '' })); return; }
+    setFulfillment('dine_in');
+    if (t) setSelectedTable(t);
+    setGuests(b.party);
+    setToast(tr('{name} is seated at {table}: their order starts here.', { name: b.name, table: t ? t.name : '' }));
+  }
   async function loadKitchen(token) {
     try { setKitchen(await posFetch('GET', '/pos/kitchen', token || session.token)); } catch { /* the kitchen figures just don't show */ }
   }
@@ -1063,6 +1091,28 @@ export default function RestaurantPosPage() {
   const bill = useMemo(() => billOf(cart, billAdjust, tillSettings, fulfillment), [cart, billAdjust, tillSettings, fulfillment]);
   const cartTotal = bill.total;
   const animatedCartTotal = useCountUp(cartTotal);
+  // The customer's screen (till/customerScreenLink.js): the order as it
+  // stands, the bill and a tip to tap while paying, a thank-you once paid.
+  const screenRef = (currentTab ? currentTab.id : 'sale') + '-' + Math.round(((checkoutOpen && payInfo ? payInfo.bill : cartTotal) || 0) * 100);
+  const screenState = useMemo(() => {
+    if (!session) return { phase: 'idle' };
+    if (receipt && !receipt.reprint) {
+      return { phase: 'paid', ref: String(receipt.id), lang: activeLocale(), customer: receipt.guestName || '',
+        paid: { total: receipt.total, tip: receipt.tip || 0, change: receipt.change || 0, method: receipt.paymentMethod, orderNo: receipt.orderNo || '', receiptUrl: receipt.offline ? '' : receipt.receiptUrl || '',
+          points: receipt.points ? { earned: receipt.points.earned, balance: receipt.points.balance } : null } };
+    }
+    if (!cart.length) return { phase: 'idle', lang: activeLocale() };
+    const tips = tillSettings.tips && tillSettings.tips.on ? tillSettings.tips : null;
+    return {
+      phase: checkoutOpen ? 'pay' : 'order', ref: screenRef, lang: activeLocale(),
+      lines: bill.lines.map((l) => ({ name: l.name, qty: l.qty, amount: l.net, gross: l.gross, mods: modsWords(l.modifiers, tr), seat: l.seat || null, comp: !!l.comp,
+        off: l.comp ? tr('On the house') : l.discount > 0 && l.discountSpec && l.discountSpec.name ? l.discountSpec.name : '' })),
+      totals: { items: bill.itemsGross, discount: bill.discountTotal, service: bill.serviceCharge, serviceName: serviceWords(bill.serviceName, tr), total: bill.total, taxes: bill.taxes },
+      tip: checkoutOpen && tips ? { ask: true, base: payInfo ? payInfo.bill : bill.total, percents: tips.percents, amount: payInfo ? payInfo.tip : 0 } : undefined,
+      customer: selectedGuest ? selectedGuest.name : '', cashier: session.employeeName ? String(session.employeeName).split(' ')[0] : ''
+    };
+  }, [session, receipt, cart.length, bill, checkoutOpen, payInfo, selectedGuest, tillSettings, screenRef]);
+  const screen = useCustomerDisplay({ token: session && session.token, state: screenState });
   const animatedShiftSales = useCountUp(shift ? shift.sales : 0, 700);
   const menuById = useMemo(() => new Map(menu.map((m) => [m.id, m])), [menu]);
   const cartQtyById = useMemo(() => {
@@ -1134,7 +1184,7 @@ export default function RestaurantPosPage() {
   function pickedLines(dishPick) {
     return dishPick.map((p) => { const l = cart.find((x) => lineKey(x) === p.key); return l ? { ...l, qty: p.qty } : null; }).filter(Boolean);
   }
-  async function submitCheckout(payments, dishPick) {
+  async function submitCheckout(payments, dishPick, tip) {
     setCheckingOut(true);
     setCheckoutError(null);
     const byDish = !!(dishPick && dishPick.length && currentTab);
@@ -1146,6 +1196,7 @@ export default function RestaurantPosPage() {
       tabId: currentTab ? currentTab.id : undefined,
       kitchenNote: kitchenNote.trim() || undefined,
       adjust: adjustBody(),
+      tip: tip > 0 ? tip : undefined,
       clientRef: newRef()
     }, orderWho());
     if (byDish && (offline || isLocal(body.tabId))) { setCheckoutError(tr('No internet: pay by dish needs the server. Take the whole bill, or wait for the internet.')); setCheckingOut(false); return; }
@@ -1180,7 +1231,7 @@ export default function RestaurantPosPage() {
   // need the customer's account on the server.
   function keepSale(body, payments) {
     if (payments.some((pm) => !OFFLINE_METHODS.includes(pm.method))) {
-      setCheckoutError(tr('No internet: VIP and IOU need the server. Take cash, Mobile Money, Alipay or WeChat Pay, or wait for the internet.'));
+      setCheckoutError(tr('No internet: VIP, IOU and gift cards need the server. Take cash, Mobile Money, Alipay or WeChat Pay, or wait for the internet.'));
       return;
     }
     const total = bill.total;
@@ -1651,7 +1702,7 @@ export default function RestaurantPosPage() {
             <div className="pos-receipt-lines pos-receipt-cash">
               {receipt.payments.map((p, i) => (
                 <div key={i} className="pos-receipt-line">
-                  <span>{methodName(p.method)}{p.currency !== 'GHS' ? ' · ' + fmt(p.foreignAmount, p.currency) + ' @ ' + p.rate : ''}{p.tendered != null ? ' · ' + tr('received {amount}', { amount: fmt(p.tendered, p.currency) }) : ''}</span>
+                  <span>{methodName(p.method)}{p.giftCard ? ' •••• ' + p.giftCard : ''}{p.currency !== 'GHS' ? ' · ' + fmt(p.foreignAmount, p.currency) + ' @ ' + p.rate : ''}{p.tendered != null ? ' · ' + tr('received {amount}', { amount: fmt(p.tendered, p.currency) }) : ''}</span>
                   <span>{money(p.amount)}</span>
                 </div>
               ))}
@@ -1701,6 +1752,11 @@ export default function RestaurantPosPage() {
             </p>
           )}
           {!receipt.reprint && receipt.vipBalance != null && <p className="dk-muted">{tr('VIP balance left: {amount}', { amount: money(receipt.vipBalance) })}</p>}
+          {!receipt.reprint && (receipt.giftCards || []).map((g) => <p key={g.card} className="dk-muted">🎁 {tr('Gift card •••• {card}: {amount} left', { card: g.card, amount: money(g.left) })}</p>)}
+          {!receipt.reprint && receipt.tip > 0 && <p className="pos-done-tip">💛 {tr('Tip {amount}, thank you!', { amount: money(receipt.tip) })}</p>}
+          {!receipt.reprint && receipt.points && (receipt.points.earned > 0 || receipt.points.used > 0) && (
+            <p className="pos-done-points">⭐ {tr('{name}: {earned} points earned, {balance} now', { name: receipt.points.name || receipt.guestName || tr('the customer'), earned: receipt.points.earned, balance: receipt.points.balance })}</p>
+          )}
           {!receipt.reprint && receipt.kitchenTicket && <p className="pos-sent"><Icon name="send" />{tr('Sent to the kitchen as #{n}.', { n: receipt.kitchenTicket.number })}</p>}
           {receipt.offline && <p className="pos-offline-note">📡 {tr('Taken without the internet: kept on this till and sent to the server when it is back. Its number comes then.')}</p>}
           {receipt.restOpen && (
@@ -1784,8 +1840,8 @@ export default function RestaurantPosPage() {
         <button type="button" className={selectedGuest ? 'is-set' : ''} onClick={openGuestPicker}>
           <WhoGlyph name="guest" /><small>{tr('Customer')}</small>
           <span>{selectedGuest ? selectedGuest.name : fulfillment === 'delivery' && delivery.name ? delivery.name : tr('None')}</span>
-          {selectedGuest && (selectedGuest.vip || selectedGuest.iouAllowed) && (
-            <em className="pos-who-accts">{selectedGuest.vip && <b className="is-vip">{tr('VIP')}</b>}{selectedGuest.iouAllowed && <b className="is-iou">{tr('IOU')}</b>}</em>
+          {selectedGuest && (selectedGuest.vip || selectedGuest.iouAllowed || selectedGuest.points > 0) && (
+            <em className="pos-who-accts">{selectedGuest.vip && <b className="is-vip">{tr('VIP')}</b>}{selectedGuest.iouAllowed && <b className="is-iou">{tr('IOU')}</b>}{selectedGuest.points > 0 && <b className="is-pts">⭐ {selectedGuest.points}</b>}</em>
           )}
         </button>
       </div>
@@ -1916,8 +1972,13 @@ export default function RestaurantPosPage() {
         {cart.length > 0 && (
           <div className="pos-bill-tools">
             <button type="button" className={'pos-link' + (billAdjust.discount ? ' is-set' : '')} onClick={() => setOffFor('bill')}>
-              % {billAdjust.discount ? billAdjust.discount.name : bill.serviceOn ? tr('Discount or service charge') : tr('Discount the bill')}
+              % {billAdjust.discount ? billAdjust.discount.name || bill.billDiscountName || tr('Discount') : bill.serviceOn ? tr('Discount or service charge') : tr('Discount the bill')}
             </button>
+            {tillSettings.loyalty && tillSettings.loyalty.on && selectedGuest && (
+              <button type="button" className={'pos-link is-reward' + (billAdjust.discount && String(billAdjust.discount.presetId || '').indexOf('loyalty:') === 0 ? ' is-set' : '')} onClick={() => setRewardsOpen(true)}>
+                ⭐ {tr('Rewards')} · {tr('{n} points', { n: selectedGuest.points || 0 })}
+              </button>
+            )}
           </div>
         )}
         <div className="pos-order-actions">
@@ -2004,6 +2065,17 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
+          {soon && (soon.can || soon.today > 0 || soon.waiting > 0 || soon.requested > 0) && (
+            <button type="button" className={'pos-stat is-bookings' + (soon.requested || soon.waiting ? ' is-asking' : '')} disabled={!soon.can} onClick={() => setBookingsOpen(true)}>
+              <span className="pos-stat-ico" aria-hidden="true">📅</span>
+              <span className="pos-stat-text">
+                <small>{tr('Bookings')}</small>
+                <strong>{soon.today}</strong>
+                <span>{soon.requested ? tr('{n} to answer', { n: soon.requested }) : soon.waiting ? (soon.waiting === 1 ? tr('1 waiting') : tr('{n} waiting', { n: soon.waiting }))
+                  : soon.next.length ? tr('next {time} · {name}', { time: new Date(soon.next[0].at).toISOString().slice(11, 16), name: soon.next[0].name }) : tr('today')}</span>
+              </span>
+            </button>
+          )}
           <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="clock" /></span>
             <span className="pos-stat-text">
@@ -2021,6 +2093,9 @@ export default function RestaurantPosPage() {
               onDuty('iouPaid') && { key: 'iou', icon: 'owed', tone: 'iou', label: tr('IOUs'), note: shift && shift.iousOpen ? tr('{n} owed · {amount}', { n: shift.iousOpen, amount: money(shift.iousOwed) }) : tr('Nothing owed'), badge: shift && shift.iousOpen ? shift.iousOpen : 0, onClick: () => setIouOpen(true) },
               onDuty('refund') && { key: 'refund', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
               can('stock') && { key: 'stock', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
+              can('bookings') && { key: 'bookings', icon: <span className="tl-more-emo">📅</span>, tone: 'book', label: tr('Bookings and waitlist'), note: soon && soon.waiting ? tr('{n} waiting', { n: soon.waiting }) : tr('Tables booked, walk-ins waiting'), badge: soon && soon.requested ? soon.requested : null, onClick: () => setBookingsOpen(true) },
+              tillSettings.giftCards && tillSettings.giftCards.on && { key: 'gift', icon: <span className="tl-more-emo">🎁</span>, tone: 'gift', label: tr('Gift cards'), note: tr('Sell one, or look one up'), onClick: () => setGiftOpen(true) },
+              { key: 'screen', icon: <span className="tl-more-emo">🖥️</span>, tone: 'screen', label: tr('Customer screen'), note: screen.displays.length ? tr('{n} showing this till', { n: screen.displays.length }) : tr('Pair a screen facing the customer'), onClick: () => setScreenOpen(true) },
               { key: 'dispute', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
               isManager ? { key: 'office', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
                 : { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
@@ -2119,6 +2194,13 @@ export default function RestaurantPosPage() {
 
       {toast && <div className="toast" role="status">{toast}</div>}
 
+      {bookingsOpen && <Bookings token={session.token} tables={tables} onSeat={seatBooking} onToast={setToast} onClose={() => { setBookingsOpen(false); loadSoon(); }} />}
+      {giftOpen && <GiftCards token={session.token} settings={tillSettings} companyName={session.companyName} can={can} onToast={setToast} onClose={() => { setGiftOpen(false); refreshDrawer(); loadShift(); }} />}
+      {screenOpen && <CustomerScreen token={session.token} device={screen.device} displays={screen.displays} onChanged={screen.reload} onToast={setToast} onClose={() => setScreenOpen(false)} />}
+      {rewardsOpen && selectedGuest && (
+        <Rewards token={session.token} guest={selectedGuest} applied={billAdjust.discount ? billAdjust.discount.presetId : null}
+          onApply={(presetId, name) => { setBillAdjust((a) => ({ ...a, discount: presetId ? { presetId, name } : null })); setRewardsOpen(false); }} onClose={() => setRewardsOpen(false)} />
+      )}
       {checkoutOpen && (
         <PayDialog token={session.token} title={currentTab ? currentTab.name : tr('To pay')} total={Math.round(cartTotal * 100) / 100} methods={payMethods()}
           settings={tillSettings} customer={selectedGuest} refreshKey={vipKey} busy={checkingOut} error={checkoutError}
@@ -2130,7 +2212,8 @@ export default function RestaurantPosPage() {
               : cart.length !== sentLines.length || cart.some((l) => { const s0 = sentLines.find((x) => lineKey(x) === lineKey(l)); return !s0 || s0.qty !== l.qty; })
                 ? tr('Send the new dishes to the kitchen first, then pay by dish.') : null
           } : null}
-          onCancel={() => setCheckoutOpen(false)} onComplete={submitCheckout} />
+          screenTip={screen.tip} onTip={setPayInfo}
+          onCancel={() => { setCheckoutOpen(false); setPayInfo(null); }} onComplete={submitCheckout} />
       )}
 
       {keepDialog && !sendConfirm && (
@@ -2237,6 +2320,8 @@ export default function RestaurantPosPage() {
                         {t.onlineRef && <span className="tl-web">{t.onlineRef}</span>}</div>
                       <div className="dk-muted dk-row-meta">{[t.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: t.dishes }), t.waiterName, t.waitingMinutes ? tr('ready {n} min ago', { n: t.waitingMinutes }) : tr('just ready')].filter(Boolean).join(' · ')}</div>
                       {t.fulfillment === 'delivery' && <div className="dk-muted dk-row-meta">{t.deliveryAddress} · {t.customerPhone}</div>}
+                      {t.readyText && (t.readyText.channel === 'sms' ? <span className="tl-texted">📱 {tr('Texted: food ready')}</span>
+                        : t.readyText.url ? <a className="tl-texted is-wa" href={t.readyText.url} target="_blank" rel="noreferrer">💬 {tr('Tell them on WhatsApp')}</a> : null)}
                     </div>
                     <div className="dk-row-side">
                       {t.fulfillment === 'delivery' && !t.deliveryId && can('delivery') && (
@@ -2290,6 +2375,8 @@ export default function RestaurantPosPage() {
               {drawer.cashRefunds > 0 && <div className="pos-drawer-line"><span>{tr('Cash Refunds')}</span><span>−{money(drawer.cashRefunds)}</span></div>}
               {drawer.vipCashOutsCash > 0 && <div className="pos-drawer-line"><span>{tr('VIP money given back')}</span><span>−{money(drawer.vipCashOutsCash)}</span></div>}
               {drawer.iouLentCash > 0 && <div className="pos-drawer-line"><span>{tr('Cash lent on IOU accounts')}</span><span>−{money(drawer.iouLentCash)}</span></div>}
+              {drawer.giftSoldCash > 0 && <div className="pos-drawer-line"><span>{tr('Gift cards sold in cash')}</span><span>{money(drawer.giftSoldCash)}</span></div>}
+              {drawer.giftVoidedCash > 0 && <div className="pos-drawer-line"><span>{tr('Gift cards cancelled, cash given back')}</span><span>−{money(drawer.giftVoidedCash)}</span></div>}
               <div className="pos-drawer-line"><span>{tr('Paid In/Out')}</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
               <div className="pos-drawer-line is-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
             </div>
@@ -2419,7 +2506,7 @@ export default function RestaurantPosPage() {
           <div className="dialog pos-picker-dialog tl-map-dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{tr('Pick the table')}</h2>
             <p className="dk-muted">{tr('Where they sit. A table with an open order shows its total and where its food is; tap it to open that order.')}</p>
-            <TableMapPicker tables={tables} tabs={tabs} selectedId={selectedTable ? selectedTable.id : null}
+            <TableMapPicker tables={tables} tabs={tabs} booked={soon ? soon.tables : null} selectedId={selectedTable ? selectedTable.id : null}
               onPick={(t, tab) => {
                 if (tab && !(currentTab && currentTab.id === tab.id)) { setTablePickerOpen(false); openTab(tab, false); return; }
                 setSelectedTable(t); setFulfillment('dine_in'); setTablePickerOpen(false);
@@ -2479,8 +2566,9 @@ export default function RestaurantPosPage() {
                   }}
                 >
                   <span>{g.name}{g.phone ? ' · ' + g.phone : ''}</span>
-                  {(g.vip || g.iouAllowed) && (
+                  {(g.vip || g.iouAllowed || g.points > 0) && (
                     <em className="pos-who-accts">
+                      {g.points > 0 && <b className="is-pts" title={tr('Loyalty points')}>⭐ {g.points}</b>}
                       {g.vip && <b className="is-vip" title={tr('VIP account: {amount}', { amount: money(g.vipBalance) })}>{tr('VIP')} {money(g.vipBalance)}</b>}
                       {g.iouAllowed && <b className="is-iou" title={tr('IOU account')}>{tr('IOU')}{g.iouOwed > 0 ? ' · ' + money(g.iouOwed) : ''}</b>}
                     </em>

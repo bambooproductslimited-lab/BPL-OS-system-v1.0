@@ -10,6 +10,7 @@
     "build:kds": "node tools/build-site.mjs kds",
     "build:delivery": "node tools/build-site.mjs delivery",
     "build:online": "node tools/build-site.mjs online",
+    "build:bamboogarden": "BRAND=bamboogarden node tools/build-site.mjs pos && BRAND=bamboogarden node tools/build-site.mjs kds && BRAND=bamboogarden node tools/build-site.mjs delivery && BRAND=bamboogarden node tools/build-site.mjs online",
     "lint": "oxlint",
     "preview": "vite preview"
   },

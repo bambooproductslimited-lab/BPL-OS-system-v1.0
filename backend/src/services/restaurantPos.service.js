@@ -12,6 +12,8 @@ var activity = require('./restaurantActivity.service');
 var screens = require('./restaurantKdsScreens.service');
 var disputes = require('./restaurantDisputes.service');
 function deliveries() { return require('./restaurantDelivery.service'); }
+function gifts() { return require('./restaurantGiftCards.service'); }
+function loyalty() { return require('./restaurantLoyalty.service'); }
 var tillMenu = require('./restaurantTillMenu.service');
 var check = require('./restaurantTillCheck.service');
 var times = require('./restaurantTillTimes.service');
@@ -150,13 +152,14 @@ function rowToOrder(order, items, payments) {
     serviceName: adj.service ? adj.service.name : null, serviceRate: adj.service ? adj.service.rate : 0, serviceOff: !!adj.serviceOff,
     billDiscount: adj.discount ? { name: adj.discount.name, amount: adj.discount.amount, by: adj.discount.by } : null,
     taxes: order.taxes || [], taxTotal: Number(order.tax_total || 0), taxIncluded: Number(adj.taxIncluded || 0),
-    receiptUrl: receiptUrl(order.receipt_token), receiptSends: (order.receipt_sends || []).map(function (x) { return { channel: x.channel, to: x.to, at: x.at, by: x.by }; }),
+    receiptUrl: receiptUrl(order.receipt_token, order.order_no), receiptSends: (order.receipt_sends || []).map(function (x) { return { channel: x.channel, to: x.to, at: x.at, by: x.by }; }),
     status: order.status, createdAt: order.created_at, offlineAt: order.offline_at || null,
     tableId: order.table_id, waiterId: order.waiter_id, guestId: order.guest_id,
     fulfillment: order.fulfillment || '', customerName: order.customer_name || '', customerPhone: order.customer_phone || '', deliveryAddress: order.delivery_address || '',
     cashTendered: cashGiven,
     change: payments.length ? (change > 0 || cashGiven != null ? change : null) : (cashGiven == null ? null : Math.round((cashGiven - Number(order.total)) * 100) / 100),
     payments: payments, guests: order.guests || null, allergy: order.allergy || null,
+    tip: Number(order.tip || 0), pointsEarned: order.points_earned || 0, pointsUsed: order.points_used || 0,
     items: items.map(function (it) {
       return { menuItemId: it.menuItemId, name: it.name, qty: it.qty, unitPrice: it.unitPrice, lineTotal: it.lineTotal, note: it.note || '', custom: !!it.custom,
         modifiers: it.modifiers || [], gross: it.gross != null ? Number(it.gross) : it.lineTotal, discount: Number(it.discount || 0), discountName: it.discountName || null, compReason: it.compReason || null,
@@ -298,11 +301,13 @@ function rowToGuestTile(r) {
   return {
     id: r.id, name: r.name, phone: r.phone,
     vip: !!r.vip, vipBalance: r.vip_balance == null ? 0 : Math.round(Number(r.vip_balance) * 100) / 100,
-    iouAllowed: !!r.iou_allowed, iouLimit: r.iou_limit == null ? null : Number(r.iou_limit), iouOwed: r.owed == null ? 0 : Math.round(Number(r.owed) * 100) / 100
+    iouAllowed: !!r.iou_allowed, iouLimit: r.iou_limit == null ? null : Number(r.iou_limit), iouOwed: r.owed == null ? 0 : Math.round(Number(r.owed) * 100) / 100,
+    points: r.points == null ? 0 : Number(r.points)
   };
 }
 var GUEST_SELECT =
-  'SELECT g.id, g.name, g.phone, g.iou_allowed, g.iou_limit, v.balance AS vip_balance, (v.guest_id IS NOT NULL) AS vip, i.owed ' +
+  'SELECT g.id, g.name, g.phone, g.iou_allowed, g.iou_limit, v.balance AS vip_balance, (v.guest_id IS NOT NULL) AS vip, i.owed, ' +
+  '  (SELECT sum(l.points) FROM restaurant_loyalty_entries l WHERE l.guest_id = g.id) AS points ' +
   'FROM restaurant_guests g LEFT JOIN (SELECT guest_id, sum(amount) AS balance FROM restaurant_vip_entries GROUP BY guest_id) v ON v.guest_id = g.id ' +
   "LEFT JOIN (SELECT guest_id, sum(owed) AS owed FROM (SELECT guest_id, total - refunded_total AS owed FROM restaurant_orders WHERE payment_method = 'iou' AND status = 'completed' AND iou_paid_at IS NULL " +
   '  UNION ALL SELECT guest_id, amount FROM restaurant_iou_advances WHERE paid_at IS NULL) x GROUP BY guest_id) i ON i.guest_id = g.id ';
@@ -564,7 +569,10 @@ async function chargeOrder(session, p, clientRef) {
       var opened = (await client.query("SELECT opened_at FROM restaurant_drawer_sessions WHERE cashier_id = $1 AND status = 'open'", [session.posEmployeeId])).rows[0];
       at = opened && new Date(opened.opened_at) > takenAt ? new Date(opened.opened_at) : takenAt;
     }
-    var plan = money.planPayments(session, bill.total, asked);
+    // A tip on top (the till's settings, tips): paid with the bill, not a sale.
+    var tip = tipOf(p.tip, bill.total, tillSettings);
+    var plan = money.planPayments(session, Math.round((bill.total + tip) * 100) / 100, asked);
+    if (tip > 0 && plan.rows.some(function (r) { return r.method === 'iou'; })) fail('invalid', 'A tip is paid in money, not on an IOU.');
 
     var companyRes = await client.query('SELECT code FROM companies WHERE id = $1', [session.posCompanyId]);
     var seqRes = await client.query("SELECT nextval('restaurant_order_seq') AS n");
@@ -573,11 +581,11 @@ async function chargeOrder(session, p, clientRef) {
     var cols = check.saleColumns(bill);
     var orderRes = await client.query(
       'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id, cash_tendered, ' +
-      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at, discount_total, service_charge, tax_total, taxes, adjustments, receipt_token, guests, allergy) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17, now()),$18,$19,$20,$21,$22,$23,$24,$25) RETURNING *',
+      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at, discount_total, service_charge, tax_total, taxes, adjustments, receipt_token, guests, allergy, tip) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17, now()),$18,$19,$20,$21,$22,$23,$24,$25,$26) RETURNING *',
       [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, bill.total, plan.method, refs.tableId, refs.waiterId, refs.guestId, plan.cashTendered,
         type.fulfillment, type.customerName, type.customerPhone, type.deliveryAddress, clientRef, takenAt, at,
-        cols.discountTotal, cols.serviceCharge, cols.taxTotal, JSON.stringify(cols.taxes), JSON.stringify(cols.adjustments), newReceiptToken(), guests, allergy ? JSON.stringify(allergy) : null]
+        cols.discountTotal, cols.serviceCharge, cols.taxTotal, JSON.stringify(cols.taxes), JSON.stringify(cols.adjustments), newReceiptToken(), guests, allergy ? JSON.stringify(allergy) : null, tip]
     );
     var order = orderRes.rows[0];
     for (var j = 0; j < lines.length; j++) {
@@ -590,8 +598,12 @@ async function chargeOrder(session, p, clientRef) {
       );
     }
     await tillMenu.deductForSale(client, session.posCompanyId, order.id, session.posEmployeeId, lines);
+    // Gift card parts off their cards (restaurantGiftCards), before the parts are kept with their card.
+    await gifts().redeemForSale(client, session.posCompanyId, order, session.posEmployeeId, plan.rows);
     await money.savePayments(client, order.id, plan.rows);
     var vip = await money.chargeSale(client, session.posCompanyId, order, session.posEmployeeId, plan.rows);
+    // Loyalty: a reward's points taken, the points this sale earns (restaurantLoyalty).
+    var points = await loyalty().forSale(client, session, order, { guestId: refs.guestId, phone: type.customerPhone, adjust: bill.adjust, total: bill.total });
     // To the kitchen: what was not sent with the open order yet, or the
     // whole sale; the open order's tickets now belong to the sale.
     var names = await refNames(client, refs, type);
@@ -628,7 +640,7 @@ async function chargeOrder(session, p, clientRef) {
       await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1', [p.tabId]);
     }
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.sale',
-      summary: 'Sale ' + orderNo + (takenAt ? ' (taken offline at ' + takenAt.toISOString().slice(11, 16) + ')' : '') + ': ' + bill.total.toFixed(2) + ' by ' + money.paymentText(plan.rows) +
+      summary: 'Sale ' + orderNo + (takenAt ? ' (taken offline at ' + takenAt.toISOString().slice(11, 16) + ')' : '') + ': ' + bill.total.toFixed(2) + (tip > 0 ? ' + a tip of ' + tip.toFixed(2) : '') + ' by ' + money.paymentText(plan.rows) +
         (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + (names.tableName && type.fulfillment !== 'pickup' && type.fulfillment !== 'delivery' ? ' · ' + names.tableName : '') +
         (names.guestName ? ' · ' + names.guestName : '') + (rest ? ' · some dishes of the open order, the rest stays open' : '') + '.' + discountWords(bill),
       amount: bill.total, refType: 'order', refId: order.id,
@@ -638,8 +650,19 @@ async function chargeOrder(session, p, clientRef) {
         discounts: bill.discountTotal || undefined, serviceCharge: bill.serviceCharge || undefined, taxes: bill.taxes.length ? bill.taxes : undefined, approvedBy: bill.approvals.length ? bill.approvals : undefined } });
     var paid = (await money.paymentsOf(client, [order.id])).get(order.id) || [];
     var chits = await kitchen.chitsFor(client, printNow);
-    return Object.assign(rowToOrder(order, lines, paid), { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null, restOpen: rest ? tab.id : null, chits: chits });
+    var giftLeft = plan.rows.filter(function (r) { return r.method === 'gift_card'; }).map(function (r) { return { card: r.giftCode.slice(-4), left: r.giftLeft }; });
+    return Object.assign(rowToOrder(Object.assign({}, order, points ? { points_earned: points.earned, points_used: points.used } : {}), lines, paid),
+      { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null, restOpen: rest ? tab.id : null, chits: chits, points: points, giftCards: giftLeft });
   });
+}
+
+// A tip asked for with a sale: none, or up to the bill (and 50 cedis on a small one), when the till takes tips.
+function tipOf(v, total, settings) {
+  if (v === undefined || v === null || v === '' || Number(v) === 0) return 0;
+  var tip = Math.round(Number(v) * 100) / 100;
+  if (!settings.tips.on) fail('invalid', 'Tips are turned off in the till settings.');
+  if (!(tip > 0 && tip <= Math.max(total, 50))) fail('invalid', 'A tip is from 0.01 up to the bill.');
+  return tip;
 }
 
 // ── open tables ────────────────────────────────────────────────────────
@@ -669,7 +692,12 @@ function billOut(b) {
 }
 // A sale's link to its receipt on the restaurant's website.
 function newReceiptToken() { return require('crypto').randomBytes(16).toString('base64url'); }
-function receiptUrl(token) { return token ? config.onlineSiteUrl + '/receipt/' + token : null; }
+// On the restaurant's own website when it has one (its code begins the order number).
+function receiptUrl(token, orderNo) {
+  if (!token) return null;
+  var code = String(orderNo || '').split('-')[0];
+  return (code ? require('./restaurantOnline.service').siteUrlFor(code) : config.onlineSiteUrl) + '/receipt/' + token;
+}
 
 // What stays on an open order once these lines leave it: each line taken
 // off the order as it was saved (the same dish, size, add-ons, note and
@@ -1092,7 +1120,7 @@ async function sendReceipt(token, orderId, p, ip) {
   if (!o) fail('notfound', 'Order not found.');
   var tok = o.receipt_token;
   if (!tok) tok = (await pool.query('UPDATE restaurant_orders SET receipt_token = coalesce(receipt_token, $2) WHERE id = $1 RETURNING receipt_token', [o.id, newReceiptToken()])).rows[0].receipt_token;
-  var link = receiptUrl(tok);
+  var link = receiptUrl(tok, o.order_no);
   var msgText = cleanText(p.text, 300) || ('Thank you for coming to ' + o.company_name + '. Your receipt ' + o.order_no + ' (GHS ' + Number(o.total).toFixed(2) + '): ' + link);
   if (msgText.indexOf(link) < 0) msgText = (msgText + ' ' + link).slice(0, 420);
   var by = await personName(pool, session.posEmployeeId);
@@ -1132,8 +1160,9 @@ async function publicReceipt(tok) {
     itemsGross: full.itemsGross, discountTotal: full.discountTotal, billDiscount: full.billDiscount ? { name: full.billDiscount.name, amount: full.billDiscount.amount } : null,
     subtotal: full.subtotal, serviceCharge: full.serviceCharge, serviceName: full.serviceName, serviceRate: full.serviceRate,
     taxes: full.taxes, taxTotal: full.taxTotal, taxIncluded: full.taxIncluded, total: full.total,
-    paymentMethod: o.payment_method, payments: paid.map(function (x) { return { method: x.method, amount: x.amount, currency: x.currency, foreignAmount: x.foreignAmount, rate: x.rate, tendered: x.tendered }; }),
-    change: full.change, refunded: Number(o.refunded_total), refunds: refunds,
+    paymentMethod: o.payment_method, payments: paid.map(function (x) { return { method: x.method, amount: x.amount, currency: x.currency, foreignAmount: x.foreignAmount, rate: x.rate, tendered: x.tendered, giftCard: x.giftCard || null }; }),
+    change: full.change, refunded: Number(o.refunded_total), refunds: refunds, tip: Number(o.tip || 0),
+    points: o.points_earned || o.points_used ? { earned: o.points_earned || 0, used: o.points_used || 0 } : null,
     footer: settings.receipt.footer || '', extra: settings.receipt.extra || ''
   };
 }
@@ -1345,12 +1374,12 @@ async function buildReport(session, client) {
   var other = await money.drawerCash(db, session.cashier_id, session.company_id, session.opened_at, endTime);
   var cashRefunds = other.refunds;
   var netPaidInOut = paidIn - paidOut;
-  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps - cashRefunds - other.vipCashOuts - other.iouLent + netPaidInOut) * 100) / 100;
+  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps + other.giftSold - cashRefunds - other.vipCashOuts - other.iouLent - other.giftVoided + netPaidInOut) * 100) / 100;
   var actual = session.closing_actual_cash == null ? null : Number(session.closing_actual_cash);
   return {
     session: rowToSession(session),
     startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds, iouPaidCash: other.iouPaid, vipTopUpsCash: other.vipTopUps, foreignCash: sales.foreign,
-    vipCashOutsCash: other.vipCashOuts, iouLentCash: other.iouLent,
+    vipCashOutsCash: other.vipCashOuts, iouLentCash: other.iouLent, giftSoldCash: other.giftSold, giftVoidedCash: other.giftVoided,
     paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut,
     expected: expected, actual: actual, difference: actual == null ? null : Math.round((actual - expected) * 100) / 100,
     movements: movementsListRes.rows.map(function (m) {

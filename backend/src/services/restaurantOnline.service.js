@@ -124,6 +124,14 @@ function aliasesOf(code) {
   var t = marketing.TRACKED.find(function (x) { return x.codes.indexOf(want) >= 0; });
   return { codes: [want].concat(t ? t.codes.filter(function (c) { return c !== want; }) : []), name: t && t.name ? t.name.source : null };
 }
+// Where a restaurant's own website is (kind 'online', or 'delivery' for
+// its delivery screen): its own address (config restaurantSiteUrl:
+// Bamboo Garden on bamboogarden.biz), else the shared one.
+function siteUrlFor(code, kind) {
+  var own = config.restaurantSiteUrl(kind || 'online', aliasesOf(code).codes);
+  if (own) return own;
+  return kind === 'delivery' ? config.deliverySiteUrl : config.onlineSiteUrl;
+}
 // The restaurant by its code, if it takes orders on the website at all
 // (it has delivery settings): of the companies it may be, the one that does,
 // the code asked for first.
@@ -195,7 +203,9 @@ async function menuItems(companyId, online) {
 async function menu(code) {
   var co = await shopOf(code);
   var m = await menuItems(co.id, true);
-  return { restaurant: Object.assign(shopOut(co), { bill: billRules(await access.settingsOf(co.id)) }), categories: m.categories, items: m.items };
+  var till = await access.settingsOf(co.id);
+  // book: tables booked on the website (restaurantBookings onlineOptions).
+  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online }), categories: m.categories, items: m.items };
 }
 // The service charge (on the order types it is charged on) and the taxes,
 // for a customer's phone to show the same total the restaurant charges
@@ -300,7 +310,7 @@ async function place(code, p, ip, accountToken) {
       amount: bill.total, refType: 'online', refId: row.id });
     return row;
   });
-  return { ref: ref(saved.number), token: token, trackUrl: config.onlineSiteUrl + '/t/' + token, order: await trackOut(saved) };
+  return { ref: ref(saved.number), token: token, trackUrl: siteUrlFor(co.code) + '/t/' + token, order: await trackOut(saved) };
 }
 
 // ── following an order (the customer's link) ──
@@ -513,6 +523,7 @@ async function reject(token, id, p) {
 }
 
 module.exports = {
+  siteUrlFor: siteUrlFor, shopOf: shopOf,
   modsFrom: modsFrom,
   categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP

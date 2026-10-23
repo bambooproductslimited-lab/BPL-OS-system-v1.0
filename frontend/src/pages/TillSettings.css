@@ -649,3 +649,71 @@
 
 /* The monthly report in the till's back office: two numbers a row in the narrower window. */
 .ts-monthly .rr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* Bookings, tips and rewards (till/GuestSettings.jsx). */
+.ts-guests .ts-bill-block:nth-child(1) h3 span { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+.ts-guests .ts-bill-block:nth-child(2) h3 span { background: linear-gradient(135deg, #fcd34d, #f59e0b); }
+.ts-guests .ts-bill-block:nth-child(3) h3 span { background: linear-gradient(135deg, #5eead4, #0d9488); }
+.ts-guests .ts-bill-block:nth-child(4) h3 span { background: linear-gradient(135deg, #fde68a, #ef4444); }
+.ts-guests-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 12px; align-items: end; }
+.ts-guests-grid .dk-segment { flex-wrap: nowrap; white-space: nowrap; }
+.ts-guests-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ts-guests-row small { flex-basis: 100%; }
+.ts-guests-pct, .ts-guests-pts { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; color: var(--color-text-muted); }
+.ts-guests-pct .input { width: 80px; }
+.ts-guests-pts .input { width: 90px; }
+.ts-guests-eg { margin: 0; padding: 10px 12px; font-size: 13px; font-weight: 700; border-radius: 12px; background: rgba(245, 158, 11, .1); }
+.ts-guests-text { display: flex; flex-direction: column; gap: 8px; }
+.ts-guests-text textarea { resize: vertical; }
+.ts-guests-bubble { display: flex; gap: 10px; align-items: flex-end; max-width: 440px; }
+.ts-guests-bubble > span { font-size: 22px; }
+.ts-guests-bubble p { margin: 0; padding: 10px 14px; font-size: 13.5px; line-height: 1.4; color: #052e16; border-radius: 16px 16px 16px 4px; background: #dcfce7; box-shadow: 0 6px 16px -10px rgba(22, 163, 74, .7); }
+
+/* Loyalty and gift card reports (till/GuestReports.jsx). */
+.ts-lo, .ts-gcr { display: flex; flex-direction: column; gap: 12px; }
+.ts-lo-search { max-width: 360px; }
+.ts-lo-rewards { padding: 14px; border-radius: 16px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
+.ts-lo-rewards h3 { margin: 0 0 8px; font-size: 13px; }
+.ts-lo-rewards ul { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; }
+.ts-lo-rewards li { display: grid; grid-template-columns: minmax(110px, 180px) minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; }
+.ts-lo-rewards li i { height: 10px; border-radius: 999px; background: var(--pos-line); overflow: hidden; }
+.ts-lo-rewards li i b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #fbbf24, #ef4444); }
+.ts-lo-rewards li small { color: var(--color-text-muted); white-space: nowrap; }
+.ts-lo-list > li { grid-template-columns: 34px minmax(0, 1fr) auto auto; }
+.ts-lo-rank { display: grid; place-items: center; width: 30px; height: 30px; font-size: 13px; font-weight: 800; color: var(--color-text-muted); border-radius: 50%; background: var(--pos-soft); }
+.ts-lo-rank.is-top { font-size: 20px; background: none; }
+.ts-lo-pts { color: #b45309; }
+.ts-gcr-note { margin: 0; font-size: 12.5px; }
+.ts-gcr-list > li { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
+.ts-gcr-chip { display: grid; place-items: center; width: 36px; height: 36px; font-size: 18px; border-radius: 12px; background: linear-gradient(135deg, #fce7f3, #f9a8d4); }
+.ts-gcr-list .is-void .ts-gcr-chip, .ts-gcr-list .is-used .ts-gcr-chip { filter: grayscale(1); opacity: .6; }
+.ts-gcr-bar { display: block; height: 6px; margin-top: 5px; max-width: 220px; border-radius: 999px; background: var(--pos-line); overflow: hidden; }
+.ts-gcr-bar b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f472b6, #db2777); }
+.ts-gcr-list .ts-ac-amt { display: flex; flex-direction: column; align-items: flex-end; }
+.ts-gcr-list .ts-ac-amt small { font-size: 11px; font-weight: 600; color: var(--color-text-muted); }
+.ts-ac-tag.is-active { color: #be185d; background: rgba(236, 72, 153, .12); }
+.ts-ac-tag.is-used { color: var(--color-text-muted); background: var(--pos-soft); }
+.ts-ac-tag.is-void { color: #fff; background: #94a3b8; }
+
+/* Tips in the sales report; the Square-format downloads; the item library details of a dish. */
+.sr-tiles .is-tips { border-color: rgba(245, 158, 11, .45); background: rgba(245, 158, 11, .08); }
+.sr-tiles .is-points { border-color: rgba(239, 68, 68, .3); background: linear-gradient(135deg, rgba(251, 191, 36, .1), rgba(239, 68, 68, .06)); }
+.sr-tips .sr-x-list b { color: #b45309; }
+.sr-tips p { margin: 0; font-size: 12px; }
+.sr-square-dl { margin-left: auto; }
+.ts-mn-catalog { padding: 10px 14px; border-radius: 14px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
+.ts-mn-catalog summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; cursor: pointer; font-weight: 800; }
+.ts-mn-catalog summary small { font-weight: 600; color: var(--color-text-muted); }
+.ts-mn-catalog[open] summary { margin-bottom: 10px; }
+.ts-mn-catalog textarea { resize: vertical; }
+.ts-mn-size { grid-template-columns: minmax(0, 1fr) 110px 120px auto; }
+@media (max-width: 640px) {
+  .ts-mn-size { grid-template-columns: 1fr 1fr; }
+  .ts-lo-rewards li { grid-template-columns: 1fr auto; }
+  .ts-lo-rewards li i { display: none; }
+  .ts-lo-list > li, .ts-gcr-list > li { grid-template-columns: 34px minmax(0, 1fr) auto; }
+  .ts-lo-list .pos-link { grid-column: 2 / -1; justify-self: start; }
+  .ts-gcr-list .ts-ac-tag { display: none; }
+}
+:root[data-theme='dark'] .ts-guests-bubble p { color: #dcfce7; background: #14532d; }
+:root[data-theme='dark'] .ts-lo-pts, :root[data-theme='dark'] .sr-tips .sr-x-list b { color: #fbbf24; }

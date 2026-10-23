@@ -30,6 +30,7 @@ import RestaurantsPage from './pages/RestaurantsPage';
 import RestaurantCrmPage from './pages/RestaurantCrmPage';
 import RestaurantPosPage from './pages/RestaurantPosPage';
 import KdsPage from './pages/KdsPage';
+import CustomerDisplay from './pages/CustomerDisplay';
 import ProductionPage from './pages/ProductionPage';
 import ProcurementPage from './pages/ProcurementPage';
 import ApprovalsPage from './pages/ApprovalsPage';
@@ -130,6 +131,7 @@ export default function App() {
       <Route path="/kiosk" element={<KioskPage />} />
       <Route path="/pos" element={<RestaurantPosPage />} />
       <Route path="/kds" element={<KdsPage />} />
+      <Route path="/customer-display" element={<CustomerDisplay />} />
       <Route path="/delivery/*" element={<Suspense fallback={null}><DeliverySite /></Suspense>} />
       <Route path="/share/:token" element={<SharePage />} />
       <Route path="/meet/:token" element={<MeetPage />} />

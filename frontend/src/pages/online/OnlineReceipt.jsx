@@ -79,13 +79,18 @@ export default function OnlineReceipt({ token }) {
           {r.taxes.filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(r.total)}</strong></div>
           {r.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
+          {r.tip > 0 && <div className="is-tip"><span>💛 {tr('Tip')}</span><b>{money(r.tip)}</b></div>}
+          {r.tip > 0 && <div className="is-total is-paid"><span>{tr('Paid')}</span><strong>{money(r.total + r.tip)}</strong></div>}
         </div>
+        {r.points && (
+          <p className="on-rc-points">⭐ {[r.points.earned ? tr('{n} loyalty points earned', { n: r.points.earned }) : null, r.points.used ? tr('{n} points used', { n: r.points.used }) : null].filter(Boolean).join(' · ')}</p>
+        )}
 
         {r.payments.length > 0 && (
           <div className="on-rc-paid">
             <h2>{tr('How it was paid')}</h2>
             {r.payments.map((p, i) => (
-              <div key={i}><span>{methodName(p.method)}{p.currency && p.currency !== 'GHS' && p.foreignAmount ? ' · ' + fmt(p.foreignAmount, p.currency) : ''}</span><b>{money(p.amount)}</b></div>
+              <div key={i}><span>{methodName(p.method)}{p.giftCard ? ' •••• ' + p.giftCard : ''}{p.currency && p.currency !== 'GHS' && p.foreignAmount ? ' · ' + fmt(p.foreignAmount, p.currency) : ''}</span><b>{money(p.amount)}</b></div>
             ))}
             {r.change > 0 && <div className="is-change"><span>{tr('Change')}</span><b>{money(r.change)}</b></div>}
           </div>

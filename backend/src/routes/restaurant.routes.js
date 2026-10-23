@@ -34,6 +34,20 @@ router.put('/report/settings', async function (req, res, next) {
   try { res.json(await restaurantReportService.saveSettings(req.ctx, req.body.companyId, req.body)); } catch (e) { next(e); }
 });
 
+// Downloads in Square's layouts (restaurantSquareExport): the item library
+// (.xlsx) and the item sales (.csv) — of one restaurant, or all of them.
+router.get('/export/:kind', async function (req, res, next) {
+  try {
+    if (!req.ctx.can('restaurant.read')) return res.status(403).json({ error: { code: 'forbidden', message: 'Your role does not allow this action (restaurant.read).' } });
+    if (req.query.companyId && !/^[0-9a-f-]{36}$/i.test(String(req.query.companyId))) return res.status(400).json({ error: { code: 'invalid', message: 'Pick a restaurant.' } });
+    var exp = require('../services/restaurantSquareExport.service');
+    var ids = req.query.companyId ? [String(req.query.companyId)]
+      : (await require('../db/pool').pool.query('SELECT DISTINCT company_id FROM restaurant_menu_items')).rows.map(function (r) { return r.company_id; });
+    if (req.params.kind === 'catalog') res.json(await exp.catalogFile(ids));
+    else if (req.params.kind === 'items') res.json(await exp.itemSalesFile(ids, req.query));
+    else res.status(404).json({ error: { code: 'notfound', message: 'Not found.' } });
+  } catch (e) { next(e); }
+});
 router.get('/menu-items', async function (req, res, next) {
   try { res.json(await restaurantService.listMenuItems(req.ctx, req.query.companyId)); } catch (e) { next(e); }
 });

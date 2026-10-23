@@ -11,6 +11,7 @@ import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
 import { shrinkPhoto } from '../lib/chatMedia';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
+import { saveFile } from '../lib/saveFile';
 import { Confetti } from './crm/crmFun';
 import RestaurantReport from './RestaurantReport';
 import RestaurantKitchen from './RestaurantKitchen';
@@ -422,6 +423,15 @@ export default function RestaurantsPage() {
     setDrawerDetail({ loading: true });
     try { setDrawerDetail({ data: await api.get('/restaurant/drawer-sessions/' + id) }); } catch (err) { setDrawerDetail({ error: err.message }); }
   }
+  // The item library and this month's item sales, laid out exactly like
+  // Square's own downloads (backend restaurantSquareExport).
+  const [exporting, setExporting] = useState(null);
+  async function squareFile(kind) {
+    setExporting(kind); setSquareError(null);
+    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    try { saveFile(await api.get('/restaurant/export/' + kind + '?companyId=' + companyId + (kind === 'items' ? '&from=' + today.slice(0, 8) + '01&to=' + today : ''))); }
+    catch (err) { setSquareError(err.message); } finally { setExporting(null); }
+  }
   async function runSquareImport(full) {
     setSquareStarting(true);
     setSquareError(null);
@@ -640,6 +650,8 @@ export default function RestaurantsPage() {
             <a className="rsf-btn is-primary" href="/pos" target="_blank" rel="noreferrer">{tr('Open till (POS) ↗')}</a>
             <a className="rsf-btn is-ghost" href="/kds" target="_blank" rel="noreferrer">{tr('Kitchen screen ↗')}</a>
             {canManage && <button type="button" className="rsf-btn is-ghost" disabled={squareStarting || squareRunning} onClick={() => runSquareImport(false)}>{squareRunning ? tr('Importing from Square…') : tr('Import from Square')}</button>}
+            <button type="button" className="rsf-btn is-ghost" disabled={!!exporting} onClick={() => squareFile('catalog')} title={tr('The same sheets and columns as Square\'s item library')}>⬇ {exporting === 'catalog' ? tr('Preparing…') : tr('Item library (Square format)')}</button>
+            <button type="button" className="rsf-btn is-ghost" disabled={!!exporting} onClick={() => squareFile('items')} title={tr('This month\'s item sales, in the same columns as Square\'s Item sales download')}>⬇ {exporting === 'items' ? tr('Preparing…') : tr('Item sales this month (Square format)')}</button>
           </>
         )}
         ring={ov ? ring : null}

@@ -80,6 +80,23 @@ export default function AccountSheet({ account, onAccount, onClose, onFollow, on
               <div><strong>{me ? me.name : ''}</strong><small>{me ? '+' + me.phone : ''}</small>{me && me.address && <small>📍 {me.address}</small>}</div>
               <button type="button" className="on-link" onClick={signOut}>{tr('Sign out')}</button>
             </div>
+            {mine && (mine.points || []).map((p) => {
+              const next = p.next.find((r) => r.points > p.points);
+              const ready = p.next.filter((r) => r.points <= p.points);
+              return (
+                <div key={p.restaurant.code} className="on-points">
+                  <span className="on-points-star" aria-hidden="true">⭐</span>
+                  <div className="on-points-main">
+                    <small>{tr('Your points at {name}', { name: p.restaurant.name })}</small>
+                    <strong>{p.points.toLocaleString(activeIntlLocale())}</strong>
+                    {next && <span className="on-points-bar" aria-hidden="true"><i style={{ width: Math.min(100, (p.points / next.points) * 100) + '%' }} /></span>}
+                    <p>{ready.length ? tr('Ready to use at the till: {list}', { list: ready.map((r) => r.name).join(', ') })
+                      : next ? tr('{n} more points for {reward}', { n: next.points - p.points, reward: next.name }) : ''}</p>
+                    <em>{tr('1 point for every {amount} you pay. Give your phone number at the till.', { amount: money(p.spend) })}</em>
+                  </div>
+                </div>
+              );
+            })}
             <h3>{tr('Your orders')}</h3>
             {!mine ? <p className="on-hint">{tr('Loading…')}</p> : !mine.orders.length ? (
               <div className="on-basket-empty"><span aria-hidden="true">🧺</span><strong>{tr('No orders yet')}</strong><p>{tr('Orders you place while signed in show here.')}</p></div>

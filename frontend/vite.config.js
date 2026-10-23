@@ -14,7 +14,7 @@ export default defineConfig({
   publicDir: SITE ? false : 'public',
   build: SITE
     ? {
-        outDir: 'dist-' + SITE,
+        outDir: process.env.SITE_OUT || 'dist-' + SITE, // SITE_OUT: another restaurant's build (BRAND)
         emptyOutDir: true,
         rollupOptions: { input: { [SITE]: resolve(__dirname, SITE + '-site.html') } }
       }

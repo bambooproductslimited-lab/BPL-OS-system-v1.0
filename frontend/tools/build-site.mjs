@@ -16,38 +16,55 @@
 // the website sells for. The delivery screen and the website show a map
 // (OpenStreetMap's streets, or MAP_TILES) and may ask where the phone is;
 // the website, unlike the others, is meant to be found by search engines.
+//
+// BRAND=bamboogarden builds the same four for Bamboo Garden on its own
+// addresses (pos., kds., delivery., online.bamboogarden.biz) into
+// dist-bamboogarden-<site>/: its name on the pages, its website selling
+// for BGN. The till, the kitchen and the delivery screen serve any
+// restaurant (the staff PIN says which); only the names and links differ.
 import { build, loadEnv } from 'vite';
-import { cpSync, renameSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const BRANDS = {
+  starbar: { name: 'Star Bar', full: 'Star Bar Restaurant', domain: 'starbartema.com', company: 'SBR', color: '#0b1220' },
+  bamboogarden: { name: 'Bamboo Garden', full: 'Bamboo Garden', domain: 'bamboogarden.biz', company: 'BGN', color: '#0b1a12' }
+};
+const BRAND_KEY = process.env.BRAND || 'starbar';
+const BRAND = BRANDS[BRAND_KEY];
+if (!BRAND) {
+  console.error('BRAND must be one of: ' + Object.keys(BRANDS).join(', '));
+  process.exit(1);
+}
+const at = (sub) => 'https://' + sub + '.' + BRAND.domain;
 const ICONS = ['pos-icon-192.png', 'pos-icon-512.png', 'pos-icon-512-maskable.png', 'pos-apple-touch-icon.png', 'restaurant-logos'];
 const SITES = {
   pos: {
-    name: 'Star Bar POS', shortName: 'POS Till',
-    description: 'Restaurant till for Star Bar Restaurant and Bamboo Garden: the menu, tables, payments and the kitchen.',
+    name: BRAND.name + ' POS', shortName: 'POS Till',
+    description: 'Restaurant till for ' + BRAND.full + ': the menu, tables, payments and the kitchen.',
     files: ICONS.concat(['pos-sw.js']),
-    env: { VITE_KDS_URL: process.env.KDS_URL || 'https://kds.starbartema.com', VITE_DELIVERY_URL: process.env.DELIVERY_URL || 'https://delivery.starbartema.com' },
+    env: { VITE_KDS_URL: process.env.KDS_URL || at('kds'), VITE_DELIVERY_URL: process.env.DELIVERY_URL || at('delivery') },
     map: true // sending a delivery out may need its pin dropped
   },
   kds: {
-    name: 'Star Bar Kitchen', shortName: 'Kitchen',
+    name: BRAND.name + ' Kitchen', shortName: 'Kitchen',
     description: 'Kitchen screen: the tickets from the till, station by station.',
     files: ICONS,
     env: {}
   },
   delivery: {
-    name: 'Star Bar Delivery', shortName: 'Delivery',
+    name: BRAND.name + ' Delivery', shortName: 'Delivery',
     description: 'Website orders to accept, food to send out with a rider, and the riders on a live map.',
     files: ICONS,
     env: {}, map: true, where: true
   },
   online: {
-    name: 'Star Bar · Order online', shortName: 'Star Bar',
-    description: 'Order from Star Bar Restaurant: delivered to your door or ready to pick up.',
+    name: BRAND.name + ' · Order online', shortName: BRAND.name,
+    description: 'Order from ' + BRAND.full + ': delivered to your door or ready to pick up.',
     files: ICONS,
-    env: { VITE_ONLINE_COMPANY: process.env.ONLINE_COMPANY || 'SBR' }, map: true, where: true, public: true
+    env: { VITE_ONLINE_COMPANY: process.env.ONLINE_COMPANY || BRAND.company }, map: true, where: true, public: true
   }
 };
 // The map's streets: OpenStreetMap's, unless MAP_TILES names others (its host is let through);
@@ -66,10 +83,16 @@ if (!conf) {
 
 process.env.VITE_SITE = site;
 Object.assign(process.env, conf.env);
+const out = join(ROOT, BRAND_KEY === 'starbar' ? 'dist-' + site : 'dist-' + BRAND_KEY + '-' + site);
+process.env.SITE_OUT = out;
 await build({ root: ROOT, mode: 'production', configFile: join(ROOT, 'vite.config.js') });
 
-const out = join(ROOT, 'dist-' + site);
 renameSync(join(out, site + '-site.html'), join(out, 'index.html'));
+if (BRAND_KEY !== 'starbar') {
+  // The page's title, description and colour: this restaurant's.
+  const page = join(out, 'index.html');
+  writeFileSync(page, readFileSync(page, 'utf8').replace(/Star Bar Restaurant/g, BRAND.full).replace(/Star Bar/g, BRAND.name).replace(/#0b1220/g, BRAND.color));
+}
 for (const f of conf.files) cpSync(join(ROOT, 'public', f), join(out, f), { recursive: true });
 
 writeFileSync(join(out, 'manifest.webmanifest'), JSON.stringify({
@@ -80,8 +103,8 @@ writeFileSync(join(out, 'manifest.webmanifest'), JSON.stringify({
   scope: '/',
   display: 'standalone',
   orientation: 'any',
-  background_color: '#0b1220',
-  theme_color: '#0b1220',
+  background_color: BRAND.color,
+  theme_color: BRAND.color,
   icons: [
     { src: '/pos-icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
     { src: '/pos-icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

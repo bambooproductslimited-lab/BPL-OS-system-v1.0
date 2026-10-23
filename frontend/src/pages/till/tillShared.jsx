@@ -10,6 +10,7 @@ import { msg, tr } from '../../lib/i18n.jsx';
 // Alipay and WeChat Pay drawn plainly (a letter, a chat bubble), not their logos.
 export function MethodGlyph({ method }) {
   if (method === 'alipay') return <span className="tl-glyph is-alipay" aria-hidden="true">支</span>;
+  if (method === 'gift_card') return <span className="tl-glyph is-gift" aria-hidden="true">🎁</span>;
   if (method === 'wechat') {
     return (
       <svg className="dk-icon tl-glyph is-wechat" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -21,7 +22,7 @@ export function MethodGlyph({ method }) {
 }
 export const METHOD_LABEL = {
   cash: msg('Cash'), mobile_money: msg('Mobile Money'), alipay: msg('Alipay'), wechat: msg('WeChat Pay'),
-  vip: msg('VIP'), iou: msg('IOU'), other: msg('Other'), split: msg('Split payment'),
+  vip: msg('VIP'), iou: msg('IOU'), other: msg('Other'), split: msg('Split payment'), gift_card: msg('Gift card'),
   // Sales brought in from Square (the OS's Square import) were paid these ways too.
   card: msg('Card'), bank_transfer: msg('Bank transfer')
 };
@@ -35,6 +36,7 @@ export function moveLabel(m) {
   const who = m.customer || tr('a customer');
   if (m.account === 'vip') return m.direction === 'in' ? tr('VIP money from {name}', { name: who }) : tr('VIP money given back to {name}', { name: who });
   if (m.account === 'iou') return (m.direction === 'in' ? tr('IOU paid back by {name}', { name: who }) : tr('Cash lent to {name}', { name: who })) + (m.ref ? ' (' + m.ref + ')' : '');
+  if (m.account === 'gift') return (m.direction === 'in' ? tr('Gift card sold') : tr('Gift card cancelled: cash given back')) + (m.customer ? ' · ' + m.customer : '') + (m.ref ? ' (' + m.ref + ')' : '');
   return m.direction === 'in' ? tr('Paid in') : tr('Paid out');
 }
 export const CURRENCY_LABEL = { GHS: 'GHS', USD: 'USD', CNY: 'RMB' };
@@ -55,7 +57,7 @@ export function round2(n) { return Math.round(Number(n) * 100) / 100; }
 // (restaurantTillMoney METHOD_CURRENCIES): Alipay and WeChat Pay in RMB
 // only, Mobile Money in cedis only, cash in cedis or US dollars; VIP and IOU
 // in cedis. Of those, the ones the till takes now (live: liveCurrencies).
-export const METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'] };
+export const METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'], gift_card: ['GHS'] };
 export function methodCurrencies(method, live) {
   const ok = METHOD_CURRENCIES[method] || ['GHS'];
   return live.filter((c) => ok.includes(c.code));

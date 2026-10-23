@@ -5,6 +5,7 @@ import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import AddOnGroups from './AddOnGroups';
 import { ALLERGENS, allergenIcon } from './tillService';
+import { saveFile } from '../../lib/saveFile';
 
 // The menu and the stock, kept from the till (restaurantTillMenu.service.js):
 // MenuTab in the till settings, for a manager — add a dish, change its
@@ -14,7 +15,9 @@ import { ALLERGENS, allergenIcon } from './tillService';
 // thrown away, with each one's history. StockTab also opens from the till
 // for whoever's role may count the stock (no manager PIN then).
 
-function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [] }; }
+function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [], sku: '', description: '', itemType: 'Prepared food and beverage', containsAlcohol: null }; }
+// Square's item types (backend restaurantTillMenu ITEM_TYPES): the item library downloads in its layout.
+const ITEM_TYPES = [['Prepared food and beverage', msg('Prepared food and drink')], ['Physical good', msg('Physical good')], ['Service', msg('Service')], ['Digital', msg('Digital')], ['Event', msg('Event')], ['Donation', msg('Donation')], ['Membership', msg('Membership')]];
 
 export function MenuTab({ token, pin, onFail }) {
   const [data, setData] = useState(null);
@@ -49,6 +52,12 @@ export function MenuTab({ token, pin, onFail }) {
     try { setData(await call({ action: 'remove', id: edit.id })); setFlash(tr('{name} removed.', { name: edit.name })); setEdit(null); } catch (err) { onFail(err); } finally { setBusy(false); }
   }
   function setVar(i, p) { setEdit({ ...edit, variations: edit.variations.map((v, k) => (k === i ? { ...v, ...p } : v)) }); }
+  // The whole menu, laid out exactly like Square's item library (an .xlsx of the same sheets and columns).
+  async function downloadLibrary() {
+    setBusy(true);
+    try { saveFile(await posFetch('POST', '/pos/settings/export', token, { managerPin: pin || undefined, kind: 'catalog' })); }
+    catch (err) { onFail(err); } finally { setBusy(false); }
+  }
   if (!data) return <section className="ts-sec"><p className="dk-muted">{tr('Loading…')}</p></section>;
   const viewSwitch = (
     <div className="dk-segment ts-mn-view" role="tablist">
@@ -81,6 +90,24 @@ export function MenuTab({ token, pin, onFail }) {
           </div>
           <div className="field"><label htmlFor="mn-price">{tr('Price')}</label><input id="mn-price" className="input" type="number" min="0" step="0.01" inputMode="decimal" required value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} /></div>
         </div>
+        <details className="ts-mn-catalog" open={!!(edit.sku || edit.description)}>
+          <summary><span aria-hidden="true">🏷️</span> {tr('Item library details')}<small>{tr('SKU, description and item type, as in Square\'s item library')}</small></summary>
+          <div className="ts-mn-grid">
+            <div className="field"><label htmlFor="mn-sku">{tr('SKU')}</label><input id="mn-sku" className="input" maxLength={80} value={edit.sku || ''} onChange={(e) => setEdit({ ...edit, sku: e.target.value })} placeholder={tr('e.g. GRL-001')} /></div>
+            <div className="field"><label htmlFor="mn-type">{tr('Item type')}</label>
+              <select id="mn-type" className="input" value={edit.itemType || ''} onChange={(e) => setEdit({ ...edit, itemType: e.target.value })}>
+                <option value="">—</option>
+                {ITEM_TYPES.map(([k, label]) => <option key={k} value={k}>{tr(label)}</option>)}
+              </select>
+            </div>
+            <div className="field"><label htmlFor="mn-alc">{tr('Contains alcohol')}</label>
+              <select id="mn-alc" className="input" value={edit.containsAlcohol == null ? '' : edit.containsAlcohol ? 'Y' : 'N'} onChange={(e) => setEdit({ ...edit, containsAlcohol: e.target.value === '' ? null : e.target.value === 'Y' })}>
+                <option value="">—</option><option value="Y">{tr('Yes')}</option><option value="N">{tr('No')}</option>
+              </select>
+            </div>
+          </div>
+          <div className="field"><label htmlFor="mn-desc">{tr('Description')}</label><textarea id="mn-desc" className="input" rows={2} maxLength={4000} value={edit.description || ''} onChange={(e) => setEdit({ ...edit, description: e.target.value })} placeholder={tr('What it is, for the website and the item library')} /></div>
+        </details>
         {(data.groups || []).some((g) => edit.id && g.itemIds.includes(edit.id)) && (
           <p className="ts-ao-on">✚ {tr('Add-ons: {names}', { names: data.groups.filter((g) => g.itemIds.includes(edit.id)).map((g) => g.name).join(', ') })}</p>
         )}
@@ -91,6 +118,7 @@ export function MenuTab({ token, pin, onFail }) {
             <div key={v.id || 'n' + i} className="ts-mn-size">
               <input className="input" maxLength={60} value={v.name} onChange={(e) => setVar(i, { name: e.target.value })} placeholder={tr('Size, e.g. Large')} aria-label={tr('Size')} />
               <input className="input" type="number" min="0" step="0.01" inputMode="decimal" value={v.price} onChange={(e) => setVar(i, { price: e.target.value })} aria-label={tr('Price')} />
+              <input className="input ts-mn-sku" maxLength={80} value={v.sku || ''} onChange={(e) => setVar(i, { sku: e.target.value })} placeholder={tr('SKU')} aria-label={tr('SKU of {size}', { size: v.name || tr('this size') })} />
               <button type="button" className="pos-link is-bad" onClick={() => (v.id ? setVar(i, { remove: true }) : setEdit({ ...edit, variations: edit.variations.filter((x, k) => k !== i) }))}>{tr('Remove')}</button>
             </div>
           ))}
@@ -135,6 +163,7 @@ export function MenuTab({ token, pin, onFail }) {
       <div className="ts-mn-viewbar">{viewSwitch}</div>
       <div className="ts-mn-tools">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find a dish…')} aria-label={tr('Find a dish…')} />
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={downloadLibrary} title={tr('The same sheets and columns as Square\'s item library')}>⬇ {tr('Item library (Square format)')}</button>
         <button type="button" className="btn btn-primary" onClick={() => open(null)}><Icon name="spark" /> {tr('Add a dish')}</button>
       </div>
       <div className="ts-chips ts-mn-cats" role="radiogroup" aria-label={tr('Category')}>
@@ -150,7 +179,7 @@ export function MenuTab({ token, pin, onFail }) {
                 <span className="ts-mn-pic" aria-hidden="true">{i.thumbUrl ? <img src={i.thumbUrl} alt="" loading="lazy" /> : i.name.replace(/^zq\s+/i, '').slice(0, 1).toUpperCase()}</span>
                 <span className="ts-mn-main">
                   <strong>{i.name}</strong>
-                  <small>{[i.category, i.variations.length ? tr('{n} sizes', { n: i.variations.length }) : null, i.sold30 ? tr('{n} sold in 30 days', { n: i.sold30 }) : null, !i.active ? tr('off the till') : null].filter(Boolean).join(' · ')}</small>
+                  <small>{[i.category, i.sku ? tr('SKU {sku}', { sku: i.sku }) : null, i.variations.length ? tr('{n} sizes', { n: i.variations.length }) : null, i.sold30 ? tr('{n} sold in 30 days', { n: i.sold30 }) : null, !i.active ? tr('off the till') : null].filter(Boolean).join(' · ')}</small>
                 </span>
                 {i.trackStock && <span className={'ts-mn-stock' + (i.stockQty <= 0 ? ' is-out' : i.stockQty <= i.lowStock ? ' is-low' : '')}>{i.stockQty <= 0 ? tr('None left') : tr('{n} left', { n: i.stockQty })}</span>}
                 {(i.allergens || []).length > 0 && <span className="ts-mn-alg" title={tr('Allergens')}>{i.allergens.map((k) => <i key={k}>{allergenIcon(k)}</i>)}</span>}

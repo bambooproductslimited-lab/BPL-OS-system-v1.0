@@ -113,6 +113,8 @@ async function me(token) {
     'FROM restaurant_online_orders o JOIN companies c ON c.id = o.company_id WHERE o.account_id = $1 ORDER BY o.created_at DESC LIMIT 30', [a.id])).rows;
   return {
     account: accountOut(a),
+    // Their loyalty points at each restaurant, by their phone (restaurantLoyalty).
+    points: await require('./restaurantLoyalty.service').forPhone(a.phone),
     orders: rows.map(function (o) {
       return { id: o.id, ref: 'W-' + String(o.number).padStart(4, '0'), status: o.status, fulfillment: o.fulfillment, total: Math.round(Number(o.total) * 100) / 100,
         placedAt: o.created_at, scheduledFor: o.scheduled_for, restaurant: { code: o.company_code, name: o.company_name },

@@ -111,9 +111,12 @@ function itemOut(r, vars) {
     thumbUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key),
     trackStock: r.track_stock, stockQty: Number(r.stock_qty), lowStock: Number(r.low_stock),
     sold30: r.sold30 == null ? 0 : Number(r.sold30), allergens: r.allergens || [],
+    sku: r.sku || '', description: r.description || '', itemType: r.item_type || '', containsAlcohol: r.contains_alcohol == null ? null : r.contains_alcohol,
     variations: vars || []
   };
 }
+// Square's item types (its item library), for the item library downloaded in its layout.
+var ITEM_TYPES = ['Physical good', 'Prepared food and beverage', 'Service', 'Digital', 'Event', 'Donation', 'Membership'];
 
 async function menu(companyId) {
   var rows = (await pool.query(
@@ -123,7 +126,7 @@ async function menu(companyId) {
   var vars = rows.length ? (await pool.query('SELECT * FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order, created_at',
     [rows.map(function (r) { return r.id; })])).rows : [];
   var byItem = new Map();
-  vars.forEach(function (v) { if (!byItem.has(v.menu_item_id)) byItem.set(v.menu_item_id, []); byItem.get(v.menu_item_id).push({ id: v.id, name: v.name, price: Number(v.price) }); });
+  vars.forEach(function (v) { if (!byItem.has(v.menu_item_id)) byItem.set(v.menu_item_id, []); byItem.get(v.menu_item_id).push({ id: v.id, name: v.name, price: Number(v.price), sku: v.sku || '' }); });
   var items = rows.map(function (r) { return itemOut(r, byItem.get(r.id)); });
   var categories = Array.from(new Set(items.map(function (i) { return i.category; }))).sort();
   return { items: items, categories: categories, groups: await groups(companyId) };
@@ -240,6 +243,13 @@ async function saveItem(companyId, manager, p) {
         'INSERT INTO restaurant_menu_items (company_id, name, category, price, active, track_stock, low_stock, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
         [companyId, name, category, price, p.active !== false, !!p.trackStock, low, allergens])).rows[0];
     }
+    // Its SKU, description, item type and whether it contains alcohol
+    // (Square's item library, migration 0174): as they were unless sent.
+    var itemType = p.itemType === undefined ? (before ? before.item_type : '') : String(p.itemType || '');
+    if (itemType && ITEM_TYPES.indexOf(itemType) < 0) fail('invalid', 'Pick the item type from the list.');
+    row = (await client.query('UPDATE restaurant_menu_items SET sku = $2, description = $3, item_type = $4, contains_alcohol = $5 WHERE id = $1 RETURNING *',
+      [row.id, p.sku === undefined ? (before ? before.sku : '') : text(p.sku, 80), p.description === undefined ? (before ? before.description : '') : String(p.description || '').trim().slice(0, 4000),
+        itemType, p.containsAlcohol === undefined ? (before ? before.contains_alcohol : null) : (p.containsAlcohol === null ? null : !!p.containsAlcohol)])).rows[0];
     // Starting to count it: its first figure.
     if (row.track_stock && (!before || !before.track_stock) && p.stockQty !== undefined && p.stockQty !== '') {
       var qty = Math.max(0, round2(p.stockQty));
@@ -254,8 +264,9 @@ async function saveItem(companyId, manager, p) {
       var vname = text(v.name, 60);
       if (!vname) fail('invalid', 'Give each size of ' + name + ' a name, e.g. Large.');
       var vprice = priceOf(v.price, name + ' — ' + vname);
-      if (v.id) await client.query('UPDATE restaurant_menu_item_variations SET name = $3, price = $4, sort_order = $5 WHERE id = $1 AND menu_item_id = $2', [v.id, row.id, vname, vprice, i]);
-      else await client.query('INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order) VALUES ($1,$2,$3,$4)', [row.id, vname, vprice, i]);
+      var vsku = v.sku === undefined ? undefined : text(v.sku, 80);
+      if (v.id) await client.query('UPDATE restaurant_menu_item_variations SET name = $3, price = $4, sort_order = $5, sku = coalesce($6, sku) WHERE id = $1 AND menu_item_id = $2', [v.id, row.id, vname, vprice, i, vsku === undefined ? null : vsku]);
+      else await client.query('INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order, sku) VALUES ($1,$2,$3,$4,$5)', [row.id, vname, vprice, i, vsku || '']);
     }
     var what = !before ? 'Added ' + name + ' to the menu' : Number(before.price) !== price ? 'Changed ' + name + ': price ' + Number(before.price).toFixed(2) + ' → ' + price.toFixed(2) : 'Changed ' + name;
     await audit(client, who(manager), before ? 'restaurant.menu.update' : 'restaurant.menu.create', 'restaurant_menu_item', row.id, what + '.');
@@ -345,5 +356,5 @@ async function history(companyId, type, id) {
 module.exports = {
   groups: groups, saveGroup: saveGroup, removeGroup: removeGroup,
   heldOnTabs: heldOnTabs, tileStock: tileStock, checkOrder: checkOrder, deductForSale: deductForSale, returnForVoid: returnForVoid,
-  menu: menu, saveItem: saveItem, removeItem: removeItem, stock: stock, move: move, history: history
+  menu: menu, saveItem: saveItem, removeItem: removeItem, stock: stock, move: move, history: history, ITEM_TYPES: ITEM_TYPES
 };

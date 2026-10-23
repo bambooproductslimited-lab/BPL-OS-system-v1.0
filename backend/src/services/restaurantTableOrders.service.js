@@ -1,7 +1,6 @@
 var crypto = require('crypto');
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
-var config = require('../config');
 var access = require('./restaurantTillAccess.service');
 var times = require('./restaurantTillTimes.service');
 var activity = require('./restaurantActivity.service');
@@ -35,7 +34,7 @@ function online() { return require('./restaurantOnline.service'); }
 function ref(n) { return 'Q-' + String(n).padStart(4, '0'); }
 function newCode() { return crypto.randomBytes(9).toString('base64url'); }
 function minutesSince(ts) { return Math.max(0, Math.floor((Date.now() - new Date(ts).getTime()) / 60000)); }
-function tableUrl(code) { return config.onlineSiteUrl + '/q/' + code; }
+function tableUrl(code, companyCode) { return require('./restaurantOnline.service').siteUrlFor(companyCode) + '/q/' + code; }
 
 function throttle(ip) {
   var now = Date.now(), key = String(ip || '');
@@ -295,7 +294,7 @@ async function qrCodes(token, p, ip) {
   var co = (await pool.query('SELECT code, name FROM companies WHERE id = $1', [company])).rows[0];
   return {
     restaurant: { code: co.code, name: co.name }, settings: (await access.settingsOf(company)).qrOrders,
-    tables: rows.map(function (r) { return { id: r.id, name: r.name, area: r.area || '', url: tableUrl(r.qr_token) }; })
+    tables: rows.map(function (r) { return { id: r.id, name: r.name, area: r.area || '', url: tableUrl(r.qr_token, co.code) }; })
   };
 }
 

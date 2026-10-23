@@ -47,6 +47,20 @@ export function ReceiptLines({ receipt: r }) {
           {r.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="pos-receipt-line"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><span>{money(t.amount)}</span></div>)}
         </div>
       )}
+      {r.tip > 0 && (
+        <div className="pos-receipt-lines pos-receipt-sums">
+          <div className="pos-receipt-line"><span>{tr('Tip')}</span><span>{money(r.tip)}</span></div>
+          <div className="pos-receipt-line is-paid"><span>{tr('Paid')}</span><span>{money(r.total + r.tip)}</span></div>
+        </div>
+      )}
+      {(() => {
+        const pts = r.points || { earned: r.pointsEarned || 0, used: r.pointsUsed || 0, balance: null };
+        if (!pts.earned && !pts.used) return null;
+        return (
+          <p className="pos-receipt-points">⭐ {[pts.used ? tr('{n} points spent', { n: pts.used }) : null, pts.earned ? tr('{n} points earned', { n: pts.earned }) : null,
+            pts.balance != null ? tr('{n} points now', { n: pts.balance }) : null].filter(Boolean).join(' · ')}</p>
+        );
+      })()}
     </>
   );
 }

@@ -11,6 +11,8 @@ import { MenuTab, StockTab } from './till/MenuStock';
 import { TableQrTab } from './till/TableQr';
 import BillSettings from './till/BillSettings';
 import ServiceSettings from './till/ServiceSettings';
+import GuestSettings from './till/GuestSettings';
+import { GiftCardsReport, LoyaltyReport } from './till/GuestReports';
 import './TillSettings.css';
 // The monthly report brings the OS's report and its styles: loaded when opened.
 const MonthlyReport = lazy(() => import('./till/MonthlyReport'));
@@ -52,9 +54,11 @@ const PERMISSION = {
   delivery: [() => tr('Send deliveries'), () => tr('Use the delivery screen: take website orders, give them to riders and follow them on the map.')],
   kds: [() => tr('Use the kitchen screen'), () => tr('Sign in to the kitchen screen.')],
   discount: [() => tr('Give discounts'), () => tr('Take money off a dish or a bill, or the service charge off; without it, a manager types their PIN.')],
-  comp: [() => tr('Put dishes on the house'), () => tr('Make a dish free, saying why; without it, a manager types their PIN.')]
+  comp: [() => tr('Put dishes on the house'), () => tr('Make a dish free, saying why; without it, a manager types their PIN.')],
+  bookings: [() => tr('Take bookings'), () => tr('Book tables, answer the website\'s booking requests and run the waitlist.')],
+  giftCards: [() => tr('Sell gift cards'), () => tr('Sell gift cards into their drawer and cancel one (with a manager\'s PIN).')]
 };
-const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'discount', 'comp'];
+const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'discount', 'comp', 'bookings', 'giftCards'];
 const METHOD = {
   cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or US dollars.')],
   mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number, in cedis only.')],
@@ -67,10 +71,10 @@ const METHOD = {
 const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat Pay') };
 // The tabs, in three groups: what happened, what is sold, how the till works.
 const GROUPS = [
-  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card'], ['activity', () => tr('Activity'), 'pulse']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
-    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
+    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
 const GROUP_OF = {};
 GROUPS.forEach(([g, , tabs]) => tabs.forEach(([k]) => { GROUP_OF[k] = g; }));
@@ -338,6 +342,8 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'drawers' && <DrawersTab token={token} pin={pin} onFail={fail} onActivity={(d) => { setActDrawer(d); setTab('activity'); }} />}
             {tab === 'disputes' && <DisputesTab token={token} pin={pin} onFail={fail} />}
             {tab === 'accounts' && <AccountsTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'loyalty' && <LoyaltyReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'giftcards' && <GiftCardsReport token={token} pin={pin} onFail={fail} />}
             {tab === 'menu' && <MenuTab token={token} pin={pin} onFail={fail} />}
             {tab === 'stock' && <StockTab token={token} pin={pin} onFail={fail} />}
             {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
@@ -345,6 +351,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
 
             {tab === 'bill' && <BillSettings draft={draft} set={set} />}
             {tab === 'service' && <ServiceSettings draft={draft} set={set} categories={data.categories} />}
+            {tab === 'guests' && <GuestSettings draft={draft} set={set} companyName={companyName} />}
 
             {tab === 'receipts' && (
               <section className="ts-sec ts-receipt-sec">

@@ -52,7 +52,7 @@ var DEFAULTS = {
   // while the restaurant is not taking orders now.
   later: { on: true, days: 2, from: '11:00', to: '22:00', whenClosed: true }
 };
-var SITE = { delivery: function () { return config.deliverySiteUrl; } };
+var SITE = { delivery: function (code) { return code ? online().siteUrlFor(code, 'delivery') : config.deliverySiteUrl; } };
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function round1(n) { return Math.round(Number(n) * 10) / 10; }
@@ -72,6 +72,8 @@ function online() { return require('./restaurantOnline.service'); }
 // on one restaurant (config.onlineSiteCompany, by any of its codes); any
 // other restaurant (Bamboo Garden) is the same address with ?r=<its code>.
 function shopUrl(code) {
+  var own = config.restaurantSiteUrl('online', online().aliasesOf(code).codes);
+  if (own) return own;
   return online().aliasesOf(config.onlineSiteCompany).codes.indexOf(code) >= 0 ? config.onlineSiteUrl : config.onlineSiteUrl + '/?r=' + encodeURIComponent(code);
 }
 
@@ -266,11 +268,11 @@ function deliveryOut(d, opts) {
   };
   if (opts.link) {
     var raw = secretBox.open('rider-link', d.rider_token_sealed);
-    out.riderLink = raw ? SITE.delivery() + '/r/' + raw : null;
+    out.riderLink = raw ? SITE.delivery(d.company_code) + '/r/' + raw : null;
   }
   return out;
 }
-var DELIVERY_SELECT = "SELECT d.*, e.first_name || ' ' || e.last_name AS sent_by_name, he.first_name || ' ' || he.last_name AS handed_by_name, oo.number AS online_number FROM restaurant_deliveries d " +
+var DELIVERY_SELECT = "SELECT d.*, (SELECT code FROM companies WHERE id = d.company_id) AS company_code, e.first_name || ' ' || e.last_name AS sent_by_name, he.first_name || ' ' || he.last_name AS handed_by_name, oo.number AS online_number FROM restaurant_deliveries d " +
   'LEFT JOIN employees e ON e.id = d.sent_by LEFT JOIN employees he ON he.id = d.handed_by LEFT JOIN restaurant_online_orders oo ON oo.id = d.online_order_id ';
 
 // What is waiting to go out: open delivery orders (and website pickups),

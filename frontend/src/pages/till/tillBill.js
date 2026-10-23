@@ -28,7 +28,9 @@ export function billOf(lines, adjust, settings, fulfillment) {
   adjust = adjust || {};
   settings = settings || {};
   // The manager's ready-made discounts, and the happy hours (till/tillService.js).
-  const presets = (settings.discounts || []).concat((settings.happyHours || []).map((h) => ({ id: h.id, name: h.name, kind: 'percent', value: h.percent, open: true })));
+  // And the loyalty rewards, paid with the customer's points (backend restaurantTillFront rewardPresets).
+  const presets = (settings.discounts || []).concat((settings.happyHours || []).map((h) => ({ id: h.id, name: h.name, kind: 'percent', value: h.percent, open: true })),
+    settings.loyalty && settings.loyalty.on ? (settings.loyalty.rewards || []).map((r) => ({ id: 'loyalty:' + r.id, name: r.name, kind: r.kind, value: r.value, open: true })) : []);
   const specOf = (d) => {
     if (!d) return null;
     const p = d.presetId && presets.find((x) => x.id === d.presetId);

@@ -5,6 +5,7 @@ var pinAuth = require('../lib/pinAuth');
 var { buildContext } = require('./context.service');
 var activity = require('./restaurantActivity.service');
 var times = require('./restaurantTillTimes.service');
+var front = require('./restaurantTillFront.service');
 
 // Who may do what on a restaurant's till and kitchen screen, and the
 // till's other settings (migration 0155). Everyone signs in with their
@@ -39,12 +40,14 @@ var EDITABLE_ROLES = ['cashier', 'waiter', 'kitchen'];
 // the stock and adds what came in; delivery sends orders out with a rider
 // and takes the website's orders (the delivery screen, migration 0159);
 // discount gives discounts and takes the service charge off a bill, comp
-// puts a dish on the house (migration 0168; anyone else asks a manager).
-var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'kds', 'discount', 'comp'];
+// puts a dish on the house (migration 0168; anyone else asks a manager);
+// bookings takes bookings and runs the waitlist (migration 0171), giftCards
+// sells gift cards (migration 0173).
+var PERMISSIONS = ['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'kds', 'discount', 'comp', 'bookings', 'giftCards'];
 function only(keys) { var o = {}; PERMISSIONS.forEach(function (p) { o[p] = keys.indexOf(p) >= 0; }); return o; }
 var ROLE_DEFAULTS = {
-  cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'delivery', 'kds']),
-  waiter: only(['till', 'keepOpen', 'kds']),
+  cashier: only(['till', 'charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'delivery', 'kds', 'bookings', 'giftCards']),
+  waiter: only(['till', 'keepOpen', 'kds', 'bookings']),
   kitchen: only(['kds'])
 };
 var IDLE_CHOICES = [0, 5, 10, 15, 30, 60];
@@ -78,7 +81,14 @@ var DEFAULTS = {
   // times) and happy hours (a percentage off some categories at set times).
   courses: { on: false, names: ['Starters', 'Mains', 'Desserts'], categories: {} },
   hours: { categories: {} },
-  happyHours: []
+  happyHours: [],
+  // The guests themselves (restaurantTillFront.service.js): bookings and
+  // the waitlist, tips, "your food is ready" texts, loyalty points, gift cards.
+  bookings: front.DEFAULTS.bookings,
+  tips: front.DEFAULTS.tips,
+  readyText: front.DEFAULTS.readyText,
+  loyalty: front.DEFAULTS.loyalty,
+  giftCards: front.DEFAULTS.giftCards
 };
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
@@ -96,7 +106,9 @@ var REFUSED = {
   delivery: 'Your role does not send deliveries. Ask a manager.',
   kds: 'Your role does not use the kitchen screen. Ask a manager.',
   discount: 'Your role on the till cannot give discounts. Ask a manager.',
-  comp: 'Your role on the till cannot put a dish on the house. Ask a manager.'
+  comp: 'Your role on the till cannot put a dish on the house. Ask a manager.',
+  bookings: 'Your role on the till does not take bookings. Ask a manager.',
+  giftCards: 'Your role on the till cannot sell gift cards. Ask a cashier or a manager.'
 };
 
 function posSession(token) { return require('./restaurantPos.service').verifyPosToken(token); }
@@ -156,7 +168,7 @@ function merged(stored) {
   }
   if (s.hours && s.hours.categories && typeof s.hours.categories === 'object') out.hours.categories = s.hours.categories;
   if (Array.isArray(s.happyHours)) out.happyHours = s.happyHours.filter(function (h) { return h && h.id && h.name && Number(h.percent) > 0; });
-  return out;
+  return front.merge(out, s);
 }
 async function settingsOf(companyId, db) {
   var row = (await (db || pool).query('SELECT settings FROM restaurant_till_settings WHERE company_id = $1', [companyId])).rows[0];
@@ -207,7 +219,8 @@ async function profile(token) {
       paymentMethods: a.settings.paymentMethods, currencies: a.settings.currencies, ratesSetAt: a.settings.ratesSetAt, receipt: a.settings.receipt,
       idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen,
       discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax,
-      courses: a.settings.courses, hours: a.settings.hours, happyHours: a.settings.happyHours
+      courses: a.settings.courses, hours: a.settings.hours, happyHours: a.settings.happyHours,
+      tips: a.settings.tips, giftCards: a.settings.giftCards, loyalty: a.settings.loyalty, readyText: { on: a.settings.readyText.on }
     }
   };
 }
@@ -335,7 +348,7 @@ function cleanSettings(p, base) {
     var given = (p.roles && p.roles[r]) || {};
     PERMISSIONS.forEach(function (k) { if (given[k] !== undefined) out.roles[r][k] = !!given[k]; });
     // Taking payments is done at the till.
-    if (out.roles[r].charge || out.roles[r].keepOpen || out.roles[r].customItem || out.roles[r].removeTable || out.roles[r].refund || out.roles[r].vipTopUp || out.roles[r].iouPaid || out.roles[r].iou || out.roles[r].favorites || out.roles[r].stock || out.roles[r].discount || out.roles[r].comp) out.roles[r].till = true;
+    if (out.roles[r].charge || out.roles[r].keepOpen || out.roles[r].customItem || out.roles[r].removeTable || out.roles[r].refund || out.roles[r].vipTopUp || out.roles[r].iouPaid || out.roles[r].iou || out.roles[r].favorites || out.roles[r].stock || out.roles[r].discount || out.roles[r].comp || out.roles[r].bookings || out.roles[r].giftCards) out.roles[r].till = true;
     if (out.roles[r].iou && !out.roles[r].charge) out.roles[r].iou = false;
   });
   if (p.paymentMethods !== undefined) {
@@ -416,7 +429,7 @@ function cleanSettings(p, base) {
   if (p.courses) out.courses = times.cleanCourses(p.courses, text);
   if (p.hours) out.hours = times.cleanHours(p.hours, text);
   if (p.happyHours !== undefined) out.happyHours = times.cleanHappyHours(p.happyHours, text);
-  return out;
+  return front.clean(out, p, text);
 }
 
 async function saveSettings(token, p, ip) {

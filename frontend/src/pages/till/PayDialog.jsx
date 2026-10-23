@@ -15,10 +15,17 @@ import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, met
 // answers with the sale.
 // By dish (an open order, dishes: { lines, billFor, why }): one guest pays
 // for the dishes they had, and the rest of the order stays open.
+// A tip on top (the till's settings, tips): tapped here, or chosen by the
+// customer on their screen (screenTip, CustomerScreen.jsx) — paid with the
+// bill, not a sale. A gift card (settings.giftCards) is a way of paying:
+// its number checked for what is left on it (backend restaurantGiftCards).
 
 const NEEDS_CUSTOMER = { vip: true, iou: true };
 
-export default function PayDialog({ token, title, total: wholeTotal, methods, settings, customer, refreshKey, busy, error, dishes, onPickCustomer, onTopUp, onCancel, onComplete }) {
+export default function PayDialog({ token, title, total: wholeTotal, methods: tillMethods, settings, customer, refreshKey, busy, error, dishes, screenTip, onTip, onPickCustomer, onTopUp, onCancel, onComplete }) {
+  const giftOn = !!(settings.giftCards && settings.giftCards.on);
+  const methods = giftOn ? tillMethods.concat(['gift_card']) : tillMethods;
+  const tips = settings.tips && settings.tips.on ? settings.tips : null;
   const currencies = liveCurrencies(settings);
   const rateOf = (c) => (currencies.find((x) => x.code === c) || { rate: 1 }).rate;
   const curFor = (m) => methodCurrencies(m, currencies);
@@ -36,7 +43,27 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
   const dishBill = mode === 'dish' && dishes && !dishes.why ? dishes.billFor(pick) : null;
   const picked = dishBill ? dishBill.lines.reduce((n, l) => n + l.qty, 0) : 0;
   // What is paid now: the whole bill, or the dishes picked.
-  const total = mode === 'dish' ? (dishBill ? dishBill.total : 0) : wholeTotal;
+  const bill = mode === 'dish' ? (dishBill ? dishBill.total : 0) : wholeTotal;
+  // The tip, and what is paid: the bill and the tip.
+  const [tip, setTip] = useState(0);
+  const [tipPct, setTipPct] = useState(null);
+  const [tipOwn, setTipOwn] = useState(false);
+  const total = round2(bill + tip);
+  function pickTip(pct, amount) { setTipPct(pct); setTip(pct != null ? round2(bill * pct / 100) : round2(amount || 0)); }
+  // The customer's choice on their screen.
+  useEffect(() => { if (screenTip) { setTipOwn(false); pickTip(screenTip.percent, screenTip.amount); } }, [screenTip]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A percentage follows the bill (by dish: the dishes picked).
+  useEffect(() => { if (tipPct != null) setTip(round2(bill * tipPct / 100)); }, [bill]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (onTip) onTip({ bill, tip }); }, [bill, tip]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A gift card: its number, and what is left on it.
+  const [giftCode, setGiftCode] = useState('');
+  const [gift, setGift] = useState(null);
+  const [giftErr, setGiftErr] = useState(null);
+  async function checkGift(code) {
+    setGiftErr(null); setGift(null);
+    try { const c = await posFetch('GET', '/pos/gift-cards/' + encodeURIComponent(String(code).replace(/\D/g, '')), token); setGift(c); return c; }
+    catch (e) { setGiftErr(e.message); return null; }
+  }
   const [parts, setParts] = useState([]);
   const [vipBalance, setVipBalance] = useState(null);
 
@@ -66,6 +93,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
   }, [dueHere, currency]);
   const vipShort = method === 'vip' && vipBalance !== null && vipBalance < total;
   const iouOver = method === 'iou' && customer && customer.iouLimit != null && customer.iouOwed + total > customer.iouLimit + 0.009;
+  const giftShort = method === 'gift_card' && gift && (gift.status !== 'active' || gift.balance + 0.004 < total);
 
   // ── split ──
   const paid = round2(parts.reduce((s2, p) => s2 + (Number(p.amount) || 0), 0));
@@ -83,6 +111,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
     const a = Number(p.amount);
     if (!(a > 0)) return tr('Give it an amount.');
     if (!allowed(p.method)) return p.method === 'vip' ? tr('Needs a customer with a VIP account.') : tr('Needs a customer with an IOU account.');
+    if (p.method === 'gift_card' && String(p.code || '').replace(/\D/g, '').length !== 16) return tr('Type the 16-digit number on the gift card.');
     if (p.method === 'cash' && p.tendered !== '') {
       const owes = p.currency === 'GHS' ? a : round2(a / rateOf(p.currency));
       if (Number(p.tendered) < owes) return tr('Less than this part.');
@@ -91,14 +120,22 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
   });
   const splitOk = split && parts.length > 1 && Math.abs(left) < 0.005 && splitProblems.every((x) => !x) && !(vipSplit > 0 && vipBalance !== null && vipBalance < vipSplit);
 
-  const singleOk = !split && allowed(method) && !(method === 'cash' && changeCedis !== null && changeCedis < 0) && !vipShort && !iouOver && !(mode === 'dish' && !(picked > 0));
+  const singleOk = !split && allowed(method) && !(method === 'cash' && changeCedis !== null && changeCedis < 0) && !vipShort && !iouOver && !(mode === 'dish' && !(picked > 0))
+    && !(method === 'gift_card' && (!gift || giftShort)) && !(tip > 0 && method === 'iou');
+  // The rest of the bill another way, after what is left on the card.
+  function splitWithCard() {
+    const onCard = round2(Math.min(gift.balance, total));
+    setParts([{ method: 'gift_card', currency: 'GHS', amount: String(onCard), tendered: '', code: gift.code }, { method: 'cash', currency: 'GHS', amount: String(round2(total - onCard)), tendered: '' }]);
+    setMode('split');
+  }
   function complete() {
-    const one = [{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined }];
-    if (mode === 'dish') { onComplete(one, Object.keys(pick).filter((k) => pick[k] > 0).map((k) => ({ key: k, qty: pick[k] }))); return; }
+    const one = [{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined, code: method === 'gift_card' ? gift.code : undefined }];
+    if (mode === 'dish') { onComplete(one, Object.keys(pick).filter((k) => pick[k] > 0).map((k) => ({ key: k, qty: pick[k] })), tip); return; }
     if (split) {
-      onComplete(parts.map((p) => ({ method: p.method, currency: p.currency, amount: round2(p.amount), tendered: p.method === 'cash' && p.tendered !== '' ? Number(p.tendered) : undefined })));
+      onComplete(parts.map((p) => ({ method: p.method, currency: p.currency, amount: round2(p.amount), tendered: p.method === 'cash' && p.tendered !== '' ? Number(p.tendered) : undefined,
+        code: p.method === 'gift_card' ? String(p.code || '').replace(/\D/g, '') : undefined })), null, tip);
     } else {
-      onComplete([{ method: method, currency: currency, tendered: method === 'cash' && given !== '' ? Number(given) : undefined }]);
+      onComplete(one, null, tip);
     }
   }
 
@@ -111,6 +148,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
         <div className="pos-pay-due">
           <span>{title}</span>
           <strong>{money(total)}</strong>
+          {tip > 0 && <small className="tl-pay-tipline">{tr('{bill} + a tip of {tip}', { bill: money(bill), tip: money(tip) })}</small>}
           {currencies.length > 1 && <small className="tl-pay-fx">{currencies.filter((c) => c.code !== 'GHS').map((c) => fmt(round2(total / c.rate), c.code)).join(' · ')}</small>}
         </div>
         <div className="dk-segment tl-pay-mode" role="radiogroup" aria-label={tr('How it is paid')}>
@@ -157,6 +195,21 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
           </div>
         ))}
 
+        {tips && !(mode === 'dish' && (dishes.why || !picked)) && (
+          <div className="tl-tips">
+            <span className="tl-tips-label">💛 {tr('Tip')}{screenTip && <small>{tr('chosen on the customer screen')}</small>}</span>
+            <div className="tl-chips" role="radiogroup" aria-label={tr('Tip')}>
+              <button type="button" role="radio" aria-checked={!tip && !tipOwn} className={'tl-chip' + (!tip && !tipOwn ? ' is-on' : '')} onClick={() => { setTipOwn(false); pickTip(null, 0); }}>{tr('No tip')}</button>
+              {tips.percents.map((pc) => (
+                <button key={pc} type="button" role="radio" aria-checked={tipPct === pc} className={'tl-chip' + (tipPct === pc ? ' is-on' : '')} onClick={() => { setTipOwn(false); pickTip(pc); }}>
+                  {pc}% <small>{money(round2(bill * pc / 100))}</small>
+                </button>
+              ))}
+              <button type="button" role="radio" aria-checked={tipOwn} className={'tl-chip' + (tipOwn ? ' is-on' : '')} onClick={() => { setTipOwn(true); setTipPct(null); }}>{tr('Other')}</button>
+              {tipOwn && <input className="input tl-tip-own" type="number" min="0" step="0.5" inputMode="decimal" value={tip || ''} onChange={(e) => pickTip(null, e.target.value)} aria-label={tr('Tip')} placeholder="0.00" />}
+            </div>
+          </div>
+        )}
         {mode === 'dish' && (dishes.why || !picked) ? null : !split ? (
           <>
             <div className="pos-methods tl-methods" role="radiogroup" aria-label={tr('Payment method')}>
@@ -206,6 +259,25 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
                     + (customer.iouLimit != null ? ' ' + tr('Limit {limit}, owed now {owed}.', { limit: money(customer.iouLimit), owed: money(customer.iouOwed) }) : '')}</span>
               </p>
             )}
+            {method === 'gift_card' && (
+              <div className="tl-giftpay">
+                <label htmlFor="tl-gift-code" className="pos-big-label">🎁 {tr('The number on the gift card')}</label>
+                <div className="tl-giftpay-row">
+                  <input id="tl-gift-code" className="input pos-big-input" inputMode="numeric" autoComplete="off" autoFocus value={giftCode} placeholder="0000 0000 0000 0000"
+                    onChange={(e) => { const d = e.target.value.replace(/\D/g, '').slice(0, 16); setGiftCode(d.replace(/(\d{4})(?=\d)/g, '$1 ')); setGift(null); setGiftErr(null); if (d.length === 16) checkGift(d); }} />
+                  <button type="button" className="btn btn-secondary tl-btn" disabled={giftCode.replace(/\D/g, '').length !== 16} onClick={() => checkGift(giftCode)}>{tr('Check')}</button>
+                </div>
+                {giftErr && <p className="tl-pay-acct is-bad"><span>{giftErr}</span></p>}
+                {gift && (
+                  <p className={'tl-pay-acct' + (giftShort ? ' is-bad' : '')}>
+                    <span>{gift.status !== 'active' ? tr('This gift card was cancelled.')
+                      : gift.balance + 0.004 < total ? tr('{balance} left on this card: not enough for {amount}.', { balance: money(gift.balance), amount: money(total) })
+                        : tr('{balance} left on this card; {left} after this.', { balance: money(gift.balance), left: money(round2(gift.balance - total)) })}</span>
+                    {gift.status === 'active' && gift.balance > 0 && gift.balance + 0.004 < total && <button type="button" className="btn btn-primary tl-btn" onClick={splitWithCard}>{tr('Use it, and pay the rest another way')}</button>}
+                  </p>
+                )}
+              </div>
+            )}
             {method === 'cash' && (
               <div className="pos-cash">
                 <label htmlFor="tl-cash-given" className="pos-big-label">{currency === 'GHS' ? tr('Cash received') : tr('Cash received in {cur}', { cur: CURRENCY_LABEL[currency] })}</label>
@@ -247,6 +319,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
                       </select>
                     ) : p.currency !== 'GHS' && <span className="tl-part-cur is-fixed">{CURRENCY_LABEL[p.currency]}</span>}
                     <input className="input tl-part-amt" type="number" min="0" step="0.01" inputMode="decimal" value={p.amount} onChange={(e) => setPart(i, { amount: e.target.value })} aria-label={tr('Amount in cedis')} placeholder="0.00" />
+                    {p.method === 'gift_card' && <input className="input tl-part-given" inputMode="numeric" value={p.code || ''} onChange={(e) => setPart(i, { code: e.target.value.replace(/[^\d ]/g, '').slice(0, 19) })} placeholder={tr('Card number')} aria-label={tr('The number on the gift card')} />}
                     {left > 0.004 && <button type="button" className="pos-link" onClick={() => setPart(i, { amount: String(round2(a + left)) })}>{tr('+ the rest')}</button>}
                     {p.currency !== 'GHS' && a > 0 && <small className="tl-part-fx">= {fmt(round2(a / r), p.currency)}</small>}
                     {p.method === 'cash' && (

@@ -107,7 +107,13 @@ async function report(companyId, q) {
   // and the taxes, and the add-ons sold most (migration 0168).
   var extras = (await pool.query(
     'SELECT coalesce(sum(o.discount_total), 0) AS discounts, coalesce(sum(o.service_charge), 0) AS service, coalesce(sum(o.tax_total), 0) AS tax_added, ' +
-    "count(*) FILTER (WHERE o.discount_total > 0)::int AS discounted, count(*) FILTER (WHERE (o.adjustments ? 'serviceOff'))::int AS service_off" + COMPLETED, args)).rows[0];
+    "count(*) FILTER (WHERE o.discount_total > 0)::int AS discounted, count(*) FILTER (WHERE (o.adjustments ? 'serviceOff'))::int AS service_off, " +
+    'coalesce(sum(o.tip), 0) AS tips, count(*) FILTER (WHERE o.tip > 0)::int AS tipped, coalesce(sum(o.points_earned), 0)::int AS points_given, coalesce(sum(o.points_used), 0)::int AS points_used' + COMPLETED, args)).rows[0];
+  // Tips by who served the table (else who rang it up), for sharing them out (migration 0172).
+  var tipsBy = (await pool.query(
+    "SELECT coalesce(o.waiter_id, o.cashier_id) AS id, e.first_name || ' ' || e.last_name AS name, count(*)::int AS n, sum(o.tip) AS amount" +
+    COMPLETED.replace(' WHERE ', ' LEFT JOIN employees e ON e.id = coalesce(o.waiter_id, o.cashier_id) WHERE ') + ' AND o.tip > 0 GROUP BY 1, 2 ORDER BY 4 DESC', args)).rows
+    .map(function (r) { return { id: r.id, name: r.name, sales: r.n, amount: round2(r.amount) }; });
   var comps = (await pool.query(
     'SELECT i.comp_reason AS reason, sum(i.qty) AS qty, sum(i.discount) AS amount FROM restaurant_order_items i WHERE i.comp_reason IS NOT NULL AND i.order_id IN (SELECT o.id' + COMPLETED + ') ' +
     'GROUP BY 1 ORDER BY 3 DESC', args)).rows.map(function (r) { return { reason: r.reason, qty: Number(r.qty), amount: round2(r.amount) }; });
@@ -152,9 +158,10 @@ async function report(companyId, q) {
       average: head.n ? round2(gross / head.n) : 0, dishes: Number(dishes.qty), customers: head.customers,
       voided: voided.n, voidedAmount: round2(voided.amount), iouOpen: head.iou_n, iouOwed: round2(head.iou_owed),
       discounts: round2(extras.discounts), discounted: extras.discounted, serviceCharge: round2(extras.service), serviceOff: extras.service_off, taxAdded: round2(extras.tax_added),
-      guests: head.guests, perGuest: head.guests ? round2(head.guest_sales / head.guests) : 0, fromSquare: { sales: head.square_n, amount: round2(head.square_amount) }
+      guests: head.guests, perGuest: head.guests ? round2(head.guest_sales / head.guests) : 0, fromSquare: { sales: head.square_n, amount: round2(head.square_amount) },
+      tips: round2(extras.tips), tipped: extras.tipped, pointsGiven: extras.points_given, pointsUsed: extras.points_used
     },
-    comps: comps, discountsBy: discountsBy, taxes: taxes, addOns: addOns,
+    tipsBy: tipsBy, comps: comps, discountsBy: discountsBy, taxes: taxes, addOns: addOns,
     byMethod: byMethod, byFulfillment: byFulfillment, byCashier: byCashier, byHour: byHour, byDay: byDay, topItems: topItems, foreign: foreign,
     rows: rows, more: more, staff: staff, byMonth: long
   };

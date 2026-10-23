@@ -403,7 +403,7 @@ async function ticketOfCompany(client, company, id) {
 // POST /api/pos/kds/items/:id { done } — a dish done, or back to cooking.
 async function setItemDone(token, itemId, done) {
   var session = await access.need(token, 'kds');
-  return withTransaction(async function (client) {
+  return textWhenReady(session, await withTransaction(async function (client) {
     var it = (await client.query(
       'SELECT i.*, t.company_id, t.served_at FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id WHERE i.id = $1 FOR UPDATE OF i', [itemId])).rows[0];
     if (!it || it.company_id !== session.posCompanyId) fail('notfound', 'That dish is no longer on the screen.');
@@ -417,8 +417,8 @@ async function setItemDone(token, itemId, done) {
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'kds', action: done ? 'kds.dish_done' : 'kds.dish_back',
       summary: (done ? 'Done: ' : 'Back to cooking: ') + Number(it.qty) + '× ' + it.name + ' on #' + before.number + '.', refType: 'ticket', refId: it.ticket_id });
     if (status === 'ready' && before.status !== 'ready') await logReady(client, session, it.ticket_id);
-    return { ticketId: it.ticket_id, status: status };
-  });
+    return { ticketId: it.ticket_id, status: status, nowReady: status === 'ready' && before.status !== 'ready' };
+  }));
 }
 
 // POST /api/pos/kds/tickets/:id/done { station } — every dish of a ticket
@@ -427,7 +427,7 @@ async function finishTicket(token, ticketId, stationId) {
   var session = await access.need(token, 'kds');
   var screen = await screens.forSession(session);
   if (screen) stationId = screen.station_id || 'all';
-  return withTransaction(async function (client) {
+  return textWhenReady(session, await withTransaction(async function (client) {
     var t = await ticketOfCompany(client, session.posCompanyId, ticketId);
     if (t.served_at) fail('invalid', 'That ticket has been served already.');
     if (stationId && stationId !== 'all') {
@@ -440,8 +440,52 @@ async function finishTicket(token, ticketId, stationId) {
     if (status === 'ready' && t.status !== 'ready') await logReady(client, session, ticketId);
     else await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'kds', action: 'kds.station_done',
       summary: '#' + t.number + ' done at this station; another is still cooking.', refType: 'ticket', refId: ticketId });
-    return { ticketId: ticketId, status: status };
-  });
+    return { ticketId: ticketId, status: status, nowReady: status === 'ready' && t.status !== 'ready' };
+  }));
+}
+
+// "Your food is ready": a pickup customer with a phone, texted once when
+// the kitchen has every ticket of their order ready (the till's settings,
+// readyText) — by SMS when the server can send it, else a WhatsApp link the
+// till shows beside the ticket. After the kitchen's change is saved: a text
+// that does not go never undoes it.
+function fillIn(message, t, company) {
+  var first = String(t.guest_name || t.label || '').trim().split(' ')[0] || 'there';
+  return String(message).replace(/\{name\}/g, first).replace(/\{number\}/g, '#' + t.number).replace(/\{restaurant\}/g, company);
+}
+async function readyText(companyId, ticketId) {
+  var settings = (await access.settingsOf(companyId)).readyText;
+  if (!settings.on) return null;
+  var t = (await pool.query('SELECT t.*, c.name AS company_name FROM restaurant_kitchen_tickets t JOIN companies c ON c.id = t.company_id WHERE t.id = $1', [ticketId])).rows[0];
+  if (!t || t.fulfillment !== 'pickup' || !t.customer_phone || t.status !== 'ready') return null;
+  var by = t.tab_id ? 'tab_id' : 'order_id', key = t.tab_id || t.order_id;
+  if (!key) return null;
+  var others = (await pool.query("SELECT count(*) FILTER (WHERE status IN ('cooking', 'held'))::int AS cooking, count(*) FILTER (WHERE ready_text IS NOT NULL)::int AS texted " +
+    'FROM restaurant_kitchen_tickets WHERE company_id = $1 AND ' + by + ' = $2', [companyId, key])).rows[0];
+  if (others.cooking > 0 || others.texted > 0) return null;
+  var digits = require('../utils/phone').internationalNumber(t.customer_phone);
+  if (!digits) return null;
+  var words = fillIn(settings.message, t, t.company_name);
+  var sms = require('./sms.service');
+  var out = { channel: 'whatsapp', to: '+' + digits, at: new Date().toISOString() };
+  if (sms.configured()) {
+    try { await sms.send({ to: '+' + digits, message: words, purpose: 'order_ready', refId: t.id }); out = { channel: 'sms', to: '+' + digits, at: out.at, status: 'sent' }; }
+    catch (e) { out.error = String(e.message).slice(0, 200); }
+  }
+  if (out.channel === 'whatsapp') out.url = 'https://wa.me/' + digits + '?text=' + encodeURIComponent(words);
+  // Once: the first to claim it texts (a second ready at the same moment finds it claimed).
+  var claimed = (await pool.query('UPDATE restaurant_kitchen_tickets SET ready_text = $2 WHERE id = $1 AND ready_text IS NULL RETURNING id', [t.id, JSON.stringify(out)])).rows[0];
+  if (!claimed) return null;
+  await activity.log(pool, { companyId: companyId, employeeId: null, app: 'kds', action: 'kds.ready_text',
+    summary: '#' + t.number + ' ready: ' + (out.channel === 'sms' ? 'texted ' + (t.guest_name || t.label || 'the customer') + '.' : 'a WhatsApp message to send to ' + (t.guest_name || t.label || 'the customer') + ' is on the till.'), refType: 'ticket', refId: t.id });
+  return out;
+}
+async function textWhenReady(session, result) {
+  if (result.nowReady) {
+    try { result.readyText = await readyText(session.posCompanyId, result.ticketId); } catch (e) { result.readyText = null; }
+  }
+  delete result.nowReady;
+  return result;
 }
 
 // A ticket's food is all done: in the activity report, by who finished it.
@@ -530,7 +574,7 @@ async function tillSummary(token) {
       return { id: r.id, number: r.number, label: r.label, tableName: r.table_name, waiterName: r.waiter_name, guestName: r.guest_name,
         fulfillment: r.fulfillment || '', customerPhone: r.customer_phone || '', deliveryAddress: r.delivery_address || '',
         tabId: r.tab_id, orderId: r.order_id, deliveryId: r.delivery_id || null, onlineRef: r.online_number ? 'W-' + String(r.online_number).padStart(4, '0') : null,
-        dishes: Number(r.dishes), readyAt: r.ready_at, waitingMinutes: minutesSince(r.ready_at, now) };
+        dishes: Number(r.dishes), readyAt: r.ready_at, waitingMinutes: minutesSince(r.ready_at, now), readyText: r.ready_text || null };
     })
   };
 }
@@ -709,5 +753,5 @@ module.exports = {
   board: board, setItemDone: setItemDone, finishTicket: finishTicket, serveTicket: serveTicket, recallTicket: recallTicket, printTicket: printTicket, tillSummary: tillSummary,
   statusOf: statusOf,
   kitchenOverview: kitchenOverview, createStation: createStation, updateStation: updateStation, removeStation: removeStation,
-  _stationFor: stationFor
+  readyText: readyText, _stationFor: stationFor
 };

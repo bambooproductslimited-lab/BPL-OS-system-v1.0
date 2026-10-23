@@ -3,6 +3,8 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var access = require('./restaurantTillAccess.service');
 var activity = require('./restaurantActivity.service');
+function gifts() { return require('./restaurantGiftCards.service'); }
+function loyalty() { return require('./restaurantLoyalty.service'); }
 
 // The till's money beyond a plain sale (migration 0153):
 //
@@ -35,21 +37,23 @@ var TILL_METHODS = access.TILL_METHODS;
 // The money each way of paying is taken in: Alipay and WeChat Pay in RMB
 // only, Mobile Money in cedis only, cash in cedis or US dollars; VIP and IOU
 // are accounts kept in cedis.
-var METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'] };
+var METHOD_CURRENCIES = { cash: ['GHS', 'USD'], mobile_money: ['GHS'], alipay: ['CNY'], wechat: ['CNY'], vip: ['GHS'], iou: ['GHS'], gift_card: ['GHS'] };
 var PAID_IN = { cash: 'Cash is taken in cedis or US dollars.', mobile_money: 'Mobile Money is paid in cedis only.', alipay: 'Alipay is paid in RMB only.',
-  wechat: 'WeChat Pay is paid in RMB only.', vip: 'VIP is in cedis.', iou: 'An IOU is in cedis.' };
+  wechat: 'WeChat Pay is paid in RMB only.', vip: 'VIP is in cedis.', iou: 'An IOU is in cedis.', gift_card: 'A gift card is in cedis.' };
 var MONEY = ['cash', 'mobile_money'];
 var CURRENCY_NAME = { GHS: 'GHS', USD: 'USD', CNY: 'RMB' };
-var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'other' };
+var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', gift_card: 'gift card', other: 'other' };
 
 // Every completed sale's money, by way of paying: the parts of a sale
 // paid since migration 0157, and older sales whole. Columns: order_id,
 // company_id, created_at, cashier_id, method, amount (the part of the
 // bill), net (less its share of refunds). For reports and the shift.
+// A tip paid on top (migration 0172) is not the sale's: each part counts
+// its share of the bill only.
 var ORDER_METHODS_SQL =
-  '(SELECT o.id AS order_id, o.company_id, o.created_at, o.cashier_id, p.method, p.amount, ' +
-  '   round(p.amount - CASE WHEN o.total > 0 THEN o.refunded_total * p.amount / o.total ELSE 0 END, 2) AS net ' +
-  " FROM restaurant_order_payments p JOIN restaurant_orders o ON o.id = p.order_id WHERE o.status = 'completed' " +
+  '(SELECT o.id AS order_id, o.company_id, o.created_at, o.cashier_id, p.method, round(p.amount * o.total / (o.total + o.tip), 2) AS amount, ' +
+  '   round(p.amount * o.total / (o.total + o.tip) - CASE WHEN o.total > 0 THEN o.refunded_total * p.amount / (o.total + o.tip) ELSE 0 END, 2) AS net ' +
+  " FROM restaurant_order_payments p JOIN restaurant_orders o ON o.id = p.order_id WHERE o.status = 'completed' AND o.total + o.tip > 0 " +
   ' UNION ALL ' +
   ' SELECT o.id, o.company_id, o.created_at, o.cashier_id, o.payment_method, o.total, o.total - o.refunded_total ' +
   " FROM restaurant_orders o WHERE o.status = 'completed' AND NOT EXISTS (SELECT 1 FROM restaurant_order_payments p WHERE p.order_id = o.id))";
@@ -66,8 +70,11 @@ function planPayments(session, total, list) {
   total = round2(total);
   var rows = list.map(function (p, i) {
     p = p || {};
-    var method = V.oneOf(p.method || 'cash', TILL_METHODS, 'Payment method');
-    if (settings.paymentMethods.indexOf(method) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
+    var method = V.oneOf(p.method || 'cash', TILL_METHODS.concat(['gift_card']), 'Payment method');
+    // A gift card is taken when the till sells them (restaurantGiftCards).
+    if (method === 'gift_card' ? !settings.giftCards.on : settings.paymentMethods.indexOf(method) < 0) fail('invalid', 'That way of paying is turned off in the till settings.');
+    var giftCode = method === 'gift_card' ? gifts().digitsOf(p.code) : null;
+    if (method === 'gift_card' && giftCode.length !== 16) fail('invalid', 'Type the 16-digit number on the gift card.');
     if (method === 'iou' && !session.access.can.iou) fail('forbidden', 'Your role on the till cannot sell on IOU. Ask a manager.');
     var currency = p.currency || METHOD_CURRENCIES[method][0];
     if (METHOD_CURRENCIES[method].indexOf(currency) < 0) fail('invalid', PAID_IN[method]);
@@ -91,7 +98,7 @@ function planPayments(session, total, list) {
       change = round2(tendered * rate - amount);
       if (change < 0) change = 0;
     }
-    return { method: method, amount: amount, currency: currency, rate: rate, foreignAmount: foreign, tendered: tendered, changeGiven: change, sortOrder: i };
+    return { method: method, amount: amount, currency: currency, rate: rate, foreignAmount: foreign, tendered: tendered, changeGiven: change, sortOrder: i, giftCode: giftCode };
   });
   var sum = round2(rows.reduce(function (a, r) { return a + r.amount; }, 0));
   if (Math.abs(sum - total) > 0.009) {
@@ -110,18 +117,18 @@ async function savePayments(client, orderId, rows) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     await client.query(
-      'INSERT INTO restaurant_order_payments (order_id, method, amount, currency, rate, foreign_amount, tendered, change_given, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-      [orderId, r.method, r.amount, r.currency, r.rate, r.foreignAmount, r.tendered, r.changeGiven, r.sortOrder]);
+      'INSERT INTO restaurant_order_payments (order_id, method, amount, currency, rate, foreign_amount, tendered, change_given, sort_order, gift_card_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [orderId, r.method, r.amount, r.currency, r.rate, r.foreignAmount, r.tendered, r.changeGiven, r.sortOrder, r.giftCardId || null]);
   }
 }
 async function paymentsOf(db, orderIds) {
   if (!orderIds.length) return new Map();
-  var rows = (await db.query('SELECT * FROM restaurant_order_payments WHERE order_id = ANY($1::uuid[]) ORDER BY sort_order, created_at', [orderIds])).rows;
+  var rows = (await db.query('SELECT p.*, g.code AS gift_code FROM restaurant_order_payments p LEFT JOIN restaurant_gift_cards g ON g.id = p.gift_card_id WHERE p.order_id = ANY($1::uuid[]) ORDER BY p.sort_order, p.created_at', [orderIds])).rows;
   var by = new Map();
   rows.forEach(function (r) {
     if (!by.has(r.order_id)) by.set(r.order_id, []);
     by.get(r.order_id).push({ method: r.method, amount: round2(r.amount), currency: r.currency, rate: Number(r.rate), foreignAmount: r.foreign_amount == null ? null : round2(r.foreign_amount),
-      tendered: r.tendered == null ? null : round2(r.tendered), changeGiven: round2(r.change_given) });
+      tendered: r.tendered == null ? null : round2(r.tendered), changeGiven: round2(r.change_given), giftCard: r.gift_code ? r.gift_code.slice(-4) : null });
   });
   return by;
 }
@@ -417,10 +424,11 @@ function refundMethodsFor(o, parts) {
   if (o.payment_method === 'vip') return ['vip'];
   if (o.payment_method === 'iou') return o.iou_paid_at ? MONEY : ['iou'];
   if (o.payment_method === 'alipay' || o.payment_method === 'wechat') return [o.payment_method, 'cash'];
+  if (o.payment_method === 'gift_card') return ['gift_card', 'cash'];
   if (o.payment_method === 'split') {
     var used = (parts || []).map(function (r) { return r.method; });
     var out = ['cash'];
-    ['mobile_money', 'alipay', 'wechat', 'vip'].forEach(function (m) { if (used.indexOf(m) >= 0) out.push(m); });
+    ['mobile_money', 'alipay', 'wechat', 'vip', 'gift_card'].forEach(function (m) { if (used.indexOf(m) >= 0) out.push(m); });
     return out;
   }
   return o.payment_method === 'mobile_money' ? ['mobile_money', 'cash'] : ['cash', 'mobile_money'];
@@ -554,6 +562,9 @@ async function refundSale(token, orderId, p, ip) {
       await client.query("INSERT INTO restaurant_vip_entries (company_id, guest_id, kind, amount, order_id, refund_id, cashier_id) VALUES ($1,$2,'refund',$3,$4,$5,$6)",
         [o.company_id, o.guest_id, amount, o.id, refund.id, session.posEmployeeId]);
     }
+    if (method === 'gift_card') await gifts().refundToCard(client, o, amount, session.posEmployeeId);
+    // The points that part of the sale earned (restaurantLoyalty).
+    await loyalty().onRefund(client, o, amount);
     // Refunded off an IOU down to nothing: nothing is owed any more.
     if (method === 'iou' && round2(left - amount) <= 0) {
       await client.query('UPDATE restaurant_orders SET iou_paid_at = now(), iou_paid_amount = 0, iou_paid_by = $2 WHERE id = $1', [o.id, session.posEmployeeId]);
@@ -569,6 +580,9 @@ async function refundSale(token, orderId, p, ip) {
 // A voided VIP sale never happened: what is left of it goes back to the
 // guest's balance (restaurantPos.voidOrder, in its transaction).
 async function onVoid(client, o) {
+  // Its gift card parts back on their cards, its points earned and spent undone.
+  await gifts().onVoid(client, o);
+  await loyalty().onVoid(client, o);
   if ((o.payment_method !== 'vip' && o.payment_method !== 'split') || !o.guest_id) return;
   var back = round2(Number(o.total) - Number(o.refunded_total));
   if (o.payment_method === 'split') {
@@ -595,7 +609,8 @@ async function drawerCash(db, cashierId, companyId, from, to) {
     "(SELECT coalesce(-sum(amount), 0) FROM restaurant_vip_entries WHERE cashier_id = $1 AND company_id = $2 AND kind = 'cashout' AND created_at >= $3 AND created_at <= $4) AS vip_cashouts, " +
     '(SELECT coalesce(sum(amount), 0) FROM restaurant_iou_advances WHERE cashier_id = $1 AND company_id = $2 AND created_at >= $3 AND created_at <= $4) AS iou_lent',
     [cashierId, companyId, from, to])).rows[0];
-  return { refunds: round2(r.refunds), iouPaid: round2(r.iou_paid), vipTopUps: round2(r.vip_topups), vipCashOuts: round2(r.vip_cashouts), iouLent: round2(r.iou_lent) };
+  var gc = await gifts().drawerCash(db, cashierId, companyId, from, to);
+  return { giftSold: gc.sold, giftVoided: gc.voided, refunds: round2(r.refunds), iouPaid: round2(r.iou_paid), vipTopUps: round2(r.vip_topups), vipCashOuts: round2(r.vip_cashouts), iouLent: round2(r.iou_lent) };
 }
 // The same, one by one, for the drawer's list of money in and out: each
 // with its customer — in: vip (put down), iou (paid back); out: vip (given
@@ -611,7 +626,7 @@ async function accountMoves(db, cashierId, companyId, from, to) {
     "WHERE a.paid_by = $1 AND a.company_id = $2 AND a.paid_method = 'cash' AND a.paid_at >= $3 AND a.paid_at <= $4 " +
     "UNION ALL SELECT a.id, 'out', 'iou', a.amount, g.name, a.note, 'A-' || lpad(a.number::text, 4, '0'), a.created_at FROM restaurant_iou_advances a JOIN restaurant_guests g ON g.id = a.guest_id " +
     'WHERE a.cashier_id = $1 AND a.company_id = $2 AND a.created_at >= $3 AND a.created_at <= $4 ORDER BY 8', args)).rows;
-  return rows.map(function (r) { return { id: r.id, direction: r.direction, account: r.account, amount: round2(r.amount), customer: r.customer || null, note: r.note || '', ref: r.ref || null, createdAt: r.at }; });
+  return rows.map(function (r) { return { id: r.id, direction: r.direction, account: r.account, amount: round2(r.amount), customer: r.customer || null, note: r.note || '', ref: r.ref || null, createdAt: r.at }; }).concat(await gifts().drawerMoves(db, cashierId, companyId, from, to));
 }
 
 // Cash sales this cashier took between two times, from the parts of each
