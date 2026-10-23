@@ -337,7 +337,10 @@
 .pos-drawer-line { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; font-variant-numeric: tabular-nums; }
 .pos-drawer-line + .pos-drawer-line { border-top: 1px solid var(--color-divider); }
 .pos-drawer-line.is-total { font-weight: 800; border-top: 2px solid var(--color-border); }
-.pos-tabs .dk-row-side { gap: 6px; }
+.pos-tabs .dk-row-side { gap: 6px; margin-left: auto; }
+/* An order with many buttons (send, call a course…) puts them under its name rather than squeezing it. */
+.pos-tabs .dk-row { flex-wrap: wrap; }
+.pos-tabs .dk-row-main { flex: 1 1 300px; }
 .pos-tab-actions { display: flex; align-items: center; gap: 8px; }
 .pos-checkout-total { margin: 4px 0 12px; color: var(--color-text-muted); }
 .pos-picker-dialog { max-width: 540px; width: calc(100vw - 32px); }

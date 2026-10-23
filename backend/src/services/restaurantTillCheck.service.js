@@ -1,6 +1,7 @@
 var jwt = require('jsonwebtoken');
 var { fail } = require('../utils/errors');
 var config = require('../config');
+var times = require('./restaurantTillTimes.service');
 
 // The bill on the till (migration 0168), beyond the dishes and their prices
 // (restaurantPos priceLines):
@@ -121,14 +122,19 @@ function approvedBy(companyId, token, what, spec) {
 
 // ── discounts, service, taxes ──
 
+// A happy hour still counts this long after it ends, for an order placed in it.
+var GRACE_MS = 30 * 60000;
+
 var KINDS = ['percent', 'amount'];
 // A discount as the till asked for it: one of the manager's (presetId) or
 // typed (kind, value, name). null for none.
 function cleanDiscount(d, settings) {
   if (!d) return null;
   if (d.presetId) {
-    var p = (settings.discounts || []).find(function (x) { return x.id === d.presetId; });
-    if (p) return { presetId: p.id, kind: p.kind, value: p.value, name: p.name, open: !!p.open, approval: d.approval || null };
+    // The manager's ready-made discounts, and the happy hours (anyone may
+    // give one, while it is on: restaurantTillTimes).
+    var p = (settings.discounts || []).concat(times.asPresets(settings)).find(function (x) { return x.id === d.presetId; });
+    if (p) return Object.assign({ presetId: p.id, kind: p.kind, value: p.value, name: p.name, open: !!p.open, approval: d.approval || null }, p.happy ? { happy: p.happy } : {});
     // Taken off the list since it was given: it stays as it was, by its size.
     if (!d.kind) fail('invalid', 'That discount is no longer offered. Pick another.');
   }
@@ -188,6 +194,12 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
       o.discountAsked = null;
       if (cby !== ctx.name) approvals.push(cby);
     } else if (disc) {
+      // A happy hour only while it is on, on its categories (or kept on the open order as it was given).
+      if (disc.happy && !(was && was.discount)) {
+        // (A website or table order placed in it and taken a little after is still in it.)
+        if (!times.isOn(disc.happy, ctx.at) && !times.isOn(disc.happy, Date.now() - GRACE_MS)) fail('conflict', disc.name + ' is not on now (' + disc.happy.from + '–' + disc.happy.to + ').');
+        if (disc.happy.categories.length && !disc.happy.categories.some(function (c) { return String(c).toLowerCase() === String(l.category || '').toLowerCase(); })) fail('invalid', disc.name + ' is not on ' + l.name + '.');
+      }
       var dby = disc.open ? ctx.name : allow(ctx, 'discount', discountSpec(disc), disc.approval, was && was.discount && was.discount.by, 'A discount on ' + l.name);
       o.discount = Math.min(gross, disc.kind === 'percent' ? round2(gross * disc.value / 100) : disc.value);
       o.discountName = disc.name; o.discountBy = dby;
@@ -203,6 +215,7 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
   var keep = {};
   var billDisc = cleanDiscount(adjust.discount, settings);
   var billDiscount = 0;
+  if (billDisc && billDisc.happy && !(before.adjust && before.adjust.discount) && !times.isOn(billDisc.happy, ctx.at)) fail('conflict', billDisc.name + ' is not on now (' + billDisc.happy.from + '–' + billDisc.happy.to + ').');
   if (billDisc) {
     var wasDisc = before.adjust && before.adjust.discount && discountSpec(before.adjust.discount) === discountSpec(billDisc) ? before.adjust.discount.by : null;
     var bby = billDisc.open ? ctx.name : allow(ctx, 'discount', discountSpec(billDisc), billDisc.approval, wasDisc, 'A discount on the bill');

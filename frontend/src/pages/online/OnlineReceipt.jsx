@@ -78,9 +78,7 @@ export default function OnlineReceipt({ token }) {
           {r.serviceCharge > 0 && <div><span>{serviceWords(r.serviceName, tr)} {r.serviceRate ? r.serviceRate + '%' : ''}</span><b>{money(r.serviceCharge)}</b></div>}
           {r.taxes.filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(r.total)}</strong></div>
-          {r.taxes.some((t) => t.included) && (
-            <p className="on-rc-incl">{r.taxes.filter((t) => t.included).map((t) => tr('incl. {tax} {rate}%: {amount}', { tax: t.name, rate: t.rate, amount: money(t.amount) })).join(' · ')}</p>
-          )}
+          {r.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
         </div>
 
         {r.payments.length > 0 && (

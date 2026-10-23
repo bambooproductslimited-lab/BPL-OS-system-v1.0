@@ -332,7 +332,7 @@
 .on-rc-sums .is-total { margin-top: 4px; align-items: baseline; }
 .on-rc-sums .is-total span { font-weight: 800; }
 .on-rc-sums .is-total strong { font-family: var(--font-heading); font-size: 24px; font-variant-numeric: tabular-nums; }
-.on-rc-incl { margin: 0; font-size: 12px; color: var(--on-muted); }
+.on-rc-sums .is-incl, .on-total .is-incl { font-size: 12.5px; color: var(--on-muted); }
 .on-rc-paid h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--on-muted); }
 .on-rc-paid .is-change { color: var(--on-muted); }
 .on-rc-paid.is-refund b { color: #e11d48; }
@@ -345,3 +345,71 @@
   .on-rc-page .on-track-top .on-lang, .on-rc-actions { display: none; }
   .on-rc { box-shadow: none; border-color: #ccc; }
 }
+
+/* ── the customer's own account (AccountSheet.jsx) ── */
+.on-acct-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; margin-right: auto; padding: 0 14px 0 4px; font: inherit; font-size: 13.5px; font-weight: 800; color: #fff; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .18); cursor: pointer; backdrop-filter: blur(6px); }
+.on-acct-btn > span { display: grid; place-items: center; width: 28px; height: 28px; font-size: 14px; border-radius: 50%; background: rgba(255, 255, 255, .28); }
+.on-acct-btn.is-in > span { color: var(--on-a); background: #fff; }
+.on-acct-btn:hover { background: rgba(255, 255, 255, .28); }
+.on-acct { padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+.on-acct-form { display: flex; flex-direction: column; gap: 12px; }
+.on-acct-hero { display: grid; place-items: center; height: 92px; border-radius: 22px; background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .45), transparent 55%), linear-gradient(135deg, var(--on-a), var(--on-b)); }
+.on-acct-hero span { font-size: 46px; animation: on-wave 1.6s ease-in-out infinite; transform-origin: 70% 70%; }
+@keyframes on-wave { 0%, 60%, 100% { transform: rotate(0); } 15% { transform: rotate(16deg); } 30% { transform: rotate(-8deg); } 45% { transform: rotate(12deg); } }
+.on-hint { margin: 0; font-size: 13px; color: var(--on-muted); }
+.on-hint.is-center { text-align: center; }
+.on-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 16px; background: var(--on-soft); }
+.on-tabs button { padding: 10px; font: inherit; font-size: 14px; font-weight: 800; color: var(--on-muted); border: 0; border-radius: 12px; background: none; cursor: pointer; }
+.on-tabs button.is-on { color: var(--on-ink); background: var(--on-card); box-shadow: 0 6px 16px -10px rgba(0, 0, 0, .5); }
+.on-pw { position: relative; display: flex; }
+.on-pw .input { flex: 1; padding-right: 46px; }
+.on-pw button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 38px; height: 34px; padding: 0; font-size: 17px; border: 0; border-radius: 10px; background: none; cursor: pointer; }
+.on-check { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.on-check input { width: 20px; height: 20px; accent-color: var(--on-go); }
+.on-acct-nudge { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; font: inherit; font-size: 20px; text-align: left; color: var(--on-ink); border-radius: 16px; border: 1px dashed var(--on-a); background: var(--on-soft); cursor: pointer; }
+.on-acct-nudge span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.on-acct-nudge small { font-size: 12.5px; color: var(--on-muted); }
+.on-acct-me { display: flex; flex-direction: column; gap: 12px; }
+.on-acct-me h3 { margin: 6px 0 0; font-family: var(--font-heading); font-size: 18px; }
+.on-acct-card { display: flex; align-items: center; gap: 14px; padding: 16px; color: #fff; border-radius: 22px; background: linear-gradient(135deg, var(--on-a), var(--on-b)); box-shadow: 0 18px 34px -22px var(--on-a); }
+.on-acct-card > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.on-acct-card strong { font-size: 17px; }
+.on-acct-card small { font-size: 12.5px; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.on-acct-avatar { display: grid; place-items: center; flex: none; width: 52px; height: 52px; font-family: var(--font-heading); font-size: 24px; font-weight: 800; color: var(--on-a); border-radius: 18px; background: #fff; }
+.on-link { padding: 6px 10px; font: inherit; font-size: 13px; font-weight: 800; color: inherit; text-decoration: underline; border: 0; border-radius: 10px; background: none; cursor: pointer; }
+.on-acct-card .on-link { color: #fff; background: rgba(255, 255, 255, .18); text-decoration: none; }
+.on-acct-orders { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.on-acct-orders li { padding: 12px 14px; border-radius: 18px; border: 1px solid var(--on-line); background: var(--on-card); }
+.on-acct-orders li.is-live { border-color: rgba(22, 163, 74, .45); box-shadow: 0 12px 26px -20px rgba(22, 163, 74, .9); }
+.on-acct-o-top { display: flex; align-items: center; gap: 10px; }
+.on-acct-o-top > span:nth-child(2) { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.on-acct-o-top small { font-size: 12px; color: var(--on-muted); }
+.on-acct-o-ico { display: grid; place-items: center; width: 38px; height: 38px; flex: none; font-size: 19px; border-radius: 12px; background: var(--on-soft); }
+.on-acct-o-items { margin: 8px 0 0; font-size: 13px; color: var(--on-muted); }
+.on-acct-o-acts { display: flex; gap: 8px; }
+.on-go.is-small { width: auto; margin-top: 10px; padding: 8px 14px; font-size: 13.5px; border-radius: 12px; }
+
+/* ── happy hours, menus by time of day, allergens (DishBits.jsx, ItemSheet.jsx) ── */
+.on-dish.is-out:not(:disabled) { cursor: pointer; }
+.on-dish.is-happy { border-color: rgba(236, 72, 153, .45); box-shadow: 0 14px 30px -24px #ec4899; }
+.on-happy { position: absolute; right: 8px; top: 8px; padding: 3px 9px; font-size: 12px; font-weight: 900; color: #fff; border-radius: 999px; background: linear-gradient(135deg, #ec4899, #f97316); box-shadow: 0 6px 14px -6px #ec4899; animation: on-happy-pop 2.4s ease-in-out infinite; }
+@keyframes on-happy-pop { 0%, 80%, 100% { transform: scale(1); } 88% { transform: scale(1.12) rotate(-4deg); } }
+.on-sold.is-later { background: rgba(37, 99, 235, .85); }
+.on-dish-text .on-dish-price s, .on-price s, .on-lines i s { font-weight: 600; color: var(--on-muted); text-decoration-thickness: 1.5px; }
+.on-dish-text .on-dish-price.is-happy { color: #db2777; }
+.on-dish-text .on-dish-price.is-happy s { display: block; font-size: 11.5px; }
+:root[data-theme='dark'] .on-dish-text .on-dish-price.is-happy { color: #f472b6; }
+.on-dish-allergens { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.on-dish-allergens i { display: grid; place-items: center; width: 22px; height: 22px; font-size: 12px; font-style: normal; border-radius: 7px; background: var(--on-soft); }
+.on-price.is-happy { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: #db2777; }
+.on-price.is-happy em { flex-basis: 100%; padding: 6px 10px; font-size: 13px; font-style: normal; font-weight: 800; color: #fff; border-radius: 12px; background: linear-gradient(135deg, #ec4899, #f97316); }
+.on-served { margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 700; color: #1d4ed8; border-radius: 14px; background: rgba(37, 99, 235, .1); }
+:root[data-theme='dark'] .on-served { color: #93c5fd; }
+.on-allergens { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(234, 179, 8, .45); background: rgba(234, 179, 8, .08); }
+.on-allergens > span { font-size: 12.5px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; color: #a16207; }
+:root[data-theme='dark'] .on-allergens > span { color: #facc15; }
+.on-allergens b { padding: 3px 9px; font-size: 13px; font-weight: 700; border-radius: 999px; background: var(--on-card); border: 1px solid var(--on-line); }
+.on-allergens small { flex-basis: 100%; font-size: 12px; color: var(--on-muted); }
+.on-total .is-happy, .on-total .is-happy b { color: #db2777; font-weight: 800; }
+.on-lines i.is-happy { display: flex; flex-direction: column; align-items: flex-end; color: #db2777; }
+.on-lines i.is-happy s { font-size: 11.5px; }

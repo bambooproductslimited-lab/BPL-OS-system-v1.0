@@ -14,6 +14,7 @@ var disputes = require('./restaurantDisputes.service');
 function deliveries() { return require('./restaurantDelivery.service'); }
 var tillMenu = require('./restaurantTillMenu.service');
 var check = require('./restaurantTillCheck.service');
+var times = require('./restaurantTillTimes.service');
 
 // Restaurant module, Phase 2 (POS): a till device, shared across whoever
 // is working the counter that shift — same "no per-person login, one
@@ -155,18 +156,20 @@ function rowToOrder(order, items, payments) {
     fulfillment: order.fulfillment || '', customerName: order.customer_name || '', customerPhone: order.customer_phone || '', deliveryAddress: order.delivery_address || '',
     cashTendered: cashGiven,
     change: payments.length ? (change > 0 || cashGiven != null ? change : null) : (cashGiven == null ? null : Math.round((cashGiven - Number(order.total)) * 100) / 100),
-    payments: payments,
+    payments: payments, guests: order.guests || null, allergy: order.allergy || null,
     items: items.map(function (it) {
       return { menuItemId: it.menuItemId, name: it.name, qty: it.qty, unitPrice: it.unitPrice, lineTotal: it.lineTotal, note: it.note || '', custom: !!it.custom,
-        modifiers: it.modifiers || [], gross: it.gross != null ? Number(it.gross) : it.lineTotal, discount: Number(it.discount || 0), discountName: it.discountName || null, compReason: it.compReason || null };
+        modifiers: it.modifiers || [], gross: it.gross != null ? Number(it.gross) : it.lineTotal, discount: Number(it.discount || 0), discountName: it.discountName || null, compReason: it.compReason || null,
+        seat: it.seat || null, course: it.course != null ? it.course : null };
     })
   };
 }
 // A sale's line as it is kept (restaurant_order_items), for rowToOrder.
-var ITEM_COLS = 'menu_item_id, name, qty, unit_price, line_total, gross, note, custom, modifiers, discount, discount_name, comp_reason';
+var ITEM_COLS = 'menu_item_id, name, qty, unit_price, line_total, gross, note, custom, modifiers, discount, discount_name, comp_reason, seat, course';
 function itemRow(r) {
   return { menuItemId: r.menu_item_id, name: r.name, qty: Number(r.qty), unitPrice: Number(r.unit_price), lineTotal: Number(r.line_total), note: r.note, custom: r.custom,
-    gross: r.gross == null ? null : Number(r.gross), modifiers: r.modifiers || [], discount: Number(r.discount || 0), discountName: r.discount_name, compReason: r.comp_reason };
+    gross: r.gross == null ? null : Number(r.gross), modifiers: r.modifiers || [], discount: Number(r.discount || 0), discountName: r.discount_name, compReason: r.comp_reason,
+    seat: r.seat, course: r.course };
 }
 
 // POS menu — active items only, for the company the till session is
@@ -175,7 +178,7 @@ function itemRow(r) {
 async function menuForSession(token) {
   var session = await access.need(token, 'till');
   var res = await pool.query(
-    'SELECT id, name, category, price, photo_object_key, favorite FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
+    'SELECT id, name, category, price, photo_object_key, favorite, allergens FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
   );
   var tiles = await attachVariationsToTiles(res.rows.map(rowToTile));
@@ -190,7 +193,7 @@ function rowToTile(r) {
   return {
     id: r.id, name: r.name, category: r.category, price: Number(r.price),
     photoUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key),
-    favorite: r.favorite, variations: []
+    favorite: r.favorite, variations: [], allergens: r.allergens || []
   };
 }
 
@@ -421,7 +424,20 @@ var FEE_NAME = 'Delivery fee';
 // A dish's add-ons (restaurantTillCheck pickMods) are priced into it: its
 // unit price is the dish (or its size) and what was added. A discount or
 // "on the house" asked for a line rides along for restaurantTillCheck
-// compute; lineTotal here is before any of that.
+// compute; lineTotal here is before any of that. A line also says the seat
+// it is for and its course, if the till set them, and carries its menu
+// category and allergens (the kitchen's ticket, the menu's hours).
+function seatOf(v) { var n = Math.round(Number(v)); return n >= 1 && n <= 99 ? n : null; }
+function courseAsked(v) { if (v === undefined || v === null || v === '') return null; var n = Math.round(Number(v)); return n >= 0 && n <= times.MAX_COURSES ? n : null; }
+// How many sat down (1–200), or none said.
+function guestsOf(v) { var n = Math.round(Number(v)); return n >= 1 && n <= 200 ? n : null; }
+// An order's allergy alert for the kitchen: { list: allergen keys, note }, or null.
+function allergyOf(a) {
+  if (!a || typeof a !== 'object') return null;
+  var list = times.cleanAllergens(a.list);
+  var note = cleanText(a.note, 200);
+  return list.length || note ? { list: list, note: note } : null;
+}
 async function priceLines(client, companyId, items, allowCustom) {
   if (!Array.isArray(items) || !items.length) fail('invalid', 'Add at least one item.');
   var lines = [];
@@ -430,7 +446,7 @@ async function priceLines(client, companyId, items, allowCustom) {
   for (var i = 0; i < items.length; i++) {
     var qty = Math.max(0.01, Number(items[i].qty) || 0);
     var note = cleanText(items[i].note, 140);
-    var asked = { discount: items[i].discount || null, comp: items[i].comp || null };
+    var asked = { discount: items[i].discount || null, comp: items[i].comp || null, seat: seatOf(items[i].seat), course: courseAsked(items[i].course) };
     if (items[i].custom) {
       var isFee = items[i].custom.fee === true;
       if (!allowCustom && !isFee) fail('forbidden', 'Your role on the till cannot add a dish that is not on the menu. Ask a manager.');
@@ -467,7 +483,8 @@ async function priceLines(client, companyId, items, allowCustom) {
     unitPrice = Math.round((unitPrice + check.modsPrice(mods)) * 100) / 100;
     var lineTotal = Math.round(qty * unitPrice * 100) / 100;
     subtotal += lineTotal;
-    lines.push(Object.assign({ menuItemId: m.id, variationId: variationId, name: name, qty: qty, unitPrice: unitPrice, lineTotal: lineTotal, note: note, custom: false, modifiers: mods }, asked));
+    lines.push(Object.assign({ menuItemId: m.id, variationId: variationId, name: name, qty: qty, unitPrice: unitPrice, lineTotal: lineTotal, note: note, custom: false, modifiers: mods,
+      category: m.category || '', allergens: m.allergens || [] }, asked));
   }
   return { lines: lines, subtotal: Math.round(subtotal * 100) / 100 };
 }
@@ -505,7 +522,7 @@ async function chargeOrder(session, p, clientRef) {
     await money.needDrawer(client, session.posEmployeeId);
     var tab = null;
     if (p.tabId) {
-      var tabRes = await client.query('SELECT id, label, customer_name, customer_phone, items, adjust, table_id FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
+      var tabRes = await client.query('SELECT id, label, customer_name, customer_phone, items, adjust, table_id, guests, allergy FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.tabId, session.posCompanyId]);
       if (!tabRes.rows[0]) fail('conflict', 'That open order has already been paid or removed.');
       tab = tabRes.rows[0];
       // Who it is for, as the open order says, unless the till says otherwise.
@@ -536,6 +553,11 @@ async function chargeOrder(session, p, clientRef) {
     // order's food was sent already and is always paid, and so is a sale
     // taken while the till was offline.
     if (!tab && !takenAt) await tillMenu.checkOrder(client, session.posCompanyId, lines, null, null);
+    // Nor a dish outside its menu's hours (breakfast at night).
+    if (!tab && !takenAt) times.checkHours(tillSettings, lines, null);
+    // How many sat down and any allergy alert: as the till says, else as the open order has them.
+    var guests = guestsOf(p.guests) || (tab ? tab.guests : null);
+    var allergy = p.allergy !== undefined ? allergyOf(p.allergy) : tab ? tab.allergy : null;
     // Taken offline: on the books when it was taken (not before the drawer opened).
     var at = null;
     if (takenAt) {
@@ -551,19 +573,20 @@ async function chargeOrder(session, p, clientRef) {
     var cols = check.saleColumns(bill);
     var orderRes = await client.query(
       'INSERT INTO restaurant_orders (company_id, order_no, cashier_id, subtotal, total, payment_method, table_id, waiter_id, guest_id, cash_tendered, ' +
-      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at, discount_total, service_charge, tax_total, taxes, adjustments, receipt_token) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17, now()),$18,$19,$20,$21,$22,$23) RETURNING *',
+      '  fulfillment, customer_name, customer_phone, delivery_address, client_ref, offline_at, created_at, discount_total, service_charge, tax_total, taxes, adjustments, receipt_token, guests, allergy) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17, now()),$18,$19,$20,$21,$22,$23,$24,$25) RETURNING *',
       [session.posCompanyId, orderNo, session.posEmployeeId, subtotal, bill.total, plan.method, refs.tableId, refs.waiterId, refs.guestId, plan.cashTendered,
         type.fulfillment, type.customerName, type.customerPhone, type.deliveryAddress, clientRef, takenAt, at,
-        cols.discountTotal, cols.serviceCharge, cols.taxTotal, JSON.stringify(cols.taxes), JSON.stringify(cols.adjustments), newReceiptToken()]
+        cols.discountTotal, cols.serviceCharge, cols.taxTotal, JSON.stringify(cols.taxes), JSON.stringify(cols.adjustments), newReceiptToken(), guests, allergy ? JSON.stringify(allergy) : null]
     );
     var order = orderRes.rows[0];
     for (var j = 0; j < lines.length; j++) {
       await client.query(
-        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross, note, custom, sort_order, modifiers, discount, discount_name, comp_reason) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
+        'INSERT INTO restaurant_order_items (order_id, menu_item_id, variation_id, name, qty, unit_price, line_total, gross, note, custom, sort_order, modifiers, discount, discount_name, comp_reason, seat, course) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
         [order.id, lines[j].menuItemId, lines[j].variationId, lines[j].name, lines[j].qty, lines[j].unitPrice, lines[j].lineTotal, lines[j].gross, lines[j].note || '', !!lines[j].custom, j,
-          JSON.stringify(lines[j].modifiers || []), lines[j].discount || 0, lines[j].discountName || null, lines[j].compReason || null]
+          JSON.stringify(lines[j].modifiers || []), lines[j].discount || 0, lines[j].discountName || null, lines[j].compReason || null, lines[j].seat || null,
+          lines[j].course !== null && lines[j].course !== undefined ? lines[j].course : (tillSettings.courses.on ? times.courseOf(tillSettings, lines[j]) : null)]
       );
     }
     await tillMenu.deductForSale(client, session.posCompanyId, order.id, session.posEmployeeId, lines);
@@ -582,9 +605,13 @@ async function chargeOrder(session, p, clientRef) {
       await client.query('UPDATE restaurant_open_tabs SET items = $2, adjust = $3, updated_at = now() WHERE id = $1', [tab.id, JSON.stringify(rest), JSON.stringify(keptAdjust)]);
     } else ticket = await kitchen.fire(client, session.posCompanyId, Object.assign({
       lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : (type.customerName || orderNo),
-      note: p.kitchenNote, sentBy: session.posEmployeeId
+      note: p.kitchenNote, sentBy: session.posEmployeeId, settings: tillSettings, allergy: allergy, guests: guests
     }, names));
+    // What goes to the cooks now, for the stations that print their tickets.
+    var printNow = ticket ? ticket.ids.slice() : [];
     if (tab && !rest) {
+      // Paid: courses still waiting are cooked now (nobody will call them).
+      printNow = printNow.concat(await kitchen.releaseHeld(client, session.posCompanyId, 'tab_id', tab.id));
       await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
       // Its delivery, or the website order it came from, now goes with the sale.
       await client.query('UPDATE restaurant_deliveries SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
@@ -610,7 +637,8 @@ async function chargeOrder(session, p, clientRef) {
         fulfillment: type.fulfillment, kitchenTicket: ticket ? ticket.number : null,
         discounts: bill.discountTotal || undefined, serviceCharge: bill.serviceCharge || undefined, taxes: bill.taxes.length ? bill.taxes : undefined, approvedBy: bill.approvals.length ? bill.approvals : undefined } });
     var paid = (await money.paymentsOf(client, [order.id])).get(order.id) || [];
-    return Object.assign(rowToOrder(order, lines, paid), { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null, restOpen: rest ? tab.id : null });
+    var chits = await kitchen.chitsFor(client, printNow);
+    return Object.assign(rowToOrder(order, lines, paid), { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null, restOpen: rest ? tab.id : null, chits: chits });
   });
 }
 
@@ -626,9 +654,9 @@ function lineOut(l) {
   var o = {
     menuItemId: l.menuItemId, variationId: l.variationId || null, name: l.name, qty: l.qty, unitPrice: l.unitPrice, gross: l.gross != null ? l.gross : l.lineTotal,
     discount: l.discount || 0, discountName: l.discountName || null, compReason: l.compReason || null, lineTotal: l.lineTotal, note: l.note || '',
-    custom: !!l.custom, modifiers: l.modifiers || [], discountSpec: l.discountAsked || null, comp: l.comp || null
+    custom: !!l.custom, modifiers: l.modifiers || [], discountSpec: l.discountAsked || null, comp: l.comp || null,
+    seat: l.seat || null, course: l.course !== undefined ? l.course : null, category: l.category || '', allergens: l.allergens || []
   };
-  if (l.custom) o.category = l.category || '';
   if (l.fee) o.fee = true;
   return o;
 }
@@ -650,6 +678,7 @@ function sameKept(kept, l) {
   var kc = kept.custom ? { custom: kept.custom, modifiers: [] } : kept;
   if (check.identity(kc) !== check.identity(l)) return false;
   if (cleanText(kept.note, 140) !== cleanText(l.note, 140)) return false;
+  if ((kept.seat || null) !== (l.seat || null)) return false;
   var kd = kept.comp ? 'comp:' + kept.comp.reason : kept.discount ? 'd:' + kept.discount.kind + ':' + Number(kept.discount.value) : '';
   var ld = l.compReason ? 'comp:' + l.compReason : l.discountAsked ? 'd:' + l.discountAsked.kind + ':' + Number(l.discountAsked.value) : '';
   return kd === ld;
@@ -667,6 +696,17 @@ function takeOut(items, lines) {
     if (need > 0) fail('invalid', l.name + ': the open order does not have that many.');
   });
   return left.filter(function (it) { return Number(it.qty) > 0; });
+}
+
+// A line as an open order keeps it (restaurant_open_tabs.items): the dish
+// and its size, add-ons, note, seat and course, and its discount or why it
+// is on the house with who allowed it.
+function keptLine(l) {
+  var kept = l.custom ? { custom: Object.assign({ name: l.name, price: l.unitPrice, category: l.category || '' }, l.fee ? { fee: true } : {}), qty: l.qty, note: l.note || '' }
+    : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note || '', modifiers: check.modsAsked(l.modifiers) };
+  if (l.seat) kept.seat = l.seat;
+  if (l.course !== null && l.course !== undefined) kept.course = l.course;
+  return Object.assign(kept, check.keepOnTab(l));
 }
 
 // The discounts and dishes on the house of a bill, for the activity log.
@@ -715,7 +755,8 @@ async function tabRows(companyId, where, args) {
       waiterId: r.waiter_id, waiterName: r.waiter_name || null, guestId: r.guest_id, guestName: r.guest_name || null, guestPhone: r.guest_phone || null,
       fulfillment: r.fulfillment || 'dine_in', customerName: r.customer_name || '', customerPhone: r.customer_phone || '', deliveryAddress: r.delivery_address || '',
       openedBy: r.opened_by_name || null, createdAt: r.created_at, updatedAt: r.updated_at,
-      lines: lines, total: total, bill: billOut(bill), adjust: r.adjust || {}, unavailable: gone, kitchen: null
+      lines: lines, total: total, bill: billOut(bill), adjust: r.adjust || {}, unavailable: gone, kitchen: null,
+      guests: r.guests || null, allergy: r.allergy || null, firedCourse: r.fired_course || 0
     });
   }
   // Where each one's food stands: cooking, ready, served (a tag on the till).
@@ -776,16 +817,12 @@ async function keepTab(session, p, clientRef) {
   var priced = await priceLines(pool, company, p.items, session.access.can.customItem);
   // Its discounts, dishes on the house and service charge, allowed by the
   // person's role, a manager's approval, or given before (restaurantTillCheck).
-  var stored = p.id ? (await pool.query('SELECT items, adjust FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2', [p.id, company])).rows[0] : null;
+  var stored = p.id ? (await pool.query('SELECT items, adjust, guests, allergy, fired_course FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2', [p.id, company])).rows[0] : null;
   // Not sent by whoever adds to it (a table's QR order): as it was.
   var adjustAsked = p.adjust !== undefined ? p.adjust : stored ? stored.adjust : {};
   var bill = check.compute(priced.lines, adjustAsked, session.access.settings, type.fulfillment || 'dine_in',
     { companyId: company, name: session.posEmployeeId ? await personName(pool, session.posEmployeeId) : '', can: session.access.can || {}, before: stored ? { items: stored.items, adjust: stored.adjust || {} } : null });
-  var items = bill.lines.map(function (l) {
-    var kept = l.custom ? { custom: Object.assign({ name: l.name, price: l.unitPrice, category: l.category || '' }, l.fee ? { fee: true } : {}), qty: l.qty, note: l.note || '' }
-      : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note || '', modifiers: check.modsAsked(l.modifiers) };
-    return Object.assign(kept, check.keepOnTab(l));
-  });
+  var items = bill.lines.map(keptLine);
   var label = (typeof p.label === 'string' ? p.label.trim() : '').slice(0, 60);
   if (!label && type.fulfillment !== 'dine_in' && type.customerName) label = type.customerName.slice(0, 60);
   if (!refs.tableId && !label && !refs.guestId) fail('invalid', 'Pick a table or a customer, or give the order a name, so it can be found again.');
@@ -796,34 +833,70 @@ async function keepTab(session, p, clientRef) {
   // No more of a counted dish than is left (what the order held already stays).
   var before = p.id ? (await pool.query('SELECT items FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2', [p.id, company])).rows[0] : null;
   await tillMenu.checkOrder(pool, company, priced.lines, p.id || null, before ? before.items : null);
+  // Nor a new dish outside its menu's hours.
+  times.checkHours(session.access.settings, priced.lines, before ? before.items : null);
+  // How many sat down and any allergy alert (as before when not said).
+  var guests = p.guests !== undefined ? guestsOf(p.guests) : stored ? stored.guests : null;
+  var allergy = p.allergy !== undefined ? allergyOf(p.allergy) : stored ? stored.allergy : null;
+  // Courses: eaten in, the later ones wait at the kitchen until called.
+  var hold = !!(session.access.settings.courses.on && (type.fulfillment || 'dine_in') === 'dine_in');
   // Saved and sent to the kitchen together: the new round goes, what was
   // taken off is cancelled (restaurantKitchen.service.js fire).
   var sent = await withTransaction(async function (client) {
     var id;
     if (p.id) {
       var up = await client.query(
-        'UPDATE restaurant_open_tabs SET label = $3, table_id = $4, waiter_id = $5, guest_id = $6, items = $7, fulfillment = $8, customer_name = $9, customer_phone = $10, delivery_address = $11, adjust = $12, updated_at = now() ' +
-        'WHERE id = $1 AND company_id = $2 RETURNING id',
-        [p.id, company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress, JSON.stringify(bill.adjust)]);
+        'UPDATE restaurant_open_tabs SET label = $3, table_id = $4, waiter_id = $5, guest_id = $6, items = $7, fulfillment = $8, customer_name = $9, customer_phone = $10, delivery_address = $11, adjust = $12, ' +
+        '  guests = $13, allergy = $14, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id',
+        [p.id, company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress, JSON.stringify(bill.adjust),
+          guests, allergy ? JSON.stringify(allergy) : null]);
       if (!up.rows[0]) fail('notfound', 'That open order has already been paid or removed.');
       id = up.rows[0].id;
     } else {
       id = (await client.query(
-        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by, fulfillment, customer_name, customer_phone, delivery_address, client_ref, adjust) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id',
-        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId, type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress, clientRef, JSON.stringify(bill.adjust)])).rows[0].id;
+        'INSERT INTO restaurant_open_tabs (company_id, label, table_id, waiter_id, guest_id, items, opened_by, fulfillment, customer_name, customer_phone, delivery_address, client_ref, adjust, guests, allergy) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id',
+        [company, label, refs.tableId, refs.waiterId, refs.guestId, JSON.stringify(items), session.posEmployeeId, type.fulfillment || 'dine_in', type.customerName, type.customerPhone, type.deliveryAddress, clientRef, JSON.stringify(bill.adjust),
+          guests, allergy ? JSON.stringify(allergy) : null])).rows[0].id;
     }
     var names = await refNames(client, refs, type);
     var ticket = await kitchen.fire(client, company, Object.assign({
-      lines: priced.lines, tabId: id, label: label || names.tableName || names.guestName || '', note: p.kitchenNote, sentBy: session.posEmployeeId
+      lines: priced.lines, tabId: id, label: label || names.tableName || names.guestName || '', note: p.kitchenNote, sentBy: session.posEmployeeId,
+      settings: session.access.settings, hold: hold, firedCourse: stored ? stored.fired_course : 0, allergy: allergy, guests: guests
     }, names));
+    if (ticket && ticket.firedCourse !== (stored ? stored.fired_course : 0)) await client.query('UPDATE restaurant_open_tabs SET fired_course = $2 WHERE id = $1', [id, ticket.firedCourse]);
+    var chits = ticket ? await kitchen.chitsFor(client, ticket.ids) : [];
     await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.kitchen',
       summary: (ticket ? 'Sent to the kitchen as #' + ticket.number + ': ' : 'Kept open (nothing new for the kitchen): ') + (label || names.tableName || names.guestName || 'order') +
         (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + ' · ' + bill.total.toFixed(2) + '.' + discountWords(bill),
       amount: bill.total, refType: 'tab', refId: id, details: { dishes: ticket ? ticket.dishes : [], fulfillment: type.fulfillment, kitchenTicket: ticket ? ticket.number : null, approvedBy: bill.approvals } });
-    return { id: id, ticket: ticket };
+    return { id: id, ticket: ticket, chits: chits };
   });
-  return Object.assign((await tabRows(company, ' AND t.id = $2', [sent.id]))[0], { kitchenTicket: sent.ticket });
+  return Object.assign((await tabRows(company, ' AND t.id = $2', [sent.id]))[0], { kitchenTicket: sent.ticket, chits: sent.chits });
+}
+
+// POST /api/pos/tabs/:id/fire { course } — the next course called: what
+// waited at the kitchen for it is cooked now (restaurantKitchen fireCourse).
+// course: up to which (the next one waiting, unless said).
+async function fireCourse(token, id, p) {
+  var session = await access.need(token, 'keepOpen');
+  var company = session.posCompanyId;
+  var names = session.access.settings.courses.names || [];
+  var out = await withTransaction(async function (client) {
+    var tab = await lockTab(client, company, id);
+    var waiting = (await client.query("SELECT DISTINCT course FROM restaurant_kitchen_tickets WHERE company_id = $1 AND tab_id = $2 AND status = 'held' ORDER BY 1", [company, id])).rows.map(function (r) { return r.course; });
+    if (!waiting.length) fail('invalid', 'Nothing is waiting to be called on this order.');
+    var upTo = p && p.course !== undefined ? Math.round(Number(p.course)) : waiting[0];
+    if (!(upTo >= waiting[0])) fail('invalid', 'That course has been called already.');
+    var ids = await kitchen.fireCourse(client, company, id, upTo);
+    await client.query('UPDATE restaurant_open_tabs SET fired_course = greatest(fired_course, $2), updated_at = now() WHERE id = $1', [id, upTo]);
+    var n = await tabNames(client, tab);
+    var called = waiting.filter(function (c) { return c <= upTo; }).map(function (c) { return names[c - 1] || 'course ' + c; });
+    await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.course',
+      summary: 'Called ' + called.join(' and ') + ' for ' + tabWords(tab, n) + '.', refType: 'tab', refId: id });
+    return { chits: await kitchen.chitsFor(client, ids), called: called };
+  });
+  return Object.assign((await tabRows(company, ' AND t.id = $2', [id]))[0], out);
 }
 
 async function removeTab(token, id) {
@@ -887,17 +960,13 @@ async function moveDishes(token, id, p) {
     var from = await lockTab(client, company, id);
     await wholeOnly(client, from);
     var priced = await priceLines(client, company, p.lines.map(function (l) {
-      return l.custom ? { custom: { name: l.name, price: l.unitPrice, category: l.category || '' }, qty: l.qty, note: l.note, discount: l.discountSpec, comp: l.comp }
-        : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note, modifiers: check.modsAsked(l.modifiers), discount: l.discountSpec, comp: l.comp };
+      return l.custom ? { custom: { name: l.name, price: l.unitPrice, category: l.category || '' }, qty: l.qty, note: l.note, discount: l.discountSpec, comp: l.comp, seat: l.seat, course: l.course }
+        : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note, modifiers: check.modsAsked(l.modifiers), discount: l.discountSpec, comp: l.comp, seat: l.seat, course: l.course };
     }), true);
     var bill = check.compute(priced.lines, {}, session.access.settings, from.fulfillment || 'dine_in',
       { companyId: company, name: '', can: {}, before: { items: from.items, adjust: {} } });
     var rest = takeOut(from.items, bill.lines);
-    var moved = bill.lines.map(function (l) {
-      var kept = l.custom ? { custom: { name: l.name, price: l.unitPrice, category: l.category || '' }, qty: l.qty, note: l.note || '' }
-        : { menuItemId: l.menuItemId, variationId: l.variationId, qty: l.qty, note: l.note || '', modifiers: check.modsAsked(l.modifiers) };
-      return Object.assign(kept, check.keepOnTab(l));
-    });
+    var moved = bill.lines.map(keptLine);
     var to;
     if (p.toTabId) {
       if (p.toTabId === id) fail('invalid', 'Pick another order to move them to.');
@@ -1490,7 +1559,7 @@ module.exports = {
   listDrawerSessions: listDrawerSessions, getDrawerSession: getDrawerSession,
   tablesForSession: tablesForSession, waitersForSession: waitersForSession,
   guestsForSession: guestsForSession, createGuestForSession: createGuestForSession,
-  listTabs: listTabs, saveTab: saveTab, saveTabFor: saveTabFor, removeTab: removeTab, tabRows: tabRows, priceLines: priceLines, FEE_NAME: FEE_NAME,
+  listTabs: listTabs, saveTab: saveTab, saveTabFor: saveTabFor, removeTab: removeTab, fireCourse: fireCourse, tabRows: tabRows, priceLines: priceLines, FEE_NAME: FEE_NAME,
   shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken,
   closeDrawerFor: closeDrawerFor, signOut: signOut, drawerHistory: drawerHistory, raiseDispute: raiseDispute
 };

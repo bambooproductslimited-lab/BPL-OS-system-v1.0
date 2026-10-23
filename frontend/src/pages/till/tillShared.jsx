@@ -21,7 +21,9 @@ export function MethodGlyph({ method }) {
 }
 export const METHOD_LABEL = {
   cash: msg('Cash'), mobile_money: msg('Mobile Money'), alipay: msg('Alipay'), wechat: msg('WeChat Pay'),
-  vip: msg('VIP'), iou: msg('IOU'), other: msg('Other'), split: msg('Split payment')
+  vip: msg('VIP'), iou: msg('IOU'), other: msg('Other'), split: msg('Split payment'),
+  // Sales brought in from Square (the OS's Square import) were paid these ways too.
+  card: msg('Card'), bank_transfer: msg('Bank transfer')
 };
 export function methodName(m) { return METHOD_LABEL[m] ? tr(METHOD_LABEL[m]) : m; }
 
@@ -76,13 +78,15 @@ export function FulfillmentIcon({ kind }) {
 // cooking, ready to take out, or served.
 export function KitchenTag({ kitchen, compact }) {
   if (!kitchen || !kitchen.state) return null;
-  const label = kitchen.state === 'served' ? tr('Food served') : kitchen.state === 'ready' ? tr('Food ready') : tr('Cooking');
+  const label = kitchen.state === 'served' ? tr('Food served') : kitchen.state === 'ready' ? tr('Food ready') : kitchen.state === 'held' ? tr('Waiting to be called') : tr('Cooking');
   const title = kitchen.state === 'served' ? tr('The kitchen\'s food for this order has been served.')
-    : kitchen.state === 'ready' ? tr('The kitchen marked the food ready: take it out.') : tr('The kitchen is cooking it.');
+    : kitchen.state === 'ready' ? tr('The kitchen marked the food ready: take it out.') : kitchen.state === 'held' ? tr('The next course waits at the kitchen until you call it.') : tr('The kitchen is cooking it.');
+  const waiting = (kitchen.held || []).length;
   return (
     <span className={'tl-ktag is-' + kitchen.state + (compact ? ' is-compact' : '')} title={title}>
-      <i aria-hidden="true">{kitchen.state === 'served' ? '✓' : kitchen.state === 'ready' ? '●' : '◔'}</i>{label}
+      <i aria-hidden="true">{kitchen.state === 'served' ? '✓' : kitchen.state === 'ready' ? '●' : kitchen.state === 'held' ? '⏸' : '◔'}</i>{label}
       {kitchen.state === 'cooking' && kitchen.served > 0 && <small>{tr('{n} served', { n: kitchen.served })}</small>}
+      {kitchen.state !== 'held' && waiting > 0 && <small>{waiting === 1 ? tr('1 course waits') : tr('{n} courses wait', { n: waiting })}</small>}
     </span>
   );
 }
@@ -93,7 +97,7 @@ export function KitchenTag({ kitchen, compact }) {
 function modsKey(mods) { return (mods || []).map((m) => (m.how || 'add') + ':' + m.id).sort().join(','); }
 function offKey(l) { return l.comp ? 'comp:' + l.comp.reason : l.discountSpec ? 'd:' + l.discountSpec.kind + ':' + l.discountSpec.value + ':' + (l.discountSpec.presetId || '') : ''; }
 export function lineKey(l) {
-  return (l.custom ? 'c:' + String(l.custom.name || l.name).toLowerCase() + ':' + l.price : l.menuItemId + '::' + (l.variationId || '')) + '::' + modsKey(l.modifiers) + '::' + String(l.note || '').trim().toLowerCase() + '::' + offKey(l);
+  return (l.custom ? 'c:' + String(l.custom.name || l.name).toLowerCase() + ':' + l.price : l.menuItemId + '::' + (l.variationId || '')) + '::' + modsKey(l.modifiers) + '::' + String(l.note || '').trim().toLowerCase() + '::' + offKey(l) + '::s' + (l.seat || '');
 }
 // The same, as the kitchen sees it: a discount does not change what is cooked.
 export function kitchenKey(l) { return lineKey({ ...l, comp: null, discountSpec: null }); }
@@ -101,14 +105,14 @@ export function kitchenKey(l) { return lineKey({ ...l, comp: null, discountSpec:
 // discount or "on the house" as asked (with a manager's approval, if one
 // was needed). A delivery fee line (custom.fee) stays one: charged, never cooked.
 export function lineBody(l) {
-  const off = l.comp ? { comp: l.comp } : l.discountSpec ? { discount: l.discountSpec } : {};
+  const off = { ...(l.comp ? { comp: l.comp } : l.discountSpec ? { discount: l.discountSpec } : {}), ...(l.seat ? { seat: l.seat } : {}), ...(l.course !== undefined && l.course !== null ? { course: l.course } : {}) };
   return l.custom
     ? { custom: { name: l.custom.name, price: l.custom.price, category: l.custom.category || '', ...(l.custom.fee ? { fee: true } : {}) }, qty: l.qty, note: l.note || undefined, ...off }
     : { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => (m.how && m.how !== 'add' ? { id: m.id, how: m.how } : { id: m.id })), ...off };
 }
 // A line kept on an open order (restaurantPos lineOut), back on the till.
 export function lineFromTab(l) {
-  const off = { discountSpec: l.discountSpec || null, comp: l.comp || null };
+  const off = { discountSpec: l.discountSpec || null, comp: l.comp || null, seat: l.seat || null, course: l.course !== undefined ? l.course : null, category: l.category || '', allergens: l.allergens || [] };
   return l.custom
     ? { menuItemId: null, variationId: null, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', modifiers: [], custom: { name: l.name, price: l.unitPrice, category: l.category || '', ...(l.fee ? { fee: true } : {}) }, ...off }
     : { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, price: l.unitPrice, qty: l.qty, note: l.note || '', modifiers: l.modifiers || [], ...off };

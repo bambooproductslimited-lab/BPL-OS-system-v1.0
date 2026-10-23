@@ -611,3 +611,41 @@
 .sr-x-addons .is-no { border-style: dashed; }
 .sr-x-addons .is-no b { color: #e11d48; }
 .sr-x-addons .is-extra b { color: #d97706; }
+
+/* Courses, menu times and happy hours (till/ServiceSettings.jsx). */
+.ts-svc .ts-bill-block h3 span { background: linear-gradient(135deg, #14b8a6, #0f766e); }
+.ts-svc-names { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ts-svc-name { display: inline-flex; align-items: center; gap: 6px; }
+.ts-svc-name b { display: grid; place-items: center; width: 26px; height: 26px; font-size: 13px; color: #fff; border-radius: 50%; background: #0f766e; }
+.ts-svc-name b.is-c2 { background: #d97706; }
+.ts-svc-name b.is-c3, .ts-svc-name b.is-c4, .ts-svc-name b.is-c5 { background: #be185d; }
+.ts-svc-name .input { width: 150px; }
+.ts-svc-cats { display: flex; flex-direction: column; gap: 6px; }
+.ts-svc-cats li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 12px; background: var(--pos-card); border: 1px solid var(--pos-line); }
+.ts-svc-cats li > span { font-weight: 700; }
+.ts-svc-cats li.is-timed { border-color: rgba(13, 148, 136, .4); }
+.ts-svc-times { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ts-svc-times .input { width: 132px; }
+.ts-svc-times em { font-style: normal; font-size: 11.5px; font-weight: 800; color: var(--color-text-muted); }
+.ts-svc-times em.is-on { color: #0f766e; }
+.ts-days .ts-chip { padding: 4px 9px; font-size: 12px; }
+.ts-svc-happy { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--pos-card); border: 1px solid var(--pos-line); }
+.ts-svc-happy.is-live { border-color: rgba(219, 39, 119, .45); box-shadow: 0 10px 24px -20px #db2777; }
+.ts-svc-happy-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ts-svc-happy-top .input[type='time'] { width: 132px; }
+.ts-svc-happy-top > .input:first-child { flex: 1 1 100%; }
+.ts-svc-live { font-style: normal; font-size: 12px; font-weight: 800; color: #db2777; }
+.ts-scr-stations li { align-items: center; }
+.ts-scr-ico.is-station { display: grid; place-items: center; font-size: 18px; }
+.ts-toggle-row.is-inline { width: auto; margin-left: auto; padding: 8px 12px; gap: 10px; }
+.ts-mn-allergens { display: flex; flex-direction: column; gap: 6px; }
+.ts-chip.is-allergen { color: #fff; border-color: transparent; background: linear-gradient(135deg, #ef4444, #b91c1c); }
+.ts-mn-alg { display: inline-flex; gap: 2px; font-size: 13px; }
+.ts-mn-alg i { font-style: normal; }
+.sr-tiles .is-guests b { color: #4f46e5; }
+.sr-tiles .is-square b { color: #0f172a; }
+:root[data-theme='dark'] .sr-tiles .is-square b { color: #e2e8f0; }
+.sr-chip.is-square { color: #fff; background: #111827; }
+
+/* The monthly report in the till's back office: two numbers a row in the narrower window. */
+.ts-monthly .rr-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

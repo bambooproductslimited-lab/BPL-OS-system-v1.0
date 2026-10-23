@@ -8,7 +8,8 @@ import ThemeSwitch from '../../components/ThemeSwitch';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { timeOf } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
-import { lineKey, photo, tint } from './onlineShared';
+import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
+import { happySaved, lineKey, photo, tint } from './onlineShared';
 import { modsWords, serviceWords } from '../till/tillBill';
 import './online.css';
 
@@ -177,7 +178,7 @@ export default function TableShop({ code }) {
               {data.bill.serviceCharge > 0 && <div><span>{serviceWords(data.bill.serviceName, tr)}</span><b>{money(data.bill.serviceCharge)}</b></div>}
               {(data.bill.taxes || []).filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
               <div className="is-total"><span>{tr('Total')}</span><strong>{money(data.bill.total)}</strong></div>
-              {(data.bill.taxes || []).some((t) => t.included) && <p className="on-hint">{tr('Includes {taxes}.', { taxes: data.bill.taxes.filter((t) => t.included).map((t) => t.name + ' ' + money(t.amount)).join(', ') })}</p>}
+              {(data.bill.taxes || []).filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
             </div>
           )}
         </details>
@@ -198,16 +199,16 @@ export default function TableShop({ code }) {
             <div className="on-grid">
               {list.map((i) => {
                 const inBasket = basket.filter((l) => l.id === i.id).reduce((s, l) => s + l.qty, 0);
-                const from = i.variations.length ? Math.min(...i.variations.map((v) => v.price)) : i.price;
                 return (
-                  <button key={i.id} type="button" className={'on-dish' + (i.soldOut ? ' is-out' : '') + (inBasket ? ' is-in' : '')} disabled={i.soldOut || !data.open} onClick={() => setItem(i)}>
+                  <button key={i.id} type="button" className={'on-dish' + (i.soldOut || i.notNow ? ' is-out' : '') + (inBasket ? ' is-in' : '') + (i.happy ? ' is-happy' : '')} disabled={i.soldOut || !data.open} onClick={() => setItem(i)}>
                     <span className="on-dish-pic" style={{ '--c': tint(i.name) }}>
                       {i.photoFull ? <img src={photo(i.photoFull)} alt="" loading="lazy" decoding="async" /> : <b>{i.name.replace(/^zq\s+/i, '').charAt(0)}</b>}
                       {inBasket > 0 && <em>{inBasket}</em>}
                       {i.soldOut && <span className="on-sold">{tr('Sold out')}</span>}
+                      <DishFlags item={i} />
                     </span>
-                    <span className="on-dish-text"><strong>{i.name}</strong><span>{i.variations.length ? tr('from {price}', { price: money(from) }) : money(i.price)}</span></span>
-                    {!i.soldOut && data.open && <span className="on-plus" aria-hidden="true">+</span>}
+                    <span className="on-dish-text"><strong>{i.name}</strong><DishPrice item={i} /><DishAllergens item={i} /></span>
+                    {!i.soldOut && !i.notNow && data.open && <span className="on-plus" aria-hidden="true">+</span>}
                   </button>
                 );
               })}
@@ -219,7 +220,7 @@ export default function TableShop({ code }) {
 
       {count > 0 && (
         <button type="button" className="on-bar" onClick={() => setCheckout(true)}>
-          <span className="on-bar-n">{count}</span><span>{tr('Your order')}</span><strong>{money(subtotal)}</strong>
+          <span className="on-bar-n">{count}</span><span>{tr('Your order')}</span><strong>{money(subtotal - happySaved(basket))}</strong>
         </button>
       )}
       {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => { add(line); setItem(null); }} />}
@@ -269,7 +270,7 @@ function SendSheet({ code, table, straight, basket, subtotal, setQty, onClose, o
             <li key={lineKey(l)}>
               <span className="on-line-text"><strong>{l.name}</strong>{(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}{l.note && <small>{l.note}</small>}</span>
               <span className="on-qty"><button type="button" onClick={() => setQty(lineKey(l), l.qty - 1)} aria-label={tr('One less')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(lineKey(l), l.qty + 1)} aria-label={tr('One more')}>+</button></span>
-              <i>{money(l.qty * l.price)}</i>
+              <LineAmount line={l} />
             </li>
           ))}
         </ul>
@@ -281,9 +282,12 @@ function SendSheet({ code, table, straight, basket, subtotal, setQty, onClose, o
           </div>
           <input ref={website} className="on-trap" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" />
         </fieldset>
-        <div className="on-total"><div className="is-total"><span>{tr('This order')}</span><strong>{money(subtotal)}</strong></div></div>
+        <div className="on-total">
+          {happySaved(basket) > 0 && <div className="is-happy"><span>🍹 {tr('Happy hour')}</span><b>−{money(happySaved(basket))}</b></div>}
+          <div className="is-total"><span>{tr('This order')}</span><strong>{money(subtotal - happySaved(basket))}</strong></div>
+        </div>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <button type="submit" className="on-go is-big" disabled={busy || !basket.length}>{busy ? tr('Sending…') : '🍽️ ' + tr('Send to the kitchen · {amount}', { amount: money(subtotal) })}</button>
+        <button type="submit" className="on-go is-big" disabled={busy || !basket.length}>{busy ? tr('Sending…') : '🍽️ ' + tr('Send to the kitchen · {amount}', { amount: money(subtotal - happySaved(basket)) })}</button>
         <p className="on-hint is-center">{straight ? tr('It goes straight to the kitchen. You pay at the end, as usual.') : tr('A waiter accepts it first, then the kitchen starts. You pay at the end, as usual.')}</p>
       </form>
     </div>

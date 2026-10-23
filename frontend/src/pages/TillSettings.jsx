@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { posFetch } from '../lib/posApi';
 import { money } from '../lib/currency';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
@@ -10,7 +10,10 @@ import { AccountsTab, DisputesTab, DrawersTab, KitchenScreensTab } from './till/
 import { MenuTab, StockTab } from './till/MenuStock';
 import { TableQrTab } from './till/TableQr';
 import BillSettings from './till/BillSettings';
+import ServiceSettings from './till/ServiceSettings';
 import './TillSettings.css';
+// The monthly report brings the OS's report and its styles: loaded when opened.
+const MonthlyReport = lazy(() => import('./till/MonthlyReport'));
 
 // The till's settings, opened by a manager (backend:
 // restaurantTillAccess.service.js): each person's role, what each role may
@@ -46,11 +49,12 @@ const PERMISSION = {
   iouPaid: [() => tr('Take IOU payments'), () => tr('Mark what a customer owed as paid.')],
   favorites: [() => tr('Change favourites'), () => tr('Star and unstar dishes for everyone.')],
   stock: [() => tr('Count the stock'), () => tr('Count stock and enter what came in.')],
+  delivery: [() => tr('Send deliveries'), () => tr('Use the delivery screen: take website orders, give them to riders and follow them on the map.')],
   kds: [() => tr('Use the kitchen screen'), () => tr('Sign in to the kitchen screen.')],
   discount: [() => tr('Give discounts'), () => tr('Take money off a dish or a bill, or the service charge off; without it, a manager types their PIN.')],
   comp: [() => tr('Put dishes on the house'), () => tr('Make a dish free, saying why; without it, a manager types their PIN.')]
 };
-const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'discount', 'comp'];
+const TILL_PERMS = ['charge', 'keepOpen', 'customItem', 'removeTable', 'refund', 'approveRefunds', 'vipTopUp', 'iou', 'iouPaid', 'favorites', 'stock', 'delivery', 'discount', 'comp'];
 const METHOD = {
   cash: [() => tr('Cash'), () => tr('Into the cashier\'s drawer, in cedis or US dollars.')],
   mobile_money: [() => tr('Mobile Money'), () => tr('Sent to the restaurant\'s number, in cedis only.')],
@@ -63,10 +67,10 @@ const METHOD = {
 const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat Pay') };
 // The tabs, in three groups: what happened, what is sold, how the till works.
 const GROUPS = [
-  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['stock', () => tr('Stock'), 'layers']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
-    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
+    ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
 const GROUP_OF = {};
 GROUPS.forEach(([g, , tabs]) => tabs.forEach(([k]) => { GROUP_OF[k] = g; }));
@@ -254,7 +258,8 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                       </tr>
                     </thead>
                     <tbody>
-                      {data.choices.permissions.map((perm) => (
+                      {/* A right the server has and this screen has no words for is left out, rather than breaking the page. */}
+                      {data.choices.permissions.filter((perm) => PERMISSION[perm]).map((perm) => (
                         <tr key={perm}>
                           <th scope="row"><strong>{PERMISSION[perm][0]()}</strong><small>{PERMISSION[perm][1]()}</small></th>
                           <td data-role={ROLE_LABEL.manager()} className="is-manager"><span className="ts-tick is-on is-locked" title={tr('Managers can do everything.')}>✓</span></td>
@@ -329,6 +334,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'map' && <FloorMapTab tables={tables} setTables={(t) => { setTables(t); setFlash(null); }} />}
             {tab === 'customers' && <CustomersTab token={token} pin={pin} changes={customers} setChange={setCustomer} onFail={fail} />}
             {tab === 'sales' && <SalesReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'monthly' && <Suspense fallback={<p className="dk-muted">{tr('Loading…')}</p>}><MonthlyReport token={token} pin={pin} companyName={companyName} /></Suspense>}
             {tab === 'drawers' && <DrawersTab token={token} pin={pin} onFail={fail} onActivity={(d) => { setActDrawer(d); setTab('activity'); }} />}
             {tab === 'disputes' && <DisputesTab token={token} pin={pin} onFail={fail} />}
             {tab === 'accounts' && <AccountsTab token={token} pin={pin} onFail={fail} />}
@@ -338,6 +344,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} drawer={actDrawer} onClearDrawer={() => setActDrawer(null)} />}
 
             {tab === 'bill' && <BillSettings draft={draft} set={set} />}
+            {tab === 'service' && <ServiceSettings draft={draft} set={set} categories={data.categories} />}
 
             {tab === 'receipts' && (
               <section className="ts-sec ts-receipt-sec">

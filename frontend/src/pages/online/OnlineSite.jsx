@@ -3,6 +3,7 @@ import OnlineShop from './OnlineShop';
 import OnlineTrack from './OnlineTrack';
 import TableShop from './TableShop';
 import OnlineReceipt from './OnlineReceipt';
+import { loadAccount } from './onlineShared';
 
 // online.starbartema.com: the restaurant's menu to order from, an order
 // followed at /t/<its link> (?t= also works, for testing), and a table's
@@ -16,7 +17,7 @@ function route() {
   const m = window.location.pathname.match(/\/t\/([A-Za-z0-9_-]{16,})/);
   const t = window.location.pathname.match(/\/q\/([A-Za-z0-9_-]{8,40})/);
   const rc = window.location.pathname.match(/\/receipt\/([A-Za-z0-9_-]{16,64})/);
-  return { track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), code: q.get('r') || HOME_CODE };
+  return { track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), mine: q.get('mine'), code: q.get('r') || HOME_CODE };
 }
 // On the site's own address the paths are / and /t/<link>; opened as a
 // page of the development server, the same by query.
@@ -33,7 +34,11 @@ export default function OnlineSite() {
   };
   if (r.receipt) return <OnlineReceipt token={r.receipt} />;
   if (r.table) return <TableShop code={r.table} />;
+  // An order of the signed-in customer's own (their account, on any phone).
+  const acct = loadAccount();
+  if (r.mine && acct) return <OnlineTrack mineId={r.mine} auth={acct.token} onMenu={(code) => go(menuOf(code))} />;
   return r.track
     ? <OnlineTrack token={r.track} onMenu={(code) => go(menuOf(code))} />
-    : <OnlineShop key={r.code} code={r.code} onTrack={(token) => go(ON_PAGE ? window.location.pathname + '?r=' + r.code + '&t=' + token : '/t/' + token)} />;
+    : <OnlineShop key={r.code} code={r.code} onTrack={(token) => go(ON_PAGE ? window.location.pathname + '?r=' + r.code + '&t=' + token : '/t/' + token)}
+      onTrackMine={(o) => go((ON_PAGE ? window.location.pathname : '/') + '?r=' + o.restaurant.code + '&mine=' + o.id)} />;
 }

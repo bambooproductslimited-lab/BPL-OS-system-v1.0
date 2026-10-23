@@ -5,6 +5,7 @@ var { V } = require('../utils/validate');
 var config = require('../config');
 var { internationalNumber } = require('../utils/phone');
 var access = require('./restaurantTillAccess.service');
+var times = require('./restaurantTillTimes.service');
 var activity = require('./restaurantActivity.service');
 var kitchen = require('./restaurantKitchen.service');
 var tillMenu = require('./restaurantTillMenu.service');
@@ -53,6 +54,7 @@ function modsFrom(list) {
 }
 function hash(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
 function pos() { return require('./restaurantPos.service'); }
+function accounts() { return require('./restaurantCustomerAccounts.service'); }
 function ref(n) { return 'W-' + String(n).padStart(4, '0'); }
 function fullPhotoUrl(id, key) { var u = restaurantService.menuThumbUrl(id, key); return u ? u.replace('?size=thumb&', '?') : null; }
 
@@ -157,7 +159,7 @@ async function categoriesOff(companyId) {
 // (restaurantTableOrders) has everything on the till's menu.
 async function menuItems(companyId, online) {
   var off = online ? await categoriesOff(companyId) : new Set();
-  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key FROM restaurant_menu_items WHERE company_id = $1 AND active = true' + (online ? ' AND online = true' : '') + ' ORDER BY category, name', [companyId])).rows
+  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key, allergens FROM restaurant_menu_items WHERE company_id = $1 AND active = true' + (online ? ' AND online = true' : '') + ' ORDER BY category, name', [companyId])).rows
     .filter(function (r) { return !off.has(r.category || ''); });
   var vars = rows.length ? (await pool.query('SELECT id, menu_item_id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order, created_at',
     [rows.map(function (r) { return r.id; })])).rows : [];
@@ -165,8 +167,18 @@ async function menuItems(companyId, online) {
     return {
       id: r.id, name: r.name, category: r.category || '', price: Number(r.price),
       photoUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key), photoFull: fullPhotoUrl(r.id, r.photo_object_key),
-      variations: vars.filter(function (v) { return v.menu_item_id === r.id; }).map(function (v) { return { id: v.id, name: v.name, price: Number(v.price) }; })
+      variations: vars.filter(function (v) { return v.menu_item_id === r.id; }).map(function (v) { return { id: v.id, name: v.name, price: Number(v.price) }; }),
+      allergens: r.allergens || []
     };
+  });
+  // Its menu's hours (served only then: notNow outside them), and a happy
+  // hour on it now (restaurantTillTimes).
+  var settings = await access.settingsOf(companyId);
+  items.forEach(function (i) {
+    var h = settings.hours.categories[Object.keys(settings.hours.categories).find(function (k) { return k.toLowerCase() === i.category.toLowerCase(); })];
+    if (h) { i.hours = { from: h.from, to: h.to }; if (!times.categoryOpen(settings, i.category)) i.notNow = true; }
+    var happy = times.happyFor(settings, i.category);
+    if (happy) i.happy = { id: happy.id, name: happy.name, percent: happy.percent, to: happy.to };
   });
   await tillMenu.tileStock(companyId, items);
   items.forEach(function (i) { i.soldOut = !!(i.stock && i.stock.soldOut); delete i.stock; });
@@ -216,10 +228,16 @@ function throttle(ip) {
 // note }] }. Priced from the menu as it is now, the delivery fee from the
 // distance by road (restaurantDelivery quote). Returns its number and the
 // link to follow it.
-async function place(code, p, ip) {
+// Signed in (accountToken: restaurantCustomerAccounts), the order is the
+// customer's own: in their orders, their name and number as the account
+// has them unless typed, and where it went kept for next time when asked
+// (saveAddress).
+async function place(code, p, ip, accountToken) {
   p = p || {};
   // A field people never see: filled in, it was not a person.
   if (p.website) fail('invalid', 'Something went wrong. Please try again.');
+  var account = await accounts().accountOf(accountToken);
+  if (account) p = Object.assign({}, p, { name: p.name || account.name, phone: p.phone || account.phone });
   var co = await shopOf(code);
   var s = co.settings;
   var later = p.scheduledFor != null && p.scheduledFor !== '';
@@ -248,6 +266,10 @@ async function place(code, p, ip) {
   });
   var priced = await pos().priceLines(pool, co.id, items, false);
   await tillMenu.checkOrder(pool, co.id, priced.lines, null, null);
+  // Served then (breakfast in the morning), and a happy hour on now goes on its dishes.
+  var tillSettings = await access.settingsOf(co.id);
+  times.checkHours(tillSettings, priced.lines, null, scheduledFor || null);
+  times.applyHappy(tillSettings, priced.lines);
   // Not a dish taken off the website since the menu was loaded.
   var off = await categoriesOff(co.id);
   var shown = (await pool.query('SELECT id, name, category, online FROM restaurant_menu_items WHERE id = ANY($1::uuid[])', [priced.lines.map(function (l) { return l.menuItemId; })])).rows;
@@ -264,12 +286,15 @@ async function place(code, p, ip) {
   var saved = await withTransaction(async function (client) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('online:' || $1))", [co.id]);
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_online_orders WHERE company_id = $1', [co.id])).rows[0].n;
-    var lines = priced.lines.map(function (l, i) { return { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }; });
+    var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}); });
     var row = (await client.query(
-      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *',
+      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *',
       [co.id, number, hash(token), fulfillment, name, phone, address, landmark, point ? point.lat : null, point ? point.lng : null, cleanText(p.note, 300), payMethod, JSON.stringify(lines),
-        priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges)])).rows[0];
+        priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges), account ? account.id : null])).rows[0];
+    if (account && p.saveAddress && fulfillment === 'delivery') {
+      await client.query('UPDATE restaurant_customer_accounts SET address = $2, landmark = $3, lat = $4, lng = $5, updated_at = now() WHERE id = $1', [account.id, address, landmark, point.lat, point.lng]);
+    }
     await activity.log(client, { companyId: co.id, employeeId: null, app: 'online', action: 'online.placed',
       summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + bill.total.toFixed(2) + '.',
       amount: bill.total, refType: 'online', refId: row.id });
@@ -324,13 +349,23 @@ async function trackOut(o) {
 }
 // GET /api/pos/online/track/:token
 async function track(raw) { return trackOut(await byToken(raw)); }
+// An order of a signed-in customer's own, by its id (their orders, on any phone).
+async function byAccount(accountToken, id, lock, client) {
+  var a = await accounts().need(accountToken);
+  var o = /^[0-9a-f-]{36}$/i.test(String(id || '')) ? (await (client || pool).query('SELECT * FROM restaurant_online_orders WHERE id = $1 AND account_id = $2' + (lock ? ' FOR UPDATE' : ''), [id, a.id])).rows[0] : null;
+  if (!o) fail('notfound', 'We cannot find that order in your account.');
+  return o;
+}
+// GET /api/pos/online/account/orders/:id
+async function trackMine(accountToken, id) { return trackOut(await byAccount(accountToken, id)); }
 // Whether the customer may still cancel: while it waits for the restaurant,
 // or, for later, until the kitchen starts on it.
 function canCancel(o) { return o.status === 'pending' || (o.status === 'accepted' && !o.tab_id && !!o.scheduled_for); }
-// POST /api/pos/online/track/:token/cancel
-async function cancel(raw) {
+// POST /api/pos/online/track/:token/cancel, or by a signed-in customer
+// (account: their token, raw: the order's id).
+async function cancel(raw, account) {
   var o = await withTransaction(async function (client) {
-    var row = await byToken(raw, true, client);
+    var row = account ? await byAccount(account, raw, true, client) : await byToken(raw, true, client);
     if (!canCancel(row)) fail('conflict', row.status === 'accepted' ? 'The restaurant has started on your order already: call them to change it.' : 'This order is not waiting any more.');
     var up = (await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the customer.', updated_at = now() WHERE id = $1 RETURNING *", [row.id])).rows[0];
     await activity.log(client, { companyId: row.company_id, app: 'online', action: 'online.cancelled',
@@ -355,7 +390,7 @@ function staffOut(o) {
 // The open order on the till for a website order, sent to the kitchen: its
 // dishes at today's prices, the delivery fee a line of its own.
 function openTab(session, o) {
-  var items = o.items.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: modsFrom(l.modifiers) }; });
+  var items = o.items.map(function (l) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: modsFrom(l.modifiers) }, l.discount ? { discount: l.discount } : {}); });
   if (Number(o.delivery_fee) > 0) items.push({ custom: { name: pos().FEE_NAME, price: Number(o.delivery_fee), fee: true }, qty: 1 });
   return pos().saveTabFor(session, {
     label: ref(o.number) + ' ' + o.customer_name, fulfillment: o.fulfillment, customerName: o.customer_name, customerPhone: o.customer_phone,
@@ -479,6 +514,6 @@ async function reject(token, id, p) {
 
 module.exports = {
   modsFrom: modsFrom,
-  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, cancel: cancel, accept: accept, reject: reject, start: start,
+  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP
 };

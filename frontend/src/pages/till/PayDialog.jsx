@@ -121,13 +121,28 @@ export default function PayDialog({ token, title, total: wholeTotal, methods, se
         {mode === 'dish' && (dishes.why ? <p className="tl-pay-lock"><span>{dishes.why}</span></p> : (
           <div className="tl-bydish">
             <p className="dk-muted tl-small">{tr('Pick what this guest had: they pay for it now, and the rest of the order stays open.')}</p>
+            {/* A seat's dishes in one tap (till/tillService.js seats). */}
+            {dishes.lines.some((l) => l.seat) && (
+              <div className="tl-chips tl-byseat">
+                {Array.from(new Set(dishes.lines.map((l) => l.seat).filter(Boolean))).sort((a, b) => a - b).map((n) => {
+                  const mine = dishes.lines.filter((l) => l.seat === n);
+                  const on = mine.every((l) => pick[l.key] === l.qty);
+                  return (
+                    <button key={n} type="button" className={'tl-chip' + (on ? ' is-on' : '')} aria-pressed={on}
+                      onClick={() => { const next = { ...pick }; mine.forEach((l) => { next[l.key] = on ? 0 : l.qty; }); setPick(next); }}>
+                      💺 {tr('Seat {n}', { n })}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <ul className="tl-bydish-list is-plain">
               {dishes.lines.map((l) => {
                 const n = pick[l.key] || 0;
                 return (
                   <li key={l.key} className={n ? 'is-on' : ''}>
                     <button type="button" className="tl-bydish-name" onClick={() => setPick({ ...pick, [l.key]: n ? 0 : l.qty })}>
-                      <b>{l.qty}×</b><span>{l.name}{l.words && <small>{l.words}</small>}</span>
+                      <b>{l.qty}×</b><span>{l.seat ? <em className="tl-seat">S{l.seat}</em> : null}{l.name}{l.words && <small>{l.words}</small>}</span>
                     </button>
                     <div className="pos-stepper">
                       <button type="button" disabled={!n} onClick={() => setPick({ ...pick, [l.key]: n - 1 })} aria-label={tr('Decrease')}>−</button>

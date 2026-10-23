@@ -7,8 +7,10 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
 import { modsWords } from './till/tillBill';
-import { buildRunnerTicketBytes, bluetoothSupported, reconnectBluetoothPrinter, reconnectUsbPrinter, requestBluetoothPrinter, requestUsbPrinter, usbSupported } from '../lib/thermalPrinter';
+import { buildKitchenChitBytes, buildRunnerTicketBytes, bluetoothSupported, reconnectBluetoothPrinter, reconnectUsbPrinter, requestBluetoothPrinter, requestUsbPrinter, usbSupported } from '../lib/thermalPrinter';
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
+import { AllergyStrip } from './till/ServiceParts';
+import { allergenWords, clashes } from './till/tillService';
 import './till/till.css';
 import '../components/DashKit.css';
 import './RestaurantPosPage.css';
@@ -90,8 +92,12 @@ export default function KdsPage() {
   const [printing, setPrinting] = useState(null);
   const [paper, setPaper] = useState(null);
   const seenRef = useRef(null); // ticket ids already shown, to ding only for new ones
+  // Each new ticket printed as it comes, on this screen's printer (kept on this device).
+  const [autoPrint, setAutoPrint] = useState(() => { try { return localStorage.getItem('bamboo.kds.autoprint') === '1'; } catch { return false; } });
+  const autoRef = useRef({ on: autoPrint, printer: null, company: '' });
   const soundRef = useRef(sound);
   useEffect(() => { soundRef.current = sound; }, [sound]);
+  useEffect(() => { autoRef.current = { on: autoPrint, printer, company: session ? session.companyName : '' }; }, [autoPrint, printer, session]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -159,6 +165,18 @@ export default function KdsPage() {
     signOut();
   }
 
+  // New tickets on this station's printer, when asked to (autoPrint): the
+  // same ticket a till prints for a station without a screen.
+  function printNew(list, courses) {
+    const a = autoRef.current;
+    if (!a.on || !a.printer || !list.length) return;
+    list.forEach((t) => {
+      const chit = { station: t.items[0] && t.items[0].stationName ? t.items[0].stationName : tr('Kitchen'), number: t.number, label: t.label, tableName: t.tableName, waiterName: t.waiterName,
+        fulfillment: t.fulfillment, course: t.course, guests: t.guests, allergy: t.allergy, allergens: t.allergens, note: t.note, sentAt: t.firedAt || t.createdAt,
+        items: t.items.filter((i) => i.status === 'cooking').map((i) => ({ name: i.name, qty: i.qty, note: i.note, seat: i.seat, mods: i.mods, allergens: i.allergens })) };
+      a.printer.write(buildKitchenChitBytes(chit, a.company, { courseName: t.course ? courses[t.course - 1] || '' : '' })).catch(() => {});
+    });
+  }
   const load = useCallback(async (s) => {
     try {
       const b = await posFetch('GET', '/pos/kds', s.token);
@@ -170,6 +188,7 @@ export default function KdsPage() {
         const added = ids.filter((id) => !seenRef.current.has(id));
         if (added.length) {
           if (soundRef.current) playNewTicket();
+          printNew(b.cooking.filter((t) => added.includes(t.id) && t.status === 'cooking'), b.courses || []);
           setFresh((f) => new Set([...f, ...added]));
           setTimeout(() => setFresh((f) => { const n = new Set(f); added.forEach((id) => n.delete(id)); return n; }), 8000);
         }
@@ -282,6 +301,11 @@ export default function KdsPage() {
   }
   const recall = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/recall');
   function toggleSound() { const on = !sound; setSound(on); writeKey(SOUND_KEY, on ? 'on' : 'off'); if (on) { unlockAudio(); playNewTicket(); } }
+  function toggleAutoPrint() {
+    const on = !autoPrint;
+    setAutoPrint(on);
+    try { localStorage.setItem('bamboo.kds.autoprint', on ? '1' : '0'); } catch { /* this device only */ }
+  }
   function fullScreen() {
     const el = document.documentElement;
     if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
@@ -374,8 +398,9 @@ export default function KdsPage() {
   const station = board ? board.station : 'all';
   const here = (board && board.screen) || session.screen || null;
   const stationName = here && here.stationName ? here.stationName : tr('All stations');
+  // A course that waited counts from when it was called.
   function toneOf(t) {
-    const m = (now - new Date(t.createdAt).getTime()) / 60000;
+    const m = (now - new Date(t.firedAt || t.createdAt).getTime()) / 60000;
     return m >= timing.lateAfter ? 'late' : m >= timing.warnAfter ? 'warn' : 'ok';
   }
 
@@ -398,7 +423,9 @@ export default function KdsPage() {
           <span className="kds-clock">{clock}</span>
           <button type="button" className={'kds-tool' + (sound ? ' is-on' : '')} onClick={toggleSound} aria-pressed={sound} title={sound ? tr('Sound on: a ding for each new ticket') : tr('Sound off')}>{sound ? '🔔' : '🔕'}</button>
           <button type="button" className="kds-tool" onClick={fullScreen} title={tr('Full screen')} aria-label={tr('Full screen')}>⛶</button>
-          {printReady && (printer
+          <button type="button" className={'kds-tool is-text' + (autoPrint ? ' is-on' : '')} aria-pressed={autoPrint} onClick={toggleAutoPrint}
+            title={tr('Print each new ticket on this screen\'s printer as it comes')}>🧾 {autoPrint ? tr('Printing new tickets') : tr('Print new tickets')}</button>
+          {(printReady || autoPrint) && (printer
             ? <span className="kds-tool is-text kds-printer" title={printer.name}>🖨 {tr('Printer ready')}</span>
             : (usbSupported() || bluetoothSupported()) && (
               <button type="button" className="kds-tool is-text" onClick={() => pair(usbSupported() ? 'usb' : 'bluetooth')} title={tr('Tickets print through the print dialog until a printer is connected.')}>🖨 {tr('Connect printer')}</button>
@@ -438,9 +465,12 @@ export default function KdsPage() {
               <article key={t.id} className={'kds-ticket is-' + tone + (fresh.has(t.id) ? ' is-fresh' : '')} style={{ '--d': Math.min(idx, 12) }}>
                 <header className="kds-ticket-head">
                   <span className="kds-no">#{t.number}</span>
-                  <span className="kds-where"><strong>{whereOf(t)}</strong><small>{[t.waiterName, tr('sent {time}', { time: timeOf(t.createdAt) })].filter(Boolean).join(' · ')}</small></span>
-                  <span className="kds-timer">{cancelled ? tr('Cancelled') : mmss(now - new Date(t.createdAt).getTime())}</span>
+                  <span className="kds-where"><strong>{whereOf(t)}</strong><small>{[t.waiterName, t.guests ? (t.guests === 1 ? tr('1 guest') : tr('{n} guests', { n: t.guests })) : null,
+                    t.firedAt && t.course ? tr('called {time}', { time: timeOf(t.firedAt) }) : tr('sent {time}', { time: timeOf(t.createdAt) })].filter(Boolean).join(' · ')}</small></span>
+                  <span className="kds-timer">{cancelled ? tr('Cancelled') : mmss(now - new Date(t.firedAt || t.createdAt).getTime())}</span>
                 </header>
+                {t.course > 0 && (board.courses || []).length > 0 && <p className={'kds-course is-c' + t.course}>{board.courses[t.course - 1] ? tr(board.courses[t.course - 1]) : tr('Course {n}', { n: t.course })}</p>}
+                <AllergyStrip allergy={(t.allergens || []).length || t.allergy ? { list: t.allergens, note: t.allergy } : null} className="kds-allergy" />
                 {t.fulfillment && (
                   <p className={'kds-ful is-' + t.fulfillment}>
                     <span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>
@@ -450,18 +480,22 @@ export default function KdsPage() {
                 {cancelled && <p className="kds-cancel">{tr('Taken off the order. Stop cooking it.')}</p>}
                 {t.note && <p className="kds-note"><span aria-hidden="true">✎</span>{t.note}</p>}
                 <ul className="kds-items">
-                  {t.items.map((i) => (
+                  {t.items.map((i) => {
+                    const bad = clashes(i.allergens, { list: t.allergens });
+                    return (
                     <li key={i.id}>
-                      <button type="button" className={'kds-item is-' + i.status} disabled={i.status === 'cancelled' || busy.has(i.id)} onClick={() => toggleItem(i)}
+                      <button type="button" className={'kds-item is-' + i.status + (bad.length ? ' is-clash' : '')} disabled={i.status === 'cancelled' || busy.has(i.id)} onClick={() => toggleItem(i)}
                         aria-pressed={i.status === 'done'} title={i.status === 'done' ? tr('Done. Tap to put it back') : i.status === 'cancelled' ? tr('Taken off the order') : tr('Tap when it is done')}>
                         <b>{qtyText(i.qty)}×</b>
-                        <span className="kds-item-name">{i.name}{station === 'all' && i.stationName && <em>{i.stationName}</em>}
+                        <span className="kds-item-name">{i.seat ? <em className="kds-seat">{tr('Seat {n}', { n: i.seat })}</em> : null}{i.name}{station === 'all' && i.stationName && <em>{i.stationName}</em>}
+                          {bad.length > 0 && <small className="kds-item-clash">⚠ {tr('Has {allergens}', { allergens: bad.map((k) => allergenWords(k, tr)).join(', ') })}</small>}
                           {(i.mods || []).length > 0 && <span className="kds-item-mods">{i.mods.map((m, k) => <b key={k} className={'is-' + (m.how || 'add')}>{m.how === 'no' ? tr('No {name}', { name: m.name }) : m.how === 'extra' ? tr('Extra {name}', { name: m.name }) : m.how === 'side' ? tr('{name} on the side', { name: m.name }) : '+ ' + m.name}</b>)}</span>}
                           {i.note && <small className="kds-item-note">✎ {i.note}</small>}</span>
                         <i className="kds-check" aria-hidden="true">{i.status === 'done' ? '✓' : i.status === 'cancelled' ? '✕' : ''}</i>
                       </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
                 {t.elsewhere.length > 0 && (
                   <p className="kds-elsewhere">{tr('Also on this order:')} {t.elsewhere.map((e) => qtyText(e.qty) + '× ' + e.name + (e.stationName ? ' (' + e.stationName + ')' : '')).join(', ')}</p>
@@ -477,6 +511,19 @@ export default function KdsPage() {
         </main>
 
         <aside className="kds-side" aria-label={tr('Ready to serve')}>
+          {board && (board.held || []).length > 0 && (
+            <div className="kds-held">
+              <h2 className="kds-side-h">⏸ {tr('Coming up')} <span>{board.held.length}</span></h2>
+              <p className="kds-side-empty">{tr('The next courses: they come on the board when the waiter calls them.')}</p>
+              {board.held.map((t) => (
+                <div key={t.id} className="kds-held-row">
+                  <span className="kds-no is-small">#{t.number}</span>
+                  <span><strong>{whereOf(t)}</strong><small>{board.courses[t.course - 1] ? tr(board.courses[t.course - 1]) : tr('Course {n}', { n: t.course })} · {t.items.map((i) => qtyText(i.qty) + '× ' + i.name).join(', ')}</small></span>
+                  {(t.allergens || []).length > 0 && <b className="kds-held-alert" title={t.allergy || ''}>⚠</b>}
+                </div>
+              ))}
+            </div>
+          )}
           <h2 className="kds-side-h">{tr('Ready to serve')} <span>{board ? board.ready.length : 0}</span></h2>
           {board && !board.ready.length && <p className="kds-side-empty">{tr('Finished tickets wait here until they are taken out.')}</p>}
           {board && board.ready.map((t) => {

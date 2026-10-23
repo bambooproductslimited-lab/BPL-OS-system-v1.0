@@ -112,6 +112,26 @@ export function KitchenScreensTab({ token, pin, onFail }) {
           })}
         </ul>
       )}
+
+      {data.stations.length > 0 && (
+        <>
+          <h4 className="ts-scr-h">{tr('Stations')} <small>{data.stations.length}</small></h4>
+          <p className="dk-muted">{tr('A station with no screen gets its tickets printed at the till when an order is sent or a course is called.')}</p>
+          <ul className="ts-scr-list ts-scr-stations">
+            {data.stations.map((st) => (
+              <li key={st.id}>
+                <span className="ts-scr-ico is-station" aria-hidden="true">{st.printTickets ? '🖨' : '🖥'}</span>
+                <span className="ts-scr-main"><strong>{st.name}</strong><small>{st.printTickets ? tr('Its tickets print at the till') : tr('On a kitchen screen')}</small></span>
+                <button type="button" role="switch" aria-checked={st.printTickets} className="ts-toggle-row is-inline" disabled={busy}
+                  onClick={() => act({ action: 'stationPrint', id: st.id, printTickets: !st.printTickets })}>
+                  <span><strong>{tr('No screen: print its tickets')}</strong></span>
+                  <span className={'ts-switch' + (st.printTickets ? ' is-on' : '')} aria-hidden="true"><i /></span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

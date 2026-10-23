@@ -27,7 +27,8 @@ export function modsPrice(mods) { return r2((mods || []).reduce((a, m) => a + (m
 export function billOf(lines, adjust, settings, fulfillment) {
   adjust = adjust || {};
   settings = settings || {};
-  const presets = settings.discounts || [];
+  // The manager's ready-made discounts, and the happy hours (till/tillService.js).
+  const presets = (settings.discounts || []).concat((settings.happyHours || []).map((h) => ({ id: h.id, name: h.name, kind: 'percent', value: h.percent, open: true })));
   const specOf = (d) => {
     if (!d) return null;
     const p = d.presetId && presets.find((x) => x.id === d.presetId);

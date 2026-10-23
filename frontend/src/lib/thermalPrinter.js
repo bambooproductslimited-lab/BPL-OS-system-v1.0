@@ -107,7 +107,7 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   out = out.concat(BOLD_ON);
   out = out.concat(line(twoColumn('TOTAL', money2(order.total), width)));
   out = out.concat(BOLD_OFF);
-  (order.taxes || []).filter(function (t) { return t.included; }).forEach(function (t) { out = out.concat(line('incl. ' + t.name + ' ' + t.rate + '%: ' + money2(t.amount))); });
+  (order.taxes || []).filter(function (t) { return t.included; }).forEach(function (t) { out = out.concat(line(twoColumn('incl. ' + t.name + ' ' + t.rate + '%', money2(t.amount), width))); });
   (order.refunds || []).forEach(function (r) {
     out = out.concat(line(twoColumn('Refunded ' + new Date(r.createdAt).toLocaleDateString(), '-' + money2(r.amount), width)));
   });
@@ -176,6 +176,43 @@ export function buildRunnerTicketBytes(ticket, companyName, opts) {
   out = out.concat(line(rule));
   out = out.concat(line('Sent ' + new Date(ticket.createdAt).toLocaleTimeString() + (ticket.sentBy ? ' by ' + ticket.sentBy : '')));
   out = out.concat(line('Ready ' + new Date().toLocaleTimeString()));
+  out = out.concat(FEED(3), CUT);
+  return out;
+}
+
+// buildKitchenChitBytes(chit, companyName, opts) -> a station's ticket,
+// printed at the till when an order is sent or a course is called, for a
+// station with no screen (backend restaurantKitchen chitsFor): the
+// station, the number and the table in big letters, the course, any
+// allergy alert, and each dish with its seat, add-ons and note.
+var ALLERGEN_EN = { gluten: 'gluten', crustaceans: 'crustaceans', eggs: 'eggs', fish: 'fish', peanuts: 'peanuts', soy: 'soy', milk: 'milk', nuts: 'tree nuts', celery: 'celery', mustard: 'mustard', sesame: 'sesame', sulphites: 'sulphites', lupin: 'lupin', molluscs: 'molluscs' };
+export function buildKitchenChitBytes(chit, companyName, opts) {
+  opts = opts || {};
+  var width = opts.lineWidth || LINE_WIDTH_58MM;
+  var rule = new Array(width + 1).join('-');
+  var out = [].concat(INIT, ALIGN_CENTER);
+  out = out.concat(BOLD_ON, line(String(chit.station || 'Kitchen').toUpperCase()), BOLD_OFF);
+  out = out.concat(BOLD_ON, DOUBLE_ON, line('#' + chit.number), DOUBLE_OFF);
+  var where = chit.fulfillment === 'pickup' ? 'COUNTER' : chit.fulfillment === 'delivery' ? 'DELIVERY' : (chit.tableName || chit.label || 'COUNTER');
+  out = out.concat(DOUBLE_ON, line(where.toUpperCase().slice(0, 16)), DOUBLE_OFF, BOLD_OFF);
+  if (opts.courseName) out = out.concat(BOLD_ON, line('** ' + opts.courseName.toUpperCase() + ' **'), BOLD_OFF);
+  out = out.concat(ALIGN_LEFT, line(rule));
+  if (chit.allergens && chit.allergens.length || chit.allergy) {
+    out = out.concat(BOLD_ON, line('!! ALLERGY: ' + (chit.allergens || []).map(function (a) { return ALLERGEN_EN[a] || a; }).join(', ')), BOLD_OFF);
+    if (chit.allergy) out = out.concat(line('   ' + chit.allergy));
+    out = out.concat(line(rule));
+  }
+  if (chit.guests) out = out.concat(line('Guests: ' + chit.guests));
+  if (chit.waiterName) out = out.concat(line('Waiter: ' + chit.waiterName));
+  (chit.items || []).forEach(function (it) {
+    var clash = (it.allergens || []).filter(function (a) { return (chit.allergens || []).indexOf(a) >= 0; });
+    out = out.concat(BOLD_ON, line((it.seat ? '[S' + it.seat + '] ' : '') + it.qty + ' x ' + it.name), BOLD_OFF);
+    if (it.mods && it.mods.length) out = out.concat(line('   + ' + modsEn(it.mods)));
+    if (it.note) out = out.concat(line('   * ' + it.note));
+    if (clash.length) out = out.concat(line('   !! has ' + clash.map(function (a) { return ALLERGEN_EN[a] || a; }).join(', ')));
+  });
+  if (chit.note) out = out.concat(line(rule), line('Note: ' + chit.note));
+  out = out.concat(line(rule), line('Sent ' + new Date(chit.sentAt || Date.now()).toLocaleTimeString()));
   out = out.concat(FEED(3), CUT);
   return out;
 }

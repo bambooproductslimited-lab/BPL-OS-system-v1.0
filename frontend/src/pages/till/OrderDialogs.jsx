@@ -4,6 +4,7 @@ import { Icon } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { msg, tr } from '../../lib/i18n.jsx';
 import { FulfillmentIcon, QUICK_NOTES, fulfillmentName, kitchenKey as lineKey } from './tillShared';
+import { AllergyStrip } from './ServiceParts';
 
 // The till's small dialogs around an order (RestaurantPosPage.jsx): a note
 // on one dish, a dish that is not on the menu, where a delivery goes, the
@@ -134,7 +135,9 @@ export function DeliveryDialog({ value, customer, pickup, onSave, onClose, onPic
 // Before an order goes to the kitchen: what goes now, for whom and where.
 // What went before (an open order's earlier rounds) is listed apart, and a
 // dish taken off is called out — the kitchen stops it.
-export function SendConfirmDialog({ cart, sent, total: billTotal, fulfillment, where, customer, waiter, delivery, kitchenNote, busy, error, onConfirm, onClose }) {
+// courseFor(line): its course and whether it waits for the waiter's call
+// ({ name, waits }), when courses are on; allergy: the order's alert.
+export function SendConfirmDialog({ cart, sent, total: billTotal, fulfillment, where, customer, waiter, delivery, kitchenNote, busy, error, onConfirm, onClose, courseFor, allergy }) {
   const before = new Map((sent || []).map((l) => [lineKey(l), l.qty]));
   const now = new Map(cart.map((l) => [lineKey(l), l]));
   const going = [];
@@ -161,7 +164,8 @@ export function SendConfirmDialog({ cart, sent, total: billTotal, fulfillment, w
         {going.length > 0 && (
           <ul className="tl-send-list">
             {going.map((l) => (
-              <li key={lineKey(l)}><b>{l.qty}×</b><span>{l.name}{l.custom && <em className="tl-badge">{tr('not on the menu')}</em>}{l.note && <small>✎ {l.note}</small>}</span></li>
+              <li key={lineKey(l)}><b>{l.qty}×</b><span>{l.seat ? <em className="tl-seat">S{l.seat}</em> : null}{l.name}{l.custom && <em className="tl-badge">{tr('not on the menu')}</em>}{l.note && <small>✎ {l.note}</small>}
+                {(() => { const c = courseFor ? courseFor(l) : null; return c ? <em className={'tl-send-course' + (c.waits ? ' is-wait' : '')}>{c.waits ? '⏸ ' + tr('{course}: waits for your call', { course: c.name }) : c.name}</em> : null; })()}</span></li>
             ))}
           </ul>
         )}
@@ -172,6 +176,7 @@ export function SendConfirmDialog({ cart, sent, total: billTotal, fulfillment, w
         )}
         {already > 0 && <p className="dk-muted tl-small">{already === 1 ? tr('1 dish was sent before and stays as it is.') : tr('{n} dishes were sent before and stay as they are.', { n: already })}</p>}
         {kitchenNote && <p className="tl-send-note">✎ {kitchenNote}</p>}
+        <AllergyStrip allergy={allergy} />
         <p className="tl-send-total"><span>{tr('The order so far')}</span><strong>{money(total)}</strong></p>
         <p className="dk-muted tl-small">{tr('It stays open on the till to add to and pay later.')}</p>
         {error && <div className="error-banner">{error}</div>}

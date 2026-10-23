@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { money } from '../../lib/currency';
 import { tr } from '../../lib/i18n.jsx';
-import { photo, tint } from './onlineShared';
+import { allergenWords } from '../till/tillService';
+import { happyPrice, photo, tint } from './onlineShared';
 
 // A dish on the ordering website (OnlineShop) or a table's QR menu
 // (TableShop): its photo, its size, its add-ons (a side to pick, extras
 // that cost more; backend restaurantTillCheck pickMods checks them), how
-// many, a note for the kitchen.
+// many, a note for the kitchen; what is in it that some cannot eat, a happy
+// hour on it now, and when it is served if not now.
 function ruleWords(g) {
   const min = g.minPick || 0, max = g.maxPick;
   if (min && max && min === max) return min === 1 ? tr('Pick 1') : tr('Pick {n}', { n: min });
@@ -24,6 +26,7 @@ export default function ItemSheet({ item, onClose, onAdd }) {
   const groups = item.addOns || [];
   const base = variation ? variation.price : item.price;
   const price = Math.round((base + picked.reduce((a, m) => a + m.price, 0)) * 100) / 100;
+  const now = happyPrice(price, item.happy);
   const short = groups.find((g) => (g.minPick || 0) > picked.filter((m) => m.groupId === g.id).length);
 
   function tap(g, o) {
@@ -38,7 +41,7 @@ export default function ItemSheet({ item, onClose, onAdd }) {
     // In the menu's order, as the till and the kitchen show them.
     const order = groups.flatMap((g) => g.options.map((o) => o.id));
     const mods = picked.slice().sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-    onAdd({ id: item.id, variationId: variation ? variation.id : null, name: item.name + (variation ? ' — ' + variation.name : ''), price, qty, note: note.trim(), modifiers: mods });
+    onAdd({ id: item.id, variationId: variation ? variation.id : null, name: item.name + (variation ? ' — ' + variation.name : ''), price, qty, note: note.trim(), modifiers: mods, happy: item.happy || null });
   }
 
   return (
@@ -50,7 +53,18 @@ export default function ItemSheet({ item, onClose, onAdd }) {
         </div>
         <div className="on-sheet-body">
           <h2>{item.name}</h2>
-          <p className="on-price">{money(price)}</p>
+          {item.happy ? (
+            <p className="on-price is-happy"><s>{money(price)}</s> {money(now)}
+              <em>🍹 {tr('{name}: {percent}% off until {time}', { name: item.happy.name || tr('Happy hour'), percent: item.happy.percent, time: item.happy.to })}</em></p>
+          ) : <p className="on-price">{money(price)}</p>}
+          {item.notNow && <p className="on-served">🕘 {tr('Served from {from} to {to}. Not now, sorry.', { from: item.hours.from, to: item.hours.to })}</p>}
+          {(item.allergens || []).length > 0 && (
+            <div className="on-allergens">
+              <span>{tr('Contains')}</span>
+              {item.allergens.map((a) => <b key={a}>{allergenWords(a, tr)}</b>)}
+              <small>{tr('Allergic? Say so in the note, and the kitchen will be told.')}</small>
+            </div>
+          )}
           {item.variations.length > 0 && (
             <div className="on-vars" role="radiogroup" aria-label={tr('Choose one')}>
               {item.variations.map((v) => (
@@ -84,8 +98,8 @@ export default function ItemSheet({ item, onClose, onAdd }) {
           {short && <p className="on-hint is-need">{tr('Pick from {group} first.', { group: short.name })}</p>}
           <div className="on-sheet-go">
             <span className="on-qty is-big"><button type="button" onClick={() => setQty(Math.max(1, qty - 1))} aria-label={tr('One less')}>−</button><b>{qty}</b><button type="button" onClick={() => setQty(Math.min(50, qty + 1))} aria-label={tr('One more')}>+</button></span>
-            <button type="button" className="on-go" disabled={!!short} onClick={add}>
-              {tr('Add · {amount}', { amount: money(price * qty) })}
+            <button type="button" className="on-go" disabled={!!short || !!item.notNow} onClick={add}>
+              {tr('Add · {amount}', { amount: money(now * qty) })}
             </button>
           </div>
         </div>

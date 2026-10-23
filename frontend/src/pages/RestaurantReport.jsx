@@ -37,7 +37,10 @@ function hourText(h) { return new Date(2000, 0, 1, h).toLocaleTimeString(activeI
 function signed(n) { return (n > 0 ? '+' : n < 0 ? '−' : '') + whole(Math.abs(n)); }
 function csvCell(v) { const s = String(v === null || v === undefined ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
-export default function RestaurantReport({ companyId, companyName, canManage, onToast }) {
+// load(month): where the figures come from — the OS's restaurant report by
+// default, or the till's back office (till/MonthlyReport.jsx), which also
+// says how many sales came from Square.
+export default function RestaurantReport({ companyId, companyName, canManage, onToast, load: loadFrom }) {
   const [month, setMonth] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,9 +58,9 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
     if (!companyId) return;
     setLoading(true); setError(null);
     try {
-      setData(await api.get('/restaurant/report?' + new URLSearchParams({ companyId, ...(month ? { month } : {}) }).toString()));
+      setData(loadFrom ? await loadFrom(month) : await api.get('/restaurant/report?' + new URLSearchParams({ companyId, ...(month ? { month } : {}) }).toString()));
     } catch (err) { setError(err.message); } finally { setLoading(false); }
-  }, [companyId, month]);
+  }, [companyId, month, loadFrom]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setMonth(''); setItemGroup(''); setTrendGroup(''); setShiftSel(''); }, [companyId]);
   // month tables open on their right end, where the chosen month is
@@ -242,6 +245,9 @@ export default function RestaurantReport({ companyId, companyName, canManage, on
             </button>
           ))}
         </div>
+        {data.square && data.square.sales > 0 && (
+          <p className="rr-square"><b>Square</b>{tr('{n} sales brought in from Square, {from} to {to}, count here with the till\'s own.', { n: data.square.sales.toLocaleString(activeIntlLocale()), from: new Date(data.square.first).toLocaleDateString(activeIntlLocale(), { month: 'short', year: 'numeric' }), to: new Date(data.square.last).toLocaleDateString(activeIntlLocale(), { month: 'short', year: 'numeric' }) })}</p>
+        )}
       </Section>
 
       {empty ? (

@@ -41,7 +41,7 @@ export default function RestaurantKitchen({ companyId, companyName, canManage, o
     e.preventDefault();
     setSaving(true); setFormError(null);
     try {
-      const body = { name: dialog.name, categories: dialog.categories, everythingElse: dialog.everythingElse };
+      const body = { name: dialog.name, categories: dialog.categories, everythingElse: dialog.everythingElse, printTickets: !!dialog.printTickets };
       if (dialog.id) await api.put('/restaurant/kitchen/stations/' + dialog.id, body);
       else await api.post('/restaurant/kitchen/stations', { ...body, companyId });
       setDialog(null);
@@ -113,8 +113,9 @@ export default function RestaurantKitchen({ companyId, companyName, canManage, o
                       <strong>{s.name}</strong>
                       {!s.active && <span className="rk-pill">{tr('Turned off')}</span>}
                       {s.everythingElse && <span className="rk-pill is-else">{tr('Everything else')}</span>}
+                      {s.printTickets && <span className="rk-pill is-else">🖨 {tr('Prints at the till')}</span>}
                       {canManage && <RowMenu actions={[
-                        { label: tr('Edit'), onClick: () => { setFormError(null); setCatSearch(''); setDialog({ id: s.id, name: s.name, categories: s.categories, everythingElse: s.everythingElse }); } },
+                        { label: tr('Edit'), onClick: () => { setFormError(null); setCatSearch(''); setDialog({ id: s.id, name: s.name, categories: s.categories, everythingElse: s.everythingElse, printTickets: s.printTickets }); } },
                         { label: s.active ? tr('Turn off') : tr('Turn on'), onClick: () => run(() => api.put('/restaurant/kitchen/stations/' + s.id, { active: !s.active }), s.active ? tr('Station turned off.') : tr('Station turned on.')) },
                         { label: tr('Delete'), danger: true, onClick: () => { if (window.confirm(tr('Delete the station {name}? Its dishes stop going to the kitchen screen.', { name: s.name }))) run(() => api.del('/restaurant/kitchen/stations/' + s.id), tr('Station removed.')); } }
                       ]} />}
@@ -190,6 +191,10 @@ export default function RestaurantKitchen({ companyId, companyName, canManage, o
             <label className="rk-else">
               <input type="checkbox" checked={dialog.everythingElse} onChange={(e) => setDialog({ ...dialog, everythingElse: e.target.checked })} />
               <span><strong>{tr('Also take everything else')}</strong><small>{tr('Every dish whose category no station cooks comes here. Only one station can.')}</small></span>
+            </label>
+            <label className="rk-else">
+              <input type="checkbox" checked={!!dialog.printTickets} onChange={(e) => setDialog({ ...dialog, printTickets: e.target.checked })} />
+              <span><strong>{tr('No screen: print its tickets')}</strong><small>{tr('A station with no screen gets its tickets printed at the till when an order is sent or a course is called.')}</small></span>
             </label>
             <div className="rk-pick-head">
               <strong>{tr('Categories it cooks')} <span className="dk-muted">({dialog.categories.length})</span></strong>

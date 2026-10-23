@@ -44,7 +44,7 @@ export function ReceiptLines({ receipt: r }) {
       </div>
       {(r.taxes || []).some((t) => t.included) && (
         <div className="pos-receipt-taxes">
-          {r.taxes.filter((t) => t.included).map((t) => <span key={t.name}>{tr('incl. {tax} {rate}%: {amount}', { tax: t.name, rate: t.rate, amount: money(t.amount) })}</span>)}
+          {r.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="pos-receipt-line"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><span>{money(t.amount)}</span></div>)}
         </div>
       )}
     </>

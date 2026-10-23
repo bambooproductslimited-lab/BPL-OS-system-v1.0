@@ -9,7 +9,9 @@ import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
 import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
-import { lineKey, photo, tint } from './onlineShared';
+import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
+import { happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
+import AccountSheet from './AccountSheet';
 import { billOf, modsWords, serviceWords } from '../till/tillBill';
 import './online.css';
 
@@ -42,7 +44,8 @@ function slotsOf(from, to, step) {
 function partOf(t) { const h = Number(t.slice(0, 2)); return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening'; }
 const PARTS = [['morning', '🌅', () => tr('Morning')], ['afternoon', '☀️', () => tr('Afternoon')], ['evening', '🌙', () => tr('Evening')]];
 
-export default function OnlineShop({ code, onTrack }) {
+// onTrackMine(order): follow an order of the signed-in customer's (their account).
+export default function OnlineShop({ code, onTrack, onTrackMine }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState(getInitialTheme);
@@ -52,6 +55,17 @@ export default function OnlineShop({ code, onTrack }) {
   const [basket, setBasket] = useState([]);
   const [checkout, setCheckout] = useState(false);
   const [mine] = useState(() => load(ORDERS_KEY, []));
+  // The customer's own account on this phone (AccountSheet.jsx), and its sheet.
+  const [account, setAccount] = useState(loadAccount);
+  // Signed in on this phone: the account as it is now (an address saved on
+  // another phone), or signed out when the sign-in has run out.
+  useEffect(() => {
+    const a = loadAccount();
+    if (!a) return;
+    posFetch('GET', '/pos/online/account', a.token).then((d) => { const now = { token: a.token, account: d.account }; saveAccount(now); setAccount(now); })
+      .catch((e) => { if (e.status === 401) { saveAccount(null); setAccount(null); } });
+  }, []);
+  const [acctOpen, setAcctOpen] = useState(false);
   const sections = useRef({});
   useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
   useEffect(() => {
@@ -74,6 +88,20 @@ export default function OnlineShop({ code, onTrack }) {
       return b.map((x, i) => (i === at ? { ...x, qty: Math.min(50, x.qty + line.qty) } : x));
     });
   }
+  // An earlier order again: its dishes as the menu has them now (gone ones left out).
+  function reorder(o) {
+    if (o.restaurant.code !== data.restaurant.code) return;
+    o.items.forEach((l) => {
+      const it = data.items.find((i) => i.id === l.menuItemId);
+      if (!it || it.soldOut || it.notNow) return;
+      const v = l.variationId ? it.variations.find((x) => x.id === l.variationId) : null;
+      if (it.variations.length && !v) return;
+      const opts = (it.addOns || []).flatMap((g) => g.options);
+      const mods = (l.modifiers || []).map((m) => opts.find((x) => x.id === m.id)).filter(Boolean);
+      const price = (v ? v.price : it.price) + mods.reduce((a, m) => a + m.price, 0);
+      add({ id: it.id, variationId: v ? v.id : null, name: it.name + (v ? ' — ' + v.name : ''), price: Math.round(price * 100) / 100, qty: l.qty, note: l.note || '', modifiers: mods, happy: it.happy || null });
+    });
+  }
   function setQty(k, qty) { setBasket((b) => (qty <= 0 ? b.filter((x) => lineKey(x) !== k) : b.map((x) => (lineKey(x) === k ? { ...x, qty: Math.min(50, qty) } : x)))); }
   function jump(c) {
     setCat(c);
@@ -93,7 +121,13 @@ export default function OnlineShop({ code, onTrack }) {
     <div className="on-shell" data-brand={r.code}>
       <header className="on-hero">
         <div className="on-hero-bg" aria-hidden="true"><span>🍗</span><span>🥤</span><span>🍚</span><span>🌶️</span><span>🍔</span><span>🥗</span></div>
-        <div className="on-hero-tools"><DeviceLanguage className="on-lang" /><ThemeSwitch theme={theme} onChange={setTheme} className="on-icon-btn" /></div>
+        <div className="on-hero-tools">
+          <button type="button" className={'on-acct-btn' + (account ? ' is-in' : '')} onClick={() => setAcctOpen(true)}>
+            <span aria-hidden="true">{account ? (account.account.name || '?').replace(/^zq\s+/i, '').charAt(0).toUpperCase() : '👤'}</span>
+            {account ? tr('Hi, {name}', { name: String(account.account.name || '').split(' ').slice(0, 2).join(' ') }) : tr('Sign in')}
+          </button>
+          <DeviceLanguage className="on-lang" /><ThemeSwitch theme={theme} onChange={setTheme} className="on-icon-btn" />
+        </div>
         <div className="on-hero-main">
           {logo ? <img className="on-logo" src={logo} alt="" /> : <span className="on-logo is-mark">🍽️</span>}
           <div>
@@ -135,19 +169,20 @@ export default function OnlineShop({ code, onTrack }) {
               <div className="on-grid">
                 {list.map((i) => {
                   const inBasket = basket.filter((l) => l.id === i.id).reduce((s, l) => s + l.qty, 0);
-                  const from = i.variations.length ? Math.min(...i.variations.map((v) => v.price)) : i.price;
                   return (
-                    <button key={i.id} type="button" className={'on-dish' + (i.soldOut ? ' is-out' : '') + (inBasket ? ' is-in' : '')} disabled={i.soldOut} onClick={() => setItem(i)}>
+                    <button key={i.id} type="button" className={'on-dish' + (i.soldOut || i.notNow ? ' is-out' : '') + (inBasket ? ' is-in' : '') + (i.happy ? ' is-happy' : '')} disabled={i.soldOut} onClick={() => setItem(i)}>
                       <span className="on-dish-pic" style={{ '--c': tint(i.name) }}>
                         {i.photoFull ? <img src={photo(i.photoFull)} alt="" loading="lazy" decoding="async" /> : <b>{i.name.replace(/^zq\s+/i, '').charAt(0)}</b>}
                         {inBasket > 0 && <em>{inBasket}</em>}
                         {i.soldOut && <span className="on-sold">{tr('Sold out')}</span>}
+                        <DishFlags item={i} />
                       </span>
                       <span className="on-dish-text">
                         <strong>{i.name}</strong>
-                        <span>{i.variations.length ? tr('from {price}', { price: money(from) }) : money(i.price)}</span>
+                        <DishPrice item={i} />
+                        <DishAllergens item={i} />
                       </span>
-                      {!i.soldOut && <span className="on-plus" aria-hidden="true">+</span>}
+                      {!i.soldOut && !i.notNow && <span className="on-plus" aria-hidden="true">+</span>}
                     </button>
                   );
                 })}
@@ -166,12 +201,14 @@ export default function OnlineShop({ code, onTrack }) {
 
       {count > 0 && (
         <button type="button" className="on-bar" onClick={() => setCheckout(true)}>
-          <span className="on-bar-n">{count}</span><span>{tr('View basket')}</span><strong>{money(subtotal)}</strong>
+          <span className="on-bar-n">{count}</span><span>{tr('View basket')}</span><strong>{money(subtotal - happySaved(basket))}</strong>
         </button>
       )}
       {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => { add(line); setItem(null); }} />}
+      {acctOpen && <AccountSheet account={account} onAccount={setAccount} onClose={() => setAcctOpen(false)}
+        onFollow={(o) => { setAcctOpen(false); onTrackMine(o); }} onReorder={(o) => { reorder(o); setAcctOpen(false); }} />}
       {checkout && (
-        <Checkout code={code} r={r} basket={basket} subtotal={subtotal} setQty={setQty} onClose={() => setCheckout(false)}
+        <Checkout code={code} r={r} basket={basket} subtotal={subtotal} setQty={setQty} onClose={() => setCheckout(false)} account={account} onSignIn={() => { setCheckout(false); setAcctOpen(true); }}
           onPlaced={(res) => { save(ORDERS_KEY, [{ ref: res.ref, token: res.token, at: Date.now() }].concat(mine).slice(0, 5)); setBasket([]); onTrack(res.token); }} />
       )}
     </div>
@@ -190,19 +227,24 @@ function Basket({ basket, subtotal, setQty, onCheckout, open, later }) {
             <span className="on-qty">
               <button type="button" onClick={() => setQty(lineKey(l), l.qty - 1)} aria-label={tr('One less')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(lineKey(l), l.qty + 1)} aria-label={tr('One more')}>+</button>
             </span>
-            <i>{money(l.qty * l.price)}</i>
+            <LineAmount line={l} />
           </li>
         ))}
       </ul>
-      <div className="on-sum"><span>{tr('Food')}</span><strong>{money(subtotal)}</strong></div>
+      <div className="on-sum"><span>{tr('Food')}</span><strong>{money(subtotal - happySaved(basket))}</strong></div>
       <button type="button" className="on-go" disabled={!open && !later} onClick={onCheckout}>{open ? tr('Checkout') : later ? '🗓️ ' + tr('Order for later') : tr('Not taking orders right now')}</button>
     </div>
   );
 }
 
 // Checkout: delivered or picked up; when; where; who; how they pay.
-function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
-  const remembered = load(ME_KEY, {});
+function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced, account, onSignIn }) {
+  // Signed in: their name, number and saved place, unless this phone has its own.
+  const acct = account ? account.account : null;
+  const kept = load(ME_KEY, {});
+  const remembered = acct ? { name: acct.name, phone: acct.phone ? '+' + acct.phone : '', address: acct.address || kept.address, landmark: acct.landmark || kept.landmark,
+    lat: acct.lat != null ? acct.lat : kept.lat, lng: acct.lat != null ? acct.lng : kept.lng } : kept;
+  const [saveAddress, setSaveAddress] = useState(!!acct && !acct.address);
   const [how, setHow] = useState(r.delivery ? 'delivery' : 'pickup');
   const [name, setName] = useState(remembered.name || '');
   const [phone, setPhone] = useState(remembered.phone || '');
@@ -227,7 +269,7 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
   const short = r.minOrder > 0 && subtotal < r.minOrder;
   // The service charge and taxes the restaurant adds on this kind of order,
   // as the server works them out (restaurantOnline chargesOf).
-  const bill = billOf(basket.map((l) => ({ price: l.price, qty: l.qty })).concat(fee > 0 ? [{ price: fee, qty: 1, fee: true }] : []), {}, r.bill || {}, how);
+  const bill = billOf(basket.map((l) => ({ price: l.price, qty: l.qty, discountSpec: l.happy ? { kind: 'percent', value: l.happy.percent, name: l.happy.name } : null })).concat(fee > 0 ? [{ price: fee, qty: 1, fee: true }] : []), {}, r.bill || {}, how);
   // For later: the days with a time left for delivery (or pickup), the one chosen, its times.
   const days = later ? later.days.filter((d) => d.from[how]) : [];
   const dayRow = days.find((d) => d.date === day) || days[0] || null;
@@ -247,9 +289,9 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
     setBusy(true); setError(null);
     try {
       save(ME_KEY, { name: name.trim(), phone: phone.trim(), address: address.trim(), landmark: landmark.trim(), lat: pin ? pin.lat : null, lng: pin ? pin.lng : null });
-      const res = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/orders', null, {
+      const res = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/orders', account ? account.token : null, {
         name, phone, fulfillment: how, address, landmark, lat: how === 'delivery' && pin ? pin.lat : null, lng: how === 'delivery' && pin ? pin.lng : null,
-        payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined,
+        payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined, saveAddress: account && how === 'delivery' ? saveAddress : undefined,
         items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) }))
       });
       onPlaced(res);
@@ -268,7 +310,7 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
             <li key={lineKey(l)}>
               <span className="on-line-text"><strong>{l.name}</strong>{(l.modifiers || []).length > 0 && <small className="on-line-mods">+ {modsWords(l.modifiers, tr)}</small>}{l.note && <small>{l.note}</small>}</span>
               <span className="on-qty"><button type="button" onClick={() => setQty(lineKey(l), l.qty - 1)} aria-label={tr('One less')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(lineKey(l), l.qty + 1)} aria-label={tr('One more')}>+</button></span>
-              <i>{money(l.qty * l.price)}</i>
+              <LineAmount line={l} />
             </li>
           ))}
         </ul>
@@ -331,11 +373,13 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
             {pin && km != null && <p className={'on-dist' + (tooFar ? ' is-bad' : '')}>{tooFar ? tr('{km} away: we deliver up to {max} km. Pick it up instead?', { km: kmText(km), max: r.maxKm }) : tr('{km} away by road · delivery {fee}', { km: kmText(km), fee: money(fee) })}</p>}
             <label className="on-field"><span>{tr('Address or area')}</span><input className="input" value={address} maxLength={200} onChange={(e) => setAddress(e.target.value)} placeholder={tr('e.g. East Legon, Lagos Avenue')} /></label>
             <label className="on-field"><span>{tr('How to find you')}</span><input className="input" value={landmark} maxLength={200} onChange={(e) => setLandmark(e.target.value)} placeholder={tr('e.g. blue gate opposite the pharmacy')} /></label>
+            {account && <label className="on-check"><input type="checkbox" checked={saveAddress} onChange={(e) => setSaveAddress(e.target.checked)} />{tr('Keep this place in my account')}</label>}
           </fieldset>
         )}
 
         <fieldset className="on-fs">
           <legend>{tr('You')}</legend>
+          {!account && <button type="button" className="on-acct-nudge" onClick={onSignIn}>👤 <span><b>{tr('Have an account? Sign in')}</b><small>{tr('Your details fill in by themselves, and your orders stay in your account.')}</small></span></button>}
           <div className="on-two">
             <label className="on-field"><span>{tr('Your name')}</span><input className="input" required value={name} maxLength={80} autoComplete="name" onChange={(e) => setName(e.target.value)} /></label>
             <label className="on-field"><span>{tr('Phone number')}</span><input className="input" required type="tel" inputMode="tel" autoComplete="tel" value={phone} maxLength={30} onChange={(e) => setPhone(e.target.value)} placeholder="024 000 0000" /></label>
@@ -355,11 +399,12 @@ function Checkout({ code, r, basket, subtotal, setQty, onClose, onPlaced }) {
 
         <div className="on-total">
           <div><span>{tr('Food')}</span><b>{money(subtotal)}</b></div>
+          {bill.discountTotal > 0 && <div className="is-happy"><span>🍹 {tr('Happy hour')}</span><b>−{money(bill.discountTotal)}</b></div>}
           {how === 'delivery' && <div><span>{tr('Delivery')}{km != null ? ' · ' + kmText(km) : ''}</span><b>{fee ? money(fee) : tr('Free')}</b></div>}
           {bill.serviceCharge > 0 && <div><span>{serviceWords(bill.serviceName, tr)} {bill.serviceRate}%</span><b>{money(bill.serviceCharge)}</b></div>}
           {bill.taxes.filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(bill.total)}</strong></div>
-          {bill.taxIncluded > 0 && <p className="on-hint">{tr('Includes {taxes}.', { taxes: bill.taxes.map((t) => t.name + ' ' + money(t.amount)).join(', ') })}</p>}
+          {bill.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
           {scheduledFor && <p className="on-when-sum">🗓️ {how === 'pickup' ? tr('Pickup {when}', { when: laterText(scheduledFor) }) : tr('Delivery {when}', { when: laterText(scheduledFor) })}</p>}
           {short && <p className="on-dist is-bad">{tr('The smallest order is {amount}.', { amount: money(r.minOrder) })}</p>}
         </div>

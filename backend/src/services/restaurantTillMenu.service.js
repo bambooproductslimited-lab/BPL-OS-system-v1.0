@@ -110,7 +110,7 @@ function itemOut(r, vars) {
     id: r.id, name: r.name, category: r.category, price: Number(r.price), active: r.active, source: r.source, favorite: r.favorite,
     thumbUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key),
     trackStock: r.track_stock, stockQty: Number(r.stock_qty), lowStock: Number(r.low_stock),
-    sold30: r.sold30 == null ? 0 : Number(r.sold30),
+    sold30: r.sold30 == null ? 0 : Number(r.sold30), allergens: r.allergens || [],
     variations: vars || []
   };
 }
@@ -223,6 +223,8 @@ async function saveItem(companyId, manager, p) {
   var category = text(p.category, 40) || 'General';
   var price = priceOf(p.price, name);
   var low = Math.max(0, round2(p.lowStock));
+  // What it contains, for guests with an allergy (restaurantTillTimes ALLERGENS).
+  var allergens = require('./restaurantTillTimes.service').cleanAllergens(p.allergens);
   return withTransaction(async function (client) {
     var clash = (await client.query('SELECT id FROM restaurant_menu_items WHERE company_id = $1 AND lower(name) = lower($2) AND id <> $3',
       [companyId, name, p.id || '00000000-0000-0000-0000-000000000000'])).rows[0];
@@ -231,12 +233,12 @@ async function saveItem(companyId, manager, p) {
     if (p.id) {
       before = await itemOfCompany(client, companyId, p.id);
       row = (await client.query(
-        'UPDATE restaurant_menu_items SET name = $2, category = $3, price = $4, active = $5, track_stock = $6, low_stock = $7, updated_at = now() WHERE id = $1 RETURNING *',
-        [p.id, name, category, price, p.active !== false, !!p.trackStock, low])).rows[0];
+        'UPDATE restaurant_menu_items SET name = $2, category = $3, price = $4, active = $5, track_stock = $6, low_stock = $7, allergens = $8, updated_at = now() WHERE id = $1 RETURNING *',
+        [p.id, name, category, price, p.active !== false, !!p.trackStock, low, p.allergens === undefined ? before.allergens || [] : allergens])).rows[0];
     } else {
       row = (await client.query(
-        'INSERT INTO restaurant_menu_items (company_id, name, category, price, active, track_stock, low_stock) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *',
-        [companyId, name, category, price, p.active !== false, !!p.trackStock, low])).rows[0];
+        'INSERT INTO restaurant_menu_items (company_id, name, category, price, active, track_stock, low_stock, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+        [companyId, name, category, price, p.active !== false, !!p.trackStock, low, allergens])).rows[0];
     }
     // Starting to count it: its first figure.
     if (row.track_stock && (!before || !before.track_stock) && p.stockQty !== undefined && p.stockQty !== '') {

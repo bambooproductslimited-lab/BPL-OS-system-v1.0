@@ -213,3 +213,21 @@
   .kds-print em { font-weight: 400; }
   .kds-print-time { font-size: 11px; }
 }
+
+/* The table's service (migration 0169): a ticket's course, its allergy
+   alert, each dish's seat and what clashes, and the courses coming up. */
+.kds-course { margin: 8px 12px 0; padding: 4px 10px; width: fit-content; font-size: 13px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; color: #fff; border-radius: 999px; background: linear-gradient(135deg, #14b8a6, #0f766e); }
+.kds-course.is-c2 { background: linear-gradient(135deg, #f59e0b, #d97706); }
+.kds-course.is-c3, .kds-course.is-c4, .kds-course.is-c5 { background: linear-gradient(135deg, #ec4899, #be185d); }
+.kds-allergy.tl-allergy-strip { width: auto; margin: 10px 12px 0; font-size: 14px; }
+.kds-allergy.tl-allergy-strip span { font-size: 14px; }
+.kds-item-name .kds-seat { color: #fff; }
+.kds-seat { align-self: flex-start; width: fit-content; display: inline-block; margin-right: 8px; padding: 1px 7px; font-style: normal; font-size: 12px; font-weight: 900; color: #fff; border-radius: 7px; background: #4f46e5; vertical-align: 2px; }
+.kds-item.is-clash { box-shadow: inset 4px 0 0 #dc2626; background: rgba(220, 38, 38, .08); }
+.kds-item-clash { display: block; margin-top: 2px; font-size: 13px; font-weight: 900; color: #dc2626; }
+.kds-held { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px dashed var(--kd-line); }
+.kds-held-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 12px; background: rgba(139, 92, 246, .1); border: 1px dashed rgba(139, 92, 246, .45); opacity: .9; }
+.kds-held-row > span:nth-child(2) { display: flex; flex-direction: column; min-width: 0; }
+.kds-held-row small { font-size: 12.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kds-held-alert { margin-left: auto; display: grid; place-items: center; width: 24px; height: 24px; color: #fff; border-radius: 50%; background: #dc2626; }
+.kds-tool.is-text.is-on { color: #0f766e; background: rgba(20, 184, 166, .14); }

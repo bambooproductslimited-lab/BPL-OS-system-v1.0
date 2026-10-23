@@ -43,7 +43,10 @@ const STEP_LATER = ['scheduled', () => tr('Confirmed')];
 // The step each stage is at.
 const STEP_OF = { waiting: 'waiting', scheduled: 'scheduled', preparing: 'preparing', ready: 'ready', ready_pickup: 'ready_pickup', rider: 'ready', on_the_way: 'on_the_way', arrived: 'on_the_way', delivered: 'delivered', collected: 'collected' };
 
-export default function OnlineTrack({ token, onMenu: toMenu }) {
+// mineId and auth: an order of the signed-in customer's, found through their
+// account (any phone) rather than the order's own link.
+export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
+  const path = mineId ? '/pos/online/account/orders/' + encodeURIComponent(mineId) : '/pos/online/track/' + encodeURIComponent(token);
   const [o, setO] = useState(null);
   const [error, setError] = useState(null);
   const [fetchedAt, setFetchedAt] = useState(0);
@@ -53,9 +56,9 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
   const ticks = useRef(0);
   useEffect(() => { applyTheme(getInitialTheme()); }, []);
   const load = useCallback(async () => {
-    try { const r = await posFetch('GET', '/pos/online/track/' + encodeURIComponent(token)); stage.current = r.stage; setO(r); setFetchedAt(Date.now()); setError(null); document.title = r.ref + ' · ' + r.restaurant.name; return r; }
+    try { const r = await posFetch('GET', path, auth || null); stage.current = r.stage; setO(r); setFetchedAt(Date.now()); setError(null); document.title = r.ref + ' · ' + r.restaurant.name; return r; }
     catch (e) { if (e.status) setError(e.message); return null; }
-  }, [token]);
+  }, [path, auth]);
   useEffect(() => {
     load();
     const t = setInterval(() => {
@@ -70,7 +73,7 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
   async function cancel() {
     if (!window.confirm(tr('Cancel this order?'))) return;
     setBusy(true);
-    try { const r = await posFetch('POST', '/pos/online/track/' + encodeURIComponent(token) + '/cancel'); stage.current = r.stage; setO(r); } catch (e) { setError(e.message); } finally { setBusy(false); }
+    try { const r = await posFetch('POST', path + '/cancel', auth || null); stage.current = r.stage; setO(r); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
   if (!o) return <div className="on-shell is-empty"><div className="on-empty"><span className="on-spin" aria-hidden="true">🛵</span><strong>{error ? tr('We cannot find that order') : tr('Finding your order…')}</strong>{error && <p>{error}</p>}</div></div>;
@@ -180,7 +183,7 @@ export default function OnlineTrack({ token, onMenu: toMenu }) {
           {(o.charges || {}).serviceCharge > 0 && <div><span>{serviceWords(o.charges.serviceName, tr)} {o.charges.serviceRate}%</span><b>{money(o.charges.serviceCharge)}</b></div>}
           {((o.charges || {}).taxes || []).filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(o.total)}</strong></div>
-          {((o.charges || {}).taxes || []).some((t) => t.included) && <p className="on-hint">{tr('Includes {taxes}.', { taxes: o.charges.taxes.filter((t) => t.included).map((t) => t.name + ' ' + money(t.amount)).join(', ') })}</p>}
+          {((o.charges || {}).taxes || []).filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
           <p className="on-hint">{o.fulfillment === 'delivery' ? tr('Pay the rider: {method}.', { method: payName(o.payMethod) }) : tr('Pay at the counter: {method}.', { method: payName(o.payMethod) })}</p>
         </div>
         {o.fulfillment === 'delivery' && <p className="on-hint">📍 {o.customer.address}{o.customer.landmark ? ' · ' + o.customer.landmark : ''}</p>}

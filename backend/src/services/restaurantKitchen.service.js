@@ -34,16 +34,17 @@ var { audit } = require('../utils/audit');
 var RECALL_MINUTES = 30;
 
 var access = require('./restaurantTillAccess.service');
+var times = require('./restaurantTillTimes.service');
 var activity = require('./restaurantActivity.service');
 var screens = require('./restaurantKdsScreens.service');
 function norm(c) { return String(c == null ? '' : c).trim().toLowerCase(); }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 // A dish on a ticket: the menu item and its variation, or a dish not on
 // the menu by its name; its add-ons (mods: restaurantTillCheck modsKey, as
-// kept on the ticket) and its note ("no onions") — the same dish with other
-// add-ons or another note is another line.
-function lineKey(menuItemId, variationId, name, note, mods) {
-  return (menuItemId ? menuItemId + '::' + (variationId || '') : 'custom::' + norm(name)) + '::' + (mods || '') + '::' + norm(note);
+// kept on the ticket), its note ("no onions") and its seat — the same dish
+// with other add-ons, another note or for another seat is another line.
+function lineKey(menuItemId, variationId, name, note, mods, seat) {
+  return (menuItemId ? menuItemId + '::' + (variationId || '') : 'custom::' + norm(name)) + '::' + (mods || '') + '::' + norm(note) + '::' + (seat || '');
 }
 function modsKey(l) { return require('./restaurantTillCheck.service').modsKey(l.modifiers); }
 // A dish's add-ons on the screen (mods: [{ how, name }]), when it has any.
@@ -69,23 +70,33 @@ function stationFor(stations, category) {
 
 // A ticket's state from its dishes: cooking while one is cooking, ready
 // once all are done, cancelled when none is left. A served ticket stays
-// served.
+// served, and a later course waiting to be called (held) stays held.
 async function refresh(client, ticketId) {
   var t = (await client.query('SELECT status FROM restaurant_kitchen_tickets WHERE id = $1', [ticketId])).rows[0];
   if (!t || t.status === 'served') return;
   var c = (await client.query(
     "SELECT count(*) FILTER (WHERE status = 'cooking')::int AS cooking, count(*) FILTER (WHERE status = 'done')::int AS done FROM restaurant_kitchen_items WHERE ticket_id = $1",
     [ticketId])).rows[0];
+  if (t.status === 'held') { if (!c.cooking && !c.done) await client.query("UPDATE restaurant_kitchen_tickets SET status = 'cancelled' WHERE id = $1", [ticketId]); return; }
   if (c.cooking > 0) await client.query("UPDATE restaurant_kitchen_tickets SET status = 'cooking', ready_at = NULL WHERE id = $1", [ticketId]);
   else if (c.done > 0) await client.query("UPDATE restaurant_kitchen_tickets SET status = 'ready', ready_at = coalesce(ready_at, now()) WHERE id = $1", [ticketId]);
   else await client.query("UPDATE restaurant_kitchen_tickets SET status = 'cancelled' WHERE id = $1", [ticketId]);
 }
 
 // Sends an order to the kitchen. o.lines is the whole order as it stands
-// ([{ menuItemId, variationId, name, qty }]); for an open table (o.tabId)
-// only what is new since the last round is sent and what was taken off is
-// cancelled. Runs inside the caller's transaction. Returns the new ticket
-// ({ id, number }) or null.
+// ([{ menuItemId, variationId, name, qty, seat, course }]); for an open
+// table (o.tabId) only what is new since the last round is sent and what
+// was taken off is cancelled. Runs inside the caller's transaction.
+//
+// Courses (o.settings.courses, restaurantTillTimes courseOf): with o.hold
+// (an open order eaten in), the first course goes now with what goes right
+// away, and each later course waits as a ticket of its own (held) until it
+// is called (fireCourse) — or is cooked at once when the order has been
+// called that far already (o.firedCourse). o.allergy ({ list, note }) and
+// o.guests go on the ticket.
+//
+// Returns the new ticket ({ id, number, dishes, held: [courses waiting],
+// firedCourse, ids }) or null.
 async function fire(client, companyId, o) {
   var stations = await activeStations(client, companyId);
   if (!stations.length) return null;
@@ -94,7 +105,7 @@ async function fire(client, companyId, o) {
   var want = new Map();
   // A delivery fee is charged, not cooked (restaurantPos priceLines).
   (o.lines || []).filter(function (l) { return !l.fee; }).forEach(function (l) {
-    var k = lineKey(l.menuItemId, l.variationId, l.name, l.note, modsKey(l));
+    var k = lineKey(l.menuItemId, l.variationId, l.name, l.note, modsKey(l), l.seat);
     var cur = want.get(k);
     if (cur) cur.qty = round2(cur.qty + Number(l.qty)); else want.set(k, { line: l, qty: round2(l.qty) });
   });
@@ -104,7 +115,7 @@ async function fire(client, companyId, o) {
       "SELECT i.* FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
       "WHERE t.company_id = $1 AND t.tab_id = $2 AND i.status <> 'cancelled' ORDER BY i.created_at DESC", [companyId, o.tabId])).rows;
     rows.forEach(function (r) {
-      var k = lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods);
+      var k = lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods, r.seat);
       if (!sent.has(k)) sent.set(k, []);
       sent.get(k).push(r);
     });
@@ -123,8 +134,8 @@ async function fire(client, companyId, o) {
       } else {
         await client.query('UPDATE restaurant_kitchen_items SET qty = $2 WHERE id = $1', [it.id, round2(q - take)]);
         await client.query(
-          "INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note, mods) VALUES ($1,$2,$3,$4,$5,$6,$7,'cancelled',$8,$9)",
-          [it.ticket_id, it.station_id, it.menu_item_id, it.variation_id, it.name, it.category, round2(take), it.note || '', it.mods || '']);
+          "INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note, mods, seat, course, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,'cancelled',$8,$9,$10,$11,$12)",
+          [it.ticket_id, it.station_id, it.menu_item_id, it.variation_id, it.name, it.category, round2(take), it.note || '', it.mods || '', it.seat, it.course || 0, it.allergens || []]);
       }
       touched.add(it.ticket_id);
       less = round2(less - take);
@@ -141,32 +152,98 @@ async function fire(client, companyId, o) {
   });
   if (!toSend.length) return null;
   var ids = toSend.map(function (s) { return s.line.menuItemId; }).filter(Boolean);
-  var cats = new Map((await client.query('SELECT id, category FROM restaurant_menu_items WHERE id = ANY($1::uuid[])', [ids])).rows.map(function (r) { return [r.id, r.category || '']; }));
+  var menu = new Map((await client.query('SELECT id, category, allergens FROM restaurant_menu_items WHERE id = ANY($1::uuid[])', [ids])).rows.map(function (r) { return [r.id, r]; }));
+  var settings = o.settings || {};
   var routed = toSend.map(function (s) {
     // A dish not on the menu is cooked where its category is (picked at
     // the till), else by the station taking everything else.
-    var category = s.line.menuItemId ? (cats.get(s.line.menuItemId) || '') : String(s.line.category || '');
-    return { line: s.line, qty: s.qty, category: category, station: stationFor(stations, category) };
+    var m = s.line.menuItemId ? menu.get(s.line.menuItemId) : null;
+    var category = m ? (m.category || '') : String(s.line.category || '');
+    return { line: s.line, qty: s.qty, category: category, station: stationFor(stations, category), allergens: m ? (m.allergens || []) : [],
+      course: times.courseOf(settings, { course: s.line.course, category: category }) };
   }).filter(function (s) { return s.station; });
   if (!routed.length) return null;
 
+  // What is cooked now, and the courses that wait to be called.
+  var firedCourse = Number(o.firedCourse) || 0;
+  if (o.hold) {
+    var all = (o.lines || []).filter(function (l) { return !l.fee; }).map(function (l) { return times.courseOf(settings, { course: l.course, category: l.category || (menu.get(l.menuItemId) || {}).category }); });
+    var first = all.filter(function (c) { return c > 0; }).sort()[0] || 0;
+    if (!firedCourse) firedCourse = first;
+  }
+  var groups = new Map();
+  routed.forEach(function (r) {
+    var now = !o.hold || r.course === 0 || r.course <= firedCourse;
+    var key = now ? 'now' : 'c' + r.course;
+    if (!groups.has(key)) groups.set(key, { held: !now, course: now ? (o.hold ? firedCourse : 0) : r.course, items: [] });
+    groups.get(key).items.push(r);
+  });
+
   var number = (await client.query(
     "SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_kitchen_tickets WHERE company_id = $1 AND created_at >= date_trunc('day', now())", [companyId])).rows[0].n;
-  var ticket = (await client.query(
-    'INSERT INTO restaurant_kitchen_tickets (company_id, number, tab_id, order_id, label, table_name, waiter_name, guest_name, note, sent_by, fulfillment, customer_phone, delivery_address) ' +
-    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, number',
-    [companyId, number, o.tabId || null, o.orderId || null, String(o.label || '').slice(0, 80), o.tableName || null, o.waiterName || null, o.guestName || null,
-      String(o.note == null ? '' : o.note).trim().slice(0, 300), o.sentBy || null, o.fulfillment || '', String(o.customerPhone || '').slice(0, 40), String(o.deliveryAddress || '').slice(0, 300)])).rows[0];
-  for (var j = 0; j < routed.length; j++) {
-    var r = routed[j];
-    await client.query(
-      'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, note, mods) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-      [ticket.id, r.station.id, r.line.menuItemId || null, r.line.variationId || null, r.line.name, r.category, r.qty, String(r.line.note || '').slice(0, 140), modsKey(r.line)]);
+  var allergy = o.allergy && ((o.allergy.list || []).length || o.allergy.note) ? o.allergy : null;
+  var made = [];
+  var order = Array.from(groups.values()).sort(function (a, b) { return (a.held - b.held) || a.course - b.course; });
+  for (var g = 0; g < order.length; g++) {
+    var grp = order[g];
+    var ticket = (await client.query(
+      'INSERT INTO restaurant_kitchen_tickets (company_id, number, tab_id, order_id, label, table_name, waiter_name, guest_name, note, sent_by, fulfillment, customer_phone, delivery_address, status, course, fired_at, allergy, allergens, guests) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id, number',
+      [companyId, number, o.tabId || null, o.orderId || null, String(o.label || '').slice(0, 80), o.tableName || null, o.waiterName || null, o.guestName || null,
+        String(o.note == null ? '' : o.note).trim().slice(0, 300), o.sentBy || null, o.fulfillment || '', String(o.customerPhone || '').slice(0, 40), String(o.deliveryAddress || '').slice(0, 300),
+        grp.held ? 'held' : 'cooking', grp.course, grp.held ? null : new Date(), allergy ? String(allergy.note || '').slice(0, 200) : '', allergy ? allergy.list || [] : [], o.guests || null])).rows[0];
+    for (var j = 0; j < grp.items.length; j++) {
+      var r = grp.items[j];
+      await client.query(
+        'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, note, mods, seat, course, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+        [ticket.id, r.station.id, r.line.menuItemId || null, r.line.variationId || null, r.line.name, r.category, r.qty, String(r.line.note || '').slice(0, 140), modsKey(r.line), r.line.seat || null, r.course, r.allergens]);
+    }
+    made.push({ id: ticket.id, held: grp.held, course: grp.course });
   }
-  return { id: ticket.id, number: ticket.number, dishes: routed.map(function (x) {
-    var mods = require('./restaurantTillCheck.service').modsText(x.line.modifiers);
-    return x.qty + '× ' + x.line.name + (mods ? ' [' + mods + ']' : '') + (x.line.note ? ' (' + x.line.note + ')' : '');
-  }) };
+  var first0 = made.find(function (m) { return !m.held; }) || made[0];
+  return { id: first0.id, number: number, ids: made.filter(function (m) { return !m.held; }).map(function (m) { return m.id; }),
+    held: made.filter(function (m) { return m.held; }).map(function (m) { return m.course; }), firedCourse: firedCourse,
+    dishes: routed.map(function (x) {
+      var mods = require('./restaurantTillCheck.service').modsText(x.line.modifiers);
+      return x.qty + '× ' + x.line.name + (x.line.seat ? ' (seat ' + x.line.seat + ')' : '') + (mods ? ' [' + mods + ']' : '') + (x.line.note ? ' (' + x.line.note + ')' : '') +
+        (o.hold && x.course > firedCourse ? ' — waits for course ' + x.course : '');
+    }) };
+}
+
+// A later course called (restaurantPos fireCourse): an open order's held
+// tickets up to that course go to the cooks now. Returns their ids.
+async function fireCourse(client, companyId, tabId, upTo) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('kds:' || $1))", [companyId]);
+  return (await client.query(
+    "UPDATE restaurant_kitchen_tickets SET status = 'cooking', fired_at = now() WHERE company_id = $1 AND tab_id = $2 AND status = 'held' AND course <= $3 RETURNING id",
+    [companyId, tabId, upTo])).rows.map(function (r) { return r.id; });
+}
+// Everything an order has waiting goes now (it is paid: nobody will call it).
+async function releaseHeld(client, companyId, where, arg) {
+  return (await client.query(
+    "UPDATE restaurant_kitchen_tickets SET status = 'cooking', fired_at = now() WHERE company_id = $1 AND " + (where === 'order_id' ? 'order_id' : 'tab_id') + " = $2 AND status = 'held' RETURNING id",
+    [companyId, arg])).rows.map(function (r) { return r.id; });
+}
+// The ticket of each station that prints (no screen there: print_tickets),
+// for the till to print when it sends or calls a course: what that station
+// cooks of these tickets, with who it is for, its course, seats, add-ons,
+// notes and any allergy alert.
+async function chitsFor(client, ticketIds) {
+  if (!ticketIds || !ticketIds.length) return [];
+  var rows = (await client.query(
+    "SELECT i.*, s.name AS station_name, t.number, t.label, t.table_name, t.waiter_name, t.guest_name, t.note AS ticket_note, t.fulfillment, t.course AS ticket_course, t.allergy, t.allergens AS ticket_allergens, t.guests, t.created_at AS sent_at " +
+    "FROM restaurant_kitchen_items i JOIN restaurant_kds_stations s ON s.id = i.station_id AND s.print_tickets JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
+    "WHERE i.ticket_id = ANY($1::uuid[]) AND i.status = 'cooking' ORDER BY s.sort_order, s.name, t.course, i.seat NULLS FIRST, i.created_at", [ticketIds])).rows;
+  var by = new Map();
+  rows.forEach(function (r) {
+    var k = r.station_id + ':' + r.ticket_id;
+    if (!by.has(k)) {
+      by.set(k, { station: r.station_name, number: r.number, label: r.label, tableName: r.table_name, waiterName: r.waiter_name, guestName: r.guest_name, note: r.ticket_note || '',
+        fulfillment: r.fulfillment || '', course: r.ticket_course, guests: r.guests || null, allergy: r.allergy || '', allergens: r.ticket_allergens || [], sentAt: r.sent_at, items: [] });
+    }
+    by.get(k).items.push(withMods({ name: r.name, qty: Number(r.qty), note: r.note || '', seat: r.seat || null, allergens: r.allergens || [] }, r.mods));
+  });
+  return Array.from(by.values());
 }
 
 // Dishes leaving an open order for another bill (restaurantPos: paid on
@@ -184,21 +261,24 @@ async function moveItems(client, companyId, fromTabId, lines, dest) {
     if (twins.has(ticketId)) return twins.get(ticketId);
     var t = (await client.query('SELECT * FROM restaurant_kitchen_tickets WHERE id = $1', [ticketId])).rows[0];
     var id = (await client.query(
-      'INSERT INTO restaurant_kitchen_tickets (company_id, number, tab_id, order_id, label, table_name, waiter_name, guest_name, note, sent_by, fulfillment, customer_phone, delivery_address, status, created_at, ready_at, served_at, printed_at) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id',
+      'INSERT INTO restaurant_kitchen_tickets (company_id, number, tab_id, order_id, label, table_name, waiter_name, guest_name, note, sent_by, fulfillment, customer_phone, delivery_address, status, created_at, ready_at, served_at, printed_at, ' +
+      '  course, fired_at, allergy, allergens, guests) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id',
       [companyId, t.number, dest.tabId || null, dest.orderId || null, String(dest.label || t.label || '').slice(0, 80), dest.tableName !== undefined ? dest.tableName : t.table_name,
         dest.waiterName !== undefined ? dest.waiterName : t.waiter_name, dest.guestName !== undefined ? dest.guestName : t.guest_name, t.note, t.sent_by, t.fulfillment, t.customer_phone, t.delivery_address,
-        t.status, t.created_at, t.ready_at, t.served_at, t.printed_at])).rows[0].id;
+        // Paid on their own: a course still waiting is cooked now.
+        t.status === 'held' && dest.orderId ? 'cooking' : t.status, t.created_at, t.ready_at, t.served_at, t.printed_at,
+        t.course || 0, t.status === 'held' && dest.orderId ? new Date() : t.fired_at, t.allergy || '', t.allergens || [], t.guests])).rows[0].id;
     twins.set(ticketId, id);
     return id;
   }
   for (var i = 0; i < lines.length; i++) {
     var l = lines[i];
     if (l.fee) continue;
-    var key = lineKey(l.menuItemId, l.variationId, l.name, l.note, modsKey(l));
+    var key = lineKey(l.menuItemId, l.variationId, l.name, l.note, modsKey(l), l.seat);
     var rows = (await client.query(
       "SELECT i.* FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id WHERE t.company_id = $1 AND t.tab_id = $2 AND i.status <> 'cancelled' ORDER BY i.created_at DESC",
-      [companyId, fromTabId])).rows.filter(function (r) { return lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods) === key; });
+      [companyId, fromTabId])).rows.filter(function (r) { return lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods, r.seat) === key; });
     var left = round2(l.qty);
     for (var j = 0; j < rows.length && left > 0; j++) {
       var r = rows[j], q = Number(r.qty), take = Math.min(q, left);
@@ -207,8 +287,8 @@ async function moveItems(client, companyId, fromTabId, lines, dest) {
       else {
         await client.query('UPDATE restaurant_kitchen_items SET qty = $2 WHERE id = $1', [r.id, round2(q - take)]);
         await client.query(
-          'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note, mods, done_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
-          [twin, r.station_id, r.menu_item_id, r.variation_id, r.name, r.category, round2(take), r.status, r.note || '', r.mods || '', r.done_at, r.created_at]);
+          'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, status, note, mods, done_at, created_at, seat, course, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
+          [twin, r.station_id, r.menu_item_id, r.variation_id, r.name, r.category, round2(take), r.status, r.note || '', r.mods || '', r.done_at, r.created_at, r.seat, r.course || 0, r.allergens || []]);
       }
       touched.add(r.ticket_id);
       left = round2(left - take);
@@ -248,6 +328,9 @@ function cancelForOrder(client, companyId, orderId) { return cancelUnserved(clie
 
 function minutesSince(ts, now) { return ts ? Math.max(0, Math.floor((now - new Date(ts).getTime()) / 60000)) : null; }
 
+// A ticket on the screen: its course (and when it was called), how many
+// sat down, any allergy alert, and each dish's seat and allergens. Its
+// time runs from when it was called, for a course that waited.
 function ticketOut(t, items, stationId, now) {
   var mine = items.filter(function (i) { return !stationId || i.station_id === stationId; });
   var others = items.filter(function (i) { return stationId && i.station_id !== stationId && i.status === 'cooking'; });
@@ -255,9 +338,11 @@ function ticketOut(t, items, stationId, now) {
     id: t.id, number: t.number, label: t.label, tableName: t.table_name, waiterName: t.waiter_name, guestName: t.guest_name, note: t.note,
     fulfillment: t.fulfillment || '', customerPhone: t.customer_phone || '', deliveryAddress: t.delivery_address || '', printedAt: t.printed_at || null,
     status: t.status, createdAt: t.created_at, readyAt: t.ready_at, servedAt: t.served_at, cleared: !!t.served_at,
-    waitedMinutes: minutesSince(t.created_at, now),
+    course: t.course || 0, firedAt: t.fired_at || null, guests: t.guests || null, allergy: t.allergy || '', allergens: t.allergens || [],
+    waitedMinutes: minutesSince(t.status === 'held' ? null : (t.fired_at || t.created_at), now),
     items: mine.map(function (i) {
-      return withMods({ id: i.id, name: i.name, qty: Number(i.qty), note: i.note || '', status: i.status, stationId: i.station_id, stationName: i.station_name || null, category: i.category, doneAt: i.done_at }, i.mods);
+      return withMods({ id: i.id, name: i.name, qty: Number(i.qty), note: i.note || '', status: i.status, stationId: i.station_id, stationName: i.station_name || null, category: i.category, doneAt: i.done_at,
+        seat: i.seat || null, allergens: i.allergens || [] }, i.mods);
     }),
     elsewhere: others.map(function (i) { return withMods({ name: i.name, qty: Number(i.qty), note: i.note || '', stationName: i.station_name || null }, i.mods); })
   };
@@ -283,13 +368,15 @@ async function board(token, opts) {
   var byTicket = new Map();
   items.forEach(function (i) { if (!byTicket.has(i.ticket_id)) byTicket.set(i.ticket_id, []); byTicket.get(i.ticket_id).push(i); });
 
-  var cooking = [], ready = [], recent = [];
+  var cooking = [], ready = [], recent = [], held = [];
   tickets.forEach(function (t) {
     var its = byTicket.get(t.id) || [];
     var mine = its.filter(function (i) { return !stationId || i.station_id === stationId; });
     if (!mine.length) return;
     var out = ticketOut(t, its, stationId, now);
     if (t.served_at) { recent.push(out); return; }
+    // A later course, waiting to be called: shown so the cooks see it coming.
+    if (t.status === 'held') { held.push(out); return; }
     var mineCooking = mine.some(function (i) { return i.status === 'cooking'; });
     if (mineCooking || t.status === 'cancelled') cooking.push(out);
     else ready.push(out);
@@ -301,8 +388,9 @@ async function board(token, opts) {
     stations: stations.map(function (s) { return { id: s.id, name: s.name }; }),
     timing: session.access.settings.kitchen,
     printReady: !!session.access.settings.kitchen.printReady,
-    cooking: cooking, ready: ready, recent: recent.slice(0, 12),
-    counts: { cooking: cooking.filter(function (t) { return t.status !== 'cancelled'; }).length, ready: ready.length }
+    cooking: cooking, ready: ready, recent: recent.slice(0, 12), held: held,
+    courses: session.access.settings.courses.on ? session.access.settings.courses.names : [],
+    counts: { cooking: cooking.filter(function (t) { return t.status !== 'cancelled'; }).length, ready: ready.length, held: held.length }
   };
 }
 
@@ -372,6 +460,7 @@ async function serveTicket(token, ticketId, from) {
     var t = await ticketOfCompany(client, session.posCompanyId, ticketId);
     if (t.served_at) return { ticketId: ticketId, status: t.status };
     if (t.status === 'cooking') fail('invalid', 'Some dishes on #' + t.number + ' are still cooking.');
+    if (t.status === 'held') fail('invalid', '#' + t.number + ' waits to be called: nothing is cooked yet.');
     if (t.status === 'cancelled') await client.query('UPDATE restaurant_kitchen_tickets SET served_at = now() WHERE id = $1', [ticketId]);
     else await client.query("UPDATE restaurant_kitchen_tickets SET status = 'served', served_at = now() WHERE id = $1", [ticketId]);
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: from === 'till' ? 'till' : 'kds',
@@ -455,12 +544,14 @@ async function statusOf(db, companyId, by, ids) {
   var col = by === 'order_id' ? 'order_id' : 'tab_id';
   var rows = (await (db || pool).query(
     'SELECT ' + col + " AS id, count(*)::int AS tickets, count(*) FILTER (WHERE status = 'cooking' AND served_at IS NULL)::int AS cooking, " +
+    "array_remove(array_agg(DISTINCT course) FILTER (WHERE status = 'held'), NULL) AS held, " +
     "count(*) FILTER (WHERE status = 'ready' AND served_at IS NULL)::int AS ready, count(*) FILTER (WHERE status = 'served')::int AS served, " +
     "max(served_at) AS served_at, max(ready_at) FILTER (WHERE served_at IS NULL) AS ready_at FROM restaurant_kitchen_tickets " +
     'WHERE company_id = $1 AND ' + col + " = ANY($2::uuid[]) AND status <> 'cancelled' GROUP BY 1", [companyId, ids])).rows;
   rows.forEach(function (r) {
     out[r.id] = {
-      state: r.cooking > 0 ? 'cooking' : r.ready > 0 ? 'ready' : r.served > 0 ? 'served' : null,
+      state: r.cooking > 0 ? 'cooking' : r.ready > 0 ? 'ready' : (r.held || []).length ? 'held' : r.served > 0 ? 'served' : null,
+      held: (r.held || []).map(Number).sort(),
       tickets: r.tickets, cooking: r.cooking, ready: r.ready, served: r.served, servedAt: r.served_at || null, readyAt: r.ready_at || null
     };
   });
@@ -470,7 +561,7 @@ async function statusOf(db, companyId, by, ids) {
 // ── management: stations and how the kitchen is doing ─────────────────
 
 function stationOut(s) {
-  return { id: s.id, name: s.name, categories: s.categories || [], everythingElse: s.everything_else, sortOrder: s.sort_order, active: s.active };
+  return { id: s.id, name: s.name, categories: s.categories || [], everythingElse: s.everything_else, sortOrder: s.sort_order, active: s.active, printTickets: !!s.print_tickets };
 }
 
 async function requireCompany(companyId) {
@@ -497,13 +588,13 @@ async function kitchenOverview(ctx, companyId) {
   var today = (await pool.query(
     "SELECT count(*)::int AS tickets, count(*) FILTER (WHERE status = 'cooking')::int AS cooking, count(*) FILTER (WHERE status = 'ready' AND served_at IS NULL)::int AS ready, " +
     "count(*) FILTER (WHERE status = 'cancelled')::int AS cancelled, " +
-    "avg(extract(epoch FROM ready_at - created_at) / 60) FILTER (WHERE ready_at IS NOT NULL) AS avg_ready, " +
-    "max(extract(epoch FROM ready_at - created_at) / 60) FILTER (WHERE ready_at IS NOT NULL) AS max_ready, " +
-    "count(*) FILTER (WHERE ready_at IS NOT NULL AND ready_at - created_at > ($2 || ' minutes')::interval)::int AS late " +
+    "avg(extract(epoch FROM ready_at - coalesce(fired_at, created_at)) / 60) FILTER (WHERE ready_at IS NOT NULL) AS avg_ready, " +
+    "max(extract(epoch FROM ready_at - coalesce(fired_at, created_at)) / 60) FILTER (WHERE ready_at IS NOT NULL) AS max_ready, " +
+    "count(*) FILTER (WHERE ready_at IS NOT NULL AND ready_at - coalesce(fired_at, created_at) > ($2 || ' minutes')::interval)::int AS late " +
     "FROM restaurant_kitchen_tickets WHERE company_id = $1 AND created_at >= date_trunc('day', now())", [company.id, String(timing.lateAfter)])).rows[0];
   var byStation = (await pool.query(
-    "SELECT s.id, s.name, count(i.id)::int AS dishes, count(i.id) FILTER (WHERE i.status = 'cooking')::int AS cooking, " +
-    "avg(extract(epoch FROM i.done_at - t.created_at) / 60) FILTER (WHERE i.status = 'done') AS avg_done " +
+    "SELECT s.id, s.name, count(i.id)::int AS dishes, count(i.id) FILTER (WHERE i.status = 'cooking' AND t.status <> 'held')::int AS cooking, " +
+    "avg(extract(epoch FROM i.done_at - coalesce(t.fired_at, t.created_at)) / 60) FILTER (WHERE i.status = 'done') AS avg_done " +
     "FROM restaurant_kds_stations s LEFT JOIN restaurant_kitchen_items i ON i.station_id = s.id AND i.status <> 'cancelled' " +
     "  AND i.ticket_id IN (SELECT id FROM restaurant_kitchen_tickets WHERE company_id = $1 AND created_at >= date_trunc('day', now())) " +
     "LEFT JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
@@ -566,8 +657,8 @@ async function createStation(ctx, p) {
     if (everythingElse) await client.query('UPDATE restaurant_kds_stations SET everything_else = false WHERE company_id = $1', [company.id]);
     var order = (await client.query('SELECT coalesce(max(sort_order), 0) + 1 AS n FROM restaurant_kds_stations WHERE company_id = $1', [company.id])).rows[0].n;
     var row = (await client.query(
-      'INSERT INTO restaurant_kds_stations (company_id, name, categories, everything_else, sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [company.id, name, categories, everythingElse, order])).rows[0];
+      'INSERT INTO restaurant_kds_stations (company_id, name, categories, everything_else, sort_order, print_tickets) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [company.id, name, categories, everythingElse, order, p.printTickets === true])).rows[0];
     await audit(client, ctx, 'restaurant.kds.station.create', 'restaurant_kds_station', row.id, 'Added kitchen station "' + name + '" to ' + company.name + '.');
     return row;
   });
@@ -589,11 +680,13 @@ async function updateStation(ctx, id, p) {
   if (p.categories === undefined && active && !s.active) await cleanCategories(s.company_id, s.categories, id);
   var everythingElse = p.everythingElse === undefined ? s.everything_else : p.everythingElse === true;
   var sortOrder = p.sortOrder === undefined ? s.sort_order : Math.max(0, Math.min(999, Math.round(Number(p.sortOrder) || 0)));
+  // No screen there: the till prints its tickets when it sends an order.
+  var printTickets = p.printTickets === undefined ? s.print_tickets : p.printTickets === true;
   var row = await withTransaction(async function (client) {
     if (everythingElse && !s.everything_else) await client.query('UPDATE restaurant_kds_stations SET everything_else = false WHERE company_id = $1', [s.company_id]);
     var r = (await client.query(
-      'UPDATE restaurant_kds_stations SET name = $2, categories = $3, everything_else = $4, active = $5, sort_order = $6, updated_at = now() WHERE id = $1 RETURNING *',
-      [id, name, categories, everythingElse, active, sortOrder])).rows[0];
+      'UPDATE restaurant_kds_stations SET name = $2, categories = $3, everything_else = $4, active = $5, sort_order = $6, print_tickets = $7, updated_at = now() WHERE id = $1 RETURNING *',
+      [id, name, categories, everythingElse, active, sortOrder, printTickets])).rows[0];
     await audit(client, ctx, 'restaurant.kds.station.update', 'restaurant_kds_station', id, 'Changed kitchen station "' + name + '".');
     return r;
   });
@@ -611,7 +704,7 @@ async function removeStation(ctx, id) {
 }
 
 module.exports = {
-  moveItems: moveItems, retarget: retarget,
+  moveItems: moveItems, retarget: retarget, fireCourse: fireCourse, releaseHeld: releaseHeld, chitsFor: chitsFor,
   fire: fire, cancelForTab: cancelForTab, cancelForOrder: cancelForOrder,
   board: board, setItemDone: setItemDone, finishTicket: finishTicket, serveTicket: serveTicket, recallTicket: recallTicket, printTicket: printTicket, tillSummary: tillSummary,
   statusOf: statusOf,

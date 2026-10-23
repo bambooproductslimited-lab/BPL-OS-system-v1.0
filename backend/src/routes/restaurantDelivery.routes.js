@@ -2,6 +2,7 @@ var express = require('express');
 var delivery = require('../services/restaurantDelivery.service');
 var online = require('../services/restaurantOnline.service');
 var tables = require('../services/restaurantTableOrders.service');
+var accounts = require('../services/restaurantCustomerAccounts.service');
 
 // Deliveries and the website's orders (migration 0159) — mounted at
 // /api/pos in app.js beside the till's own routes, so the delivery screen
@@ -9,7 +10,8 @@ var tables = require('../services/restaurantTableOrders.service');
 // (config.restaurantSiteOrigins). Three kinds of caller:
 //   the delivery screen and the till — a till-session token (PIN sign-in);
 //   a rider — the link they were sent, /rider/:token;
-//   a customer — no sign-in to order; their order's link, /online/track/:token;
+//   a customer — no sign-in needed to order; their order's link,
+//   /online/track/:token; or their own account (/online/account);
 //   at a table, its QR code (/table/:code) and their order's key.
 // Orders from the table (migration 0166) are answered on the till.
 
@@ -53,9 +55,17 @@ router.post('/rider/:token/status', h(function (req) { return delivery.riderStat
 
 // ── the website ──
 router.get('/online/:code/menu', h(function (req) { return online.menu(req.params.code); }));
-router.post('/online/:code/orders', h(function (req) { return online.place(req.params.code, body(req), req.ip); }));
+router.post('/online/:code/orders', h(function (req) { return online.place(req.params.code, body(req), req.ip, posToken(req)); }));
 router.get('/online/track/:token', h(function (req) { return online.track(req.params.token); }));
 router.post('/online/track/:token/cancel', h(function (req) { return online.cancel(req.params.token); }));
+// A customer's own account (restaurantCustomerAccounts): made, signed in to,
+// its details and orders — the website's own token, not a till's.
+router.post('/online/account/signup', h(function (req) { return accounts.signup(body(req), req.ip); }));
+router.post('/online/account/login', h(function (req) { return accounts.login(body(req), req.ip); }));
+router.get('/online/account', h(function (req) { return accounts.me(posToken(req)); }));
+router.put('/online/account', h(function (req) { return accounts.update(posToken(req), body(req)); }));
+router.get('/online/account/orders/:id', h(function (req) { return online.trackMine(posToken(req), req.params.id); }));
+router.post('/online/account/orders/:id/cancel', h(function (req) { return online.cancel(req.params.id, posToken(req)); }));
 
 // ── a sale's receipt, opened from the link sent to the customer ──
 router.get('/receipt/:token', h(function (req) { return require('../services/restaurantPos.service').publicReceipt(req.params.token); }));

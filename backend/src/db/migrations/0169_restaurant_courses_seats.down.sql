@@ -1,0 +1,10 @@
+ALTER TABLE restaurant_kds_stations DROP COLUMN IF EXISTS print_tickets;
+ALTER TABLE restaurant_kitchen_items DROP COLUMN IF EXISTS allergens, DROP COLUMN IF EXISTS course, DROP COLUMN IF EXISTS seat;
+UPDATE restaurant_kitchen_tickets SET status = 'cooking' WHERE status = 'held';
+ALTER TABLE restaurant_kitchen_tickets DROP CONSTRAINT IF EXISTS restaurant_kitchen_tickets_status_check;
+ALTER TABLE restaurant_kitchen_tickets ADD CONSTRAINT restaurant_kitchen_tickets_status_check CHECK (status IN ('cooking', 'ready', 'served', 'cancelled'));
+ALTER TABLE restaurant_kitchen_tickets DROP COLUMN IF EXISTS guests, DROP COLUMN IF EXISTS allergens, DROP COLUMN IF EXISTS allergy, DROP COLUMN IF EXISTS fired_at, DROP COLUMN IF EXISTS course;
+ALTER TABLE restaurant_order_items DROP COLUMN IF EXISTS course, DROP COLUMN IF EXISTS seat;
+ALTER TABLE restaurant_orders DROP COLUMN IF EXISTS allergy, DROP COLUMN IF EXISTS guests;
+ALTER TABLE restaurant_open_tabs DROP COLUMN IF EXISTS allergy, DROP COLUMN IF EXISTS fired_course, DROP COLUMN IF EXISTS guests;
+ALTER TABLE restaurant_menu_items DROP COLUMN IF EXISTS allergens;

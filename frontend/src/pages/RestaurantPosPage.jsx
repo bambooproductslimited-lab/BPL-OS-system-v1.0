@@ -6,7 +6,7 @@ import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
-  buildReceiptBytes, buildDrawerReportBytes, usbSupported, bluetoothSupported,
+  buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, usbSupported, bluetoothSupported,
   requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
 } from '../lib/thermalPrinter';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
@@ -25,6 +25,8 @@ import { AddOnsDialog, DiscountDialog } from './till/BillDialogs';
 import { billOf, serviceWords, modsPrice, modsWords } from './till/tillBill';
 import { ReceiptLines, ReceiptQr, SendReceipt } from './till/ReceiptParts';
 import MoveBill from './till/MoveBill';
+import { AllergyDialog, AllergyStrip, KitchenChits } from './till/ServiceParts';
+import { allergenWords, categoryOpen, clashes, courseName, courseOf, happyFor, hoursOf } from './till/tillService';
 import { StockTab } from './till/MenuStock';
 import PayInOutDialog from './till/PayInOutDialog';
 import TableInbox from './till/TableInbox';
@@ -133,7 +135,8 @@ const FALLBACK_ACCESS = {
   settings: {
     paymentMethods: ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou'], currencies: { USD: { on: false, rate: 0 }, CNY: { on: false, rate: 0 } },
     receipt: { footer: 'Thank you!', extra: '', showLogo: true }, idleMinutes: 0, requireWaiter: false, defaultFulfillment: 'dine_in', kitchen: { warnAfter: 10, lateAfter: 20, printReady: false },
-    discounts: [], serviceCharge: { on: false, rate: 0, types: {} }, tax: { included: true, list: [] }
+    discounts: [], serviceCharge: { on: false, rate: 0, types: {} }, tax: { included: true, list: [] },
+    courses: { on: false, names: [], categories: {} }, hours: { categories: {} }, happyHours: []
   }
 };
 const NO_ADJUST = { discount: null, serviceOff: null };
@@ -142,11 +145,14 @@ const NO_ADJUST = { discount: null, serviceOff: null };
 // tile only draws again when its own dish, count or tap changes, not every
 // time anything on the order does; the photo is the server's small square
 // (menu-photos ?size=thumb), decoded off the main thread.
-const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, onTap, onFavorite }) {
+// happy: the happy hour's percentage on it now; closedFrom: served only
+// from then (its menu's hours); clash: it has what the order's allergy
+// alert names.
+const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, onTap, onFavorite, happy, closedFrom, clash }) {
   return (
     <button
       type="button"
-      className={'pos-tile' + (qty ? ' is-picked' : '') + (tapped ? ' is-tapped' : '') + (m.stock && m.stock.soldOut ? ' is-out' : '')}
+      className={'pos-tile' + (qty ? ' is-picked' : '') + (tapped ? ' is-tapped' : '') + (m.stock && m.stock.soldOut ? ' is-out' : '') + (closedFrom ? ' is-closed' : '') + (clash ? ' is-clash' : '')}
       style={{ '--c': tileColor(m.name) }}
       onClick={() => onTap(m)}
     >
@@ -157,6 +163,9 @@ const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, on
         <span className="pos-tile-name">{m.name}</span>
         <span className="pos-tile-price">{m.variations && m.variations.length ? tr('{n} prices', { n: m.variations.length }) : money(m.price)}</span>
       </span>
+      {happy > 0 && !closedFrom && <span className="pos-tile-happy">🍹 −{happy}%</span>}
+      {closedFrom && <span className="pos-tile-hours" title={tr('from {time}', { time: closedFrom })}>🕘 {closedFrom}</span>}
+      {clash && <span className="pos-tile-clash" title={tr('Has what the guest is allergic to')}>⚠</span>}
       {canFavorite ? (
         <span
           role="button" tabIndex={0}
@@ -219,6 +228,14 @@ export default function RestaurantPosPage() {
   const [offFor, setOffFor] = useState(null); // 'bill' or a cart line: its discount being given
   const [moveFor, setMoveFor] = useState(null); // an open order being moved (till/MoveBill.jsx)
   const [billAdjust, setBillAdjust] = useState(NO_ADJUST); // the whole bill's discount, and the service charge taken off
+  // The table's service (till/tillService.js): how many sat down, the seat
+  // the next dishes are for, the order's allergy alert, and the kitchen's
+  // tickets to print for stations without a screen.
+  const [guests, setGuests] = useState(null);
+  const [seat, setSeat] = useState(null);
+  const [allergy, setAllergy] = useState(null);
+  const [allergyOpen, setAllergyOpen] = useState(false);
+  const [chits, setChits] = useState(null);
 
   // Table/waiter/guest — all optional, attached to the CURRENT in-progress
   // order only (like the cart itself: reset after each sale, never
@@ -936,6 +953,12 @@ export default function RestaurantPosPage() {
     // A tile from "mostly bought" (/pos/menu/mostly-bought) is the menu's
     // dish with its sizes and add-ons.
     const item = menuById.get(tapped.id) || tapped;
+    // Not served now: its menu's hours (breakfast in the morning).
+    if (!categoryOpen(tillSettings, item.category)) {
+      const h = hoursOf(tillSettings, item.category);
+      setToast(tr('{name} is served from {from} to {to}.', { name: item.name, from: h.from, to: h.to }));
+      return;
+    }
     if (item.variations && item.variations.length) { setVariantPickerItem(item); return; }
     if (item.addOns && item.addOns.length) { setAddOnsFor({ item, variation: null }); return; }
     addToCart(item, null);
@@ -958,10 +981,19 @@ export default function RestaurantPosPage() {
         return;
       }
     }
+    // The guest is allergic to something it has: asked first.
+    const bad = clashes(item.allergens, allergy);
+    if (bad.length && !window.confirm(tr('{name} has {allergens}, and this order has an allergy alert. Add it anyway?', { name: item.name, allergens: bad.map((k) => allergenWords(k, tr)).join(', ') }))) {
+      setVariantPickerItem(null); setAddOnsFor(null); return;
+    }
+    // A happy hour on it now goes on by itself (the cashier can take it off).
+    const hh = happyFor(tillSettings, item.category);
     const line = {
       menuItemId: item.id, variationId: variation ? variation.id : null,
       name: variation ? item.name + ' — ' + variation.name : item.name,
-      price: round2((variation ? variation.price : item.price) + modsPrice(mods)), qty, note: '', modifiers: mods || [], discountSpec: null, comp: null
+      price: round2((variation ? variation.price : item.price) + modsPrice(mods)), qty, note: '', modifiers: mods || [],
+      discountSpec: hh ? { presetId: hh.id, kind: 'percent', value: hh.percent, name: hh.name } : null, comp: null,
+      seat: seat || null, course: null, category: item.category || '', allergens: item.allergens || []
     };
     const key = lineKey(line);
     setCart((prev) => {
@@ -1076,6 +1108,9 @@ export default function RestaurantPosPage() {
     if (fulfillment === 'delivery') Object.assign(body, { customerName: delivery.name, customerPhone: delivery.phone, deliveryAddress: delivery.address });
     else if (fulfillment === 'pickup') Object.assign(body, { customerName: pickupWho().name, customerPhone: pickupWho().phone });
     else if (selectedGuest) Object.assign(body, { customerName: selectedGuest.name, customerPhone: selectedGuest.phone || '' });
+    // How many sat down (eaten in), and any allergy alert for the kitchen.
+    if (fulfillment === 'dine_in' && guests) body.guests = guests;
+    body.allergy = allergy || null;
     return body;
   }
   // Who a pickup is for: as typed (Pickup details), else the customer picked.
@@ -1125,6 +1160,7 @@ export default function RestaurantPosPage() {
         waiterName: fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : null, guestName: selectedGuest ? selectedGuest.name : (order.customerName || null),
         guestPhone: selectedGuest ? selectedGuest.phone || '' : '', restName: order.restOpen && currentTab ? currentTab.name : null
       });
+      printChits(order.chits);
       clearOrder();
       setCheckoutOpen(false);
       loadShift();
@@ -1179,6 +1215,7 @@ export default function RestaurantPosPage() {
     setCurrentTab(null);
     setSentLines([]);
     setBillAdjust(NO_ADJUST);
+    setGuests(null); setSeat(null); setAllergy(null);
     setDelivery({ name: '', phone: '', address: '' });
     setFulfillment(tillSettings.defaultFulfillment || 'dine_in');
   }
@@ -1216,8 +1253,11 @@ export default function RestaurantPosPage() {
       try { saved = await fetchOrGiveUp('POST', '/pos/tabs', session.token, resolveIds(body)); }
       catch (e) { if (isNetworkError(e)) { goneOffline(); keepTab(body, tbl); return; } throw e; }
       setToast(saved.kitchenTicket
-        ? tr('{name} sent to the kitchen as #{n}.', { name: tabName(saved), n: saved.kitchenTicket.number })
+        ? ((saved.kitchenTicket.held || []).length
+          ? tr('{name} sent to the kitchen as #{n}; {course} waits until you call it.', { name: tabName(saved), n: saved.kitchenTicket.number, course: saved.kitchenTicket.held.map((c) => courseName(tillSettings, c, tr)).join(', ') })
+          : tr('{name} sent to the kitchen as #{n}.', { name: tabName(saved), n: saved.kitchenTicket.number }))
         : tr('{name} kept open. Pay it from Open orders.', { name: tabName(saved) }));
+      printChits(saved.chits);
       loadKitchen();
       setKeepDialog(null);
       setSendConfirm(false);
@@ -1256,6 +1296,40 @@ export default function RestaurantPosPage() {
     clearOrder();
     setSavingTab(false);
   }
+  // The tickets of stations without a screen: printed on the receipt
+  // printer when one is connected, else shown to print (till/ServiceParts.jsx).
+  async function printChits(list) {
+    if (!list || !list.length) return;
+    if (printer) {
+      try {
+        // Printed in English, as the printer has no other letters (lib/thermalPrinter.js).
+        const english = (x, v) => (v ? x.replace('{n}', v.n) : x);
+        for (const c of list) await printer.write(buildKitchenChitBytes(c, session.companyName, { courseName: c.course ? courseName(tillSettings, c.course, english) : '' }));
+        setToast(list.length === 1 ? tr('{station}\'s ticket printed.', { station: list[0].station }) : tr('{n} kitchen tickets printed.', { n: list.length }));
+        return;
+      } catch { /* shown to print instead */ }
+    }
+    setChits(list);
+  }
+  // Each dish's course as the send confirmation shows it: the first course
+  // (or as far as the order has been called) goes now, the later ones wait.
+  function sendCourseFor() {
+    if (!(tillSettings.courses && tillSettings.courses.on) || fulfillment !== 'dine_in') return null;
+    const c = (l) => courseOf(tillSettings, { course: l.course, category: l.category || ((menuById.get(l.menuItemId) || {}).category) });
+    const first = cart.map(c).filter((n) => n > 0).sort((a, b) => a - b)[0] || 0;
+    const fired = (liveTab && liveTab.firedCourse) || first;
+    return (l) => { const n = c(l); return l.custom ? null : { name: courseName(tillSettings, n, tr), waits: n > 0 && n > fired }; };
+  }
+  // The next course called (backend restaurantPos fireCourse).
+  async function callCourse(t) {
+    try {
+      const r = await posFetch('POST', '/pos/tabs/' + t.id + '/fire', session.token, {});
+      setToast(tr('{course} called for {name}: the kitchen starts on it now.', { course: r.called.join(', '), name: tabName(t) }));
+      printChits(r.chits);
+      loadTabs();
+      loadKitchen();
+    } catch (err) { setToast(err.message); }
+  }
   function tabName(t) {
     if (t.fulfillment === 'pickup' || t.fulfillment === 'delivery') return t.label || t.customerName || t.guestName || fulfillmentName(t.fulfillment);
     return t.tableName || t.label || t.guestName || tr('Order');
@@ -1272,6 +1346,7 @@ export default function RestaurantPosPage() {
     setSelectedGuest(t.guestId ? { id: t.guestId, name: t.guestName, phone: t.guestPhone || '' } : null);
     setCurrentTab({ id: t.id, label: t.label, name: tabName(t), createdAt: t.createdAt, kitchen: t.kitchen });
     setBillAdjust({ discount: t.adjust && t.adjust.discount ? t.adjust.discount : null, serviceOff: t.adjust && t.adjust.serviceOff ? t.adjust.serviceOff : null });
+    setGuests(t.guests || null); setSeat(null); setAllergy(t.allergy || null);
     setTabsOpen(false);
     // The customer's accounts (VIP, IOU) for the payment screen.
     if (t.guestId) refreshGuest(t.guestId, t.guestName);
@@ -1333,7 +1408,10 @@ export default function RestaurantPosPage() {
   const liveTab = currentTab ? tabs.find((t) => t.id === currentTab.id) || null : null;
 
   function renderTile(m) {
-    return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} canFavorite={can('favorites')} onTap={onTileTap} onFavorite={onTileFavorite} />;
+    const hh = happyFor(tillSettings, m.category, now);
+    const shut = categoryOpen(tillSettings, m.category, now) ? null : hoursOf(tillSettings, m.category).from;
+    return <MenuTile key={m.id} m={m} qty={cartQtyById.get(m.id) || 0} tapped={tappedId === m.id} plusN={plus && plus.id === m.id ? plus.n : null} canFavorite={can('favorites')} onTap={onTileTap} onFavorite={onTileFavorite}
+      happy={hh ? hh.percent : 0} closedFrom={shut} clash={clashes(m.allergens, allergy).length > 0} />;
   }
   const themeButton = <ThemeSwitch theme={theme} onChange={setTheme} className="pos-icon-btn" />;
   const firstName = session ? String(session.employeeName || '').split(' ').slice(0, -1).join(' ') || session.employeeName : '';
@@ -1711,6 +1789,28 @@ export default function RestaurantPosPage() {
           )}
         </button>
       </div>
+      {fulfillment === 'dine_in' && (
+        <div className="pos-service">
+          <div className="pos-guests" role="group" aria-label={tr('Guests')}>
+            <span aria-hidden="true">👥</span>
+            <button type="button" onClick={() => setGuests(guests > 1 ? guests - 1 : null)} disabled={!guests} aria-label={tr('One guest less')}>−</button>
+            <b>{guests || '–'}</b>
+            <button type="button" onClick={() => setGuests(Math.min(200, (guests || 0) + 1))} aria-label={tr('One guest more')}>+</button>
+            <small>{guests === 1 ? tr('guest') : tr('guests')}</small>
+          </div>
+          {guests > 1 && (
+            <div className="pos-seats" role="radiogroup" aria-label={tr('New dishes for')}>
+              <button type="button" role="radio" aria-checked={!seat} className={!seat ? 'is-on' : ''} onClick={() => setSeat(null)}>{tr('Table')}</button>
+              {Array.from({ length: Math.min(guests, 12) }, (_, i) => i + 1).map((n) => (
+                <button key={n} type="button" role="radio" aria-checked={seat === n} className={seat === n ? 'is-on' : ''} onClick={() => setSeat(n)} title={tr('Seat {n}', { n })}>{n}</button>
+              ))}
+            </div>
+          )}
+          {!allergy && <button type="button" className="pos-allergy-add" onClick={() => setAllergyOpen(true)}>⚠ {tr('Allergy')}</button>}
+        </div>
+      )}
+      {fulfillment !== 'dine_in' && !allergy && <button type="button" className="pos-allergy-add is-alone" onClick={() => setAllergyOpen(true)}>⚠ {tr('Allergy alert')}</button>}
+      <AllergyStrip allergy={allergy} onClick={() => setAllergyOpen(true)} />
       {kitchen && kitchen.inUse && (noteOpen || kitchenNote ? (
         <div className="pos-knote">
           <input className="input" value={kitchenNote} maxLength={300} autoFocus={noteOpen && !kitchenNote} onChange={(e) => setKitchenNote(e.target.value)}
@@ -1739,8 +1839,11 @@ export default function RestaurantPosPage() {
           const item = l.menuItemId ? menuById.get(l.menuItemId) : null;
           const hasAddOns = !!(item && item.addOns && item.addOns.length);
           const off = l.comp ? tr('On the house') : l.discountSpec ? (l.discountSpec.kind === 'percent' ? '−' + l.discountSpec.value + '%' : '−' + money(l.discountSpec.value)) : null;
+          const bad = clashes(l.allergens || (item && item.allergens), allergy);
+          const coursesOn = tillSettings.courses && tillSettings.courses.on && fulfillment === 'dine_in' && !l.custom;
+          const course = coursesOn ? courseOf(tillSettings, { course: l.course, category: l.category || (item && item.category) }) : 0;
           return (
-            <div key={k} className={'pos-line' + (l.custom ? ' is-custom' : '') + (l.comp ? ' is-comp' : '') + ((l.modifiers || []).length ? ' has-mods' : '')}>
+            <div key={k} className={'pos-line' + (l.custom ? ' is-custom' : '') + (l.comp ? ' is-comp' : '') + ((l.modifiers || []).length ? ' has-mods' : '') + (bad.length ? ' is-clash' : '')}>
               <span className="pos-line-dot" style={{ '--c': tileColor(l.name) }} aria-hidden="true">{l.custom ? '✦' : tileInitial(l.name.replace(/^zq\s+/i, ''))}</span>
               <div className="pos-line-main">
                 <span className="pos-line-name">{l.name}</span>
@@ -1751,6 +1854,19 @@ export default function RestaurantPosPage() {
                 )}
                 <span className="dk-muted">{money(l.price)}{l.qty > 1 ? ' × ' + l.qty : ''}</span>
                 <span className="pos-line-extra">
+                  {bad.length > 0 && <em className="pos-line-clash">⚠ {bad.map((x) => allergenWords(x, tr)).join(', ')}</em>}
+                  {guests > 1 && (
+                    <button type="button" className={'pos-line-seat' + (l.seat ? ' is-set' : '')} title={tr('Which seat')}
+                      onClick={() => changeLine(k, { seat: l.seat && l.seat < Math.min(guests, 12) ? l.seat + 1 : l.seat ? null : 1 })}>
+                      {l.seat ? tr('Seat {n}', { n: l.seat }) : tr('Table')}
+                    </button>
+                  )}
+                  {coursesOn && (
+                    <button type="button" className={'pos-line-course is-c' + course} title={tr('Its course: tap to change')}
+                      onClick={() => changeLine(k, { course: course < (tillSettings.courses.names || []).length ? course + 1 : 0 })}>
+                      {course ? course + ' · ' + courseName(tillSettings, course, tr) : '⚡ ' + courseName(tillSettings, 0, tr)}
+                    </button>
+                  )}
                   {l.custom && <em className="tl-badge">{tr('not on the menu')}</em>}
                   {hasAddOns && !(l.modifiers || []).length && <button type="button" className="pos-line-note" onClick={() => editAddOns(l)}>✚ {tr('Add-ons')}</button>}
                   <button type="button" className={'pos-line-note' + (l.note ? ' is-set' : '')} onClick={() => setNoteFor(l)}>
@@ -1790,6 +1906,7 @@ export default function RestaurantPosPage() {
               </div>
             )}
             {bill.taxes.filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
+            {bill.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
           </div>
         )}
         <div className="pos-total">
@@ -1801,7 +1918,6 @@ export default function RestaurantPosPage() {
             <button type="button" className={'pos-link' + (billAdjust.discount ? ' is-set' : '')} onClick={() => setOffFor('bill')}>
               % {billAdjust.discount ? billAdjust.discount.name : bill.serviceOn ? tr('Discount or service charge') : tr('Discount the bill')}
             </button>
-            {bill.taxIncluded > 0 && <small className="dk-muted">{tr('Includes {taxes}: {amount}', { taxes: bill.taxes.map((t) => t.name).join(', '), amount: money(bill.taxIncluded) })}</small>}
           </div>
         )}
         <div className="pos-order-actions">
@@ -2008,7 +2124,7 @@ export default function RestaurantPosPage() {
           settings={tillSettings} customer={selectedGuest} refreshKey={vipKey} busy={checkingOut} error={checkoutError}
           onPickCustomer={openGuestPicker} onTopUp={() => setVipOpen({ startGuest: selectedGuest })}
           dishes={currentTab && !isLocal(currentTab.id) ? {
-            lines: cart.map((l) => ({ key: lineKey(l), name: l.name, qty: l.qty, words: [modsWords(l.modifiers, tr), l.note].filter(Boolean).join(' · ') })),
+            lines: cart.map((l) => ({ key: lineKey(l), name: l.name, qty: l.qty, seat: l.seat || null, words: [modsWords(l.modifiers, tr), l.note].filter(Boolean).join(' · ') })),
             billFor: (pick) => billOf(cart.filter((l) => pick[lineKey(l)] > 0).map((l) => ({ ...l, qty: pick[lineKey(l)] })), billAdjust, tillSettings, fulfillment),
             why: liveTab && (liveTab.delivery || liveTab.onlineRef) ? tr('A delivery or a website order is paid in one go.')
               : cart.length !== sentLines.length || cart.some((l) => { const s0 = sentLines.find((x) => lineKey(x) === lineKey(l)); return !s0 || s0.qty !== l.qty; })
@@ -2071,6 +2187,9 @@ export default function RestaurantPosPage() {
                         <button type="button" className="pos-link" onClick={() => setDisputeFor({ tabId: t.id, label: t.name, customerName: t.guestName || t.customerName || '' })}>{tr('Problem?')}</button>
                         {can('keepOpen') && !t.offline && !t.delivery && !t.onlineRef && !String(t.id).startsWith('local:') && <button type="button" className="pos-link" onClick={() => setMoveFor(t)}>⇄ {tr('Move')}</button>}
                         {t.fulfillment === 'delivery' && !t.delivery && can('delivery') && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { setTabsOpen(false); sendOut({ tabId: t.id }); }}>🛵 {tr('Send')}</button>}
+                        {t.kitchen && (t.kitchen.held || []).length > 0 && can('keepOpen') && (
+                          <button type="button" className="btn tl-btn tl-call" onClick={() => callCourse(t)}>🔔 {tr('Call {course}', { course: courseName(tillSettings, t.kitchen.held[0], tr) })}</button>
+                        )}
                         <button type="button" className="btn btn-secondary tl-btn" onClick={() => openTab(t, false)}>{tr('Open')}</button>
                         {onDuty('charge') && (t.delivery && t.delivery.toCollect > 0 && t.delivery.status !== 'failed'
                           ? <button type="button" className="btn btn-primary tl-btn" onClick={() => { setTabsOpen(false); setHandIn(t); }}>💵 {tr('Money in')}</button>
@@ -2087,6 +2206,9 @@ export default function RestaurantPosPage() {
           </div>
         </div>
       )}
+
+      {allergyOpen && <AllergyDialog value={allergy} onClose={() => setAllergyOpen(false)} onSave={(v) => { setAllergy(v); setAllergyOpen(false); }} />}
+      {chits && <KitchenChits chits={chits} settings={tillSettings} onClose={() => setChits(null)} />}
 
       {moveFor && (
         <MoveBill token={session.token} tab={moveFor} tabs={tabs} tables={tables} waiters={waiters} name={tabName}
@@ -2390,7 +2512,7 @@ export default function RestaurantPosPage() {
           onSave={(d) => { setDelivery(d); if (fulfillment !== 'pickup') setFulfillment('delivery'); setDeliveryOpen(false); }} />
       )}
       {sendConfirm && (
-        <SendConfirmDialog cart={cart} sent={sentLines} total={bill.total} fulfillment={fulfillment}
+        <SendConfirmDialog cart={cart} sent={sentLines} total={bill.total} fulfillment={fulfillment} allergy={allergy} courseFor={sendCourseFor()}
           where={fulfillment === 'dine_in' ? (selectedTable ? selectedTable.name : (keepDialog && keepDialog.label) || (currentTab && currentTab.name) || (selectedGuest && selectedGuest.name) || '') : whereText()}
           customer={fulfillment === 'pickup' ? [pickupWho().name, pickupWho().phone].filter(Boolean).join(' · ') : selectedGuest ? selectedGuest.name : fulfillment === 'delivery' ? delivery.name : null}
           waiter={fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : null} delivery={delivery} kitchenNote={kitchenNote.trim()}

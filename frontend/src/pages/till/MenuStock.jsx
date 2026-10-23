@@ -4,6 +4,7 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import AddOnGroups from './AddOnGroups';
+import { ALLERGENS, allergenIcon } from './tillService';
 
 // The menu and the stock, kept from the till (restaurantTillMenu.service.js):
 // MenuTab in the till settings, for a manager — add a dish, change its
@@ -13,7 +14,7 @@ import AddOnGroups from './AddOnGroups';
 // thrown away, with each one's history. StockTab also opens from the till
 // for whoever's role may count the stock (no manager PIN then).
 
-function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [] }; }
+function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [] }; }
 
 export function MenuTab({ token, pin, onFail }) {
   const [data, setData] = useState(null);
@@ -95,6 +96,16 @@ export function MenuTab({ token, pin, onFail }) {
           ))}
           <button type="button" className="pos-link" onClick={() => setEdit({ ...edit, variations: edit.variations.concat([{ name: '', price: edit.price }]) })}>+ {tr('Add a size')}</button>
         </div>
+        <div className="ts-mn-allergens">
+          <span className="ts-label">{tr('Allergens')}</span>
+          <small className="dk-muted">{tr('What it has. The till warns before adding it to an order with an allergy alert; the kitchen and the website show it.')}</small>
+          <div className="ts-chips">
+            {ALLERGENS.map(([k, icon, label]) => {
+              const on = (edit.allergens || []).includes(k);
+              return <button key={k} type="button" aria-pressed={on} className={'ts-chip' + (on ? ' is-on is-allergen' : '')} onClick={() => setEdit({ ...edit, allergens: on ? edit.allergens.filter((x) => x !== k) : (edit.allergens || []).concat([k]) })}><span aria-hidden="true">{icon}</span> {tr(label)}</button>;
+            })}
+          </div>
+        </div>
         <button type="button" role="switch" aria-checked={edit.active} className="ts-toggle-row" onClick={() => setEdit({ ...edit, active: !edit.active })}>
           <span><strong>{tr('On the till')}</strong><small>{tr('Off: hidden from the till for now (sold out for the day, out of season), kept on the menu.')}</small></span>
           <span className={'ts-switch' + (edit.active ? ' is-on' : '')} aria-hidden="true"><i /></span>
@@ -142,6 +153,7 @@ export function MenuTab({ token, pin, onFail }) {
                   <small>{[i.category, i.variations.length ? tr('{n} sizes', { n: i.variations.length }) : null, i.sold30 ? tr('{n} sold in 30 days', { n: i.sold30 }) : null, !i.active ? tr('off the till') : null].filter(Boolean).join(' · ')}</small>
                 </span>
                 {i.trackStock && <span className={'ts-mn-stock' + (i.stockQty <= 0 ? ' is-out' : i.stockQty <= i.lowStock ? ' is-low' : '')}>{i.stockQty <= 0 ? tr('None left') : tr('{n} left', { n: i.stockQty })}</span>}
+                {(i.allergens || []).length > 0 && <span className="ts-mn-alg" title={tr('Allergens')}>{i.allergens.map((k) => <i key={k}>{allergenIcon(k)}</i>)}</span>}
                 <b className="ts-mn-price">{i.variations.length ? i.variations.map((v) => money(v.price)).join(' / ') : money(i.price)}</b>
               </button>
             </li>

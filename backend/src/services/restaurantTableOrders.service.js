@@ -3,6 +3,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var config = require('../config');
 var access = require('./restaurantTillAccess.service');
+var times = require('./restaurantTillTimes.service');
 var activity = require('./restaurantActivity.service');
 var kitchen = require('./restaurantKitchen.service');
 var tillMenu = require('./restaurantTillMenu.service');
@@ -114,6 +115,9 @@ async function place(code, p, ip) {
   });
   var priced = await pos().priceLines(pool, t.company_id, items, false);
   await tillMenu.checkOrder(pool, t.company_id, priced.lines, null, null);
+  // Served now (breakfast in the morning), and a happy hour on now goes on its dishes.
+  times.checkHours(t.settings, priced.lines, null);
+  times.applyHappy(t.settings, priced.lines);
   var pending = (await pool.query("SELECT count(*)::int AS n FROM restaurant_table_orders WHERE table_id = $1 AND status = 'pending'", [t.id])).rows[0].n;
   if (pending >= MAX_PENDING_PER_TABLE) fail('conflict', 'Your table has orders waiting already. A waiter is coming.');
   throttle(ip);
@@ -122,7 +126,7 @@ async function place(code, p, ip) {
   var saved = await withTransaction(async function (client) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('table-orders:' || $1))", [t.company_id]);
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_table_orders WHERE company_id = $1', [t.company_id])).rows[0].n;
-    var lines = priced.lines.map(function (l, i) { return { menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }; });
+    var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}); });
     var row = (await client.query(
       'INSERT INTO restaurant_table_orders (company_id, table_id, number, token_hash, customer_name, note, items, subtotal, ip) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
       [t.company_id, t.id, number, hash(token), name, cleanText(p.note, 200), JSON.stringify(lines), priced.subtotal, String(ip || '').slice(0, 60)])).rows[0];
@@ -213,7 +217,7 @@ async function acceptRow(o, session, p) {
   var claimed = (await pool.query("UPDATE restaurant_table_orders SET decided_by = $2, decided_at = now(), updated_at = now() WHERE id = $1 AND status = 'pending' AND decided_at IS NULL RETURNING *",
     [o.id, session.posEmployeeId || null])).rows[0];
   if (!claimed) fail('conflict', 'Someone has answered that order already, or it was cancelled.');
-  var add = claimed.items.map(function (l) { return { menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: require('./restaurantOnline.service').modsFrom(l.modifiers) }; });
+  var add = claimed.items.map(function (l) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId || undefined, qty: l.qty, note: l.note || '', modifiers: require('./restaurantOnline.service').modsFrom(l.modifiers) }, l.discount ? { discount: l.discount } : {}); });
   var t;
   try {
     var note = [ref(claimed.number) + ' (ordered at the table)', claimed.note].filter(Boolean).join(' · ');

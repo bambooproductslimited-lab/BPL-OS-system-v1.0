@@ -187,3 +187,7 @@
 .rs-lines li > span:nth-child(2) small { display: block; margin-top: 2px; font-size: 12px; color: var(--color-text-muted); }
 .rs-lines li > span:nth-child(2) small.rs-off { color: var(--color-danger); }
 .rs-lines .rs-sum { color: var(--color-text-muted); font-size: 13px; }
+/* The till's back office: how many sales came from Square (till/MonthlyReport.jsx). */
+.rr-square { display: flex; align-items: center; gap: 10px; margin: 12px 0 0; font-size: 13px; color: var(--color-text-muted); }
+.rr-square b { padding: 2px 9px; font-size: 11.5px; color: #fff; border-radius: 6px; background: #111827; }
+.ts-monthly .rr { gap: 14px; }

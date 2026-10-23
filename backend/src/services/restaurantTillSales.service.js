@@ -9,7 +9,10 @@ var money = require('./restaurantTillMoney.service');
 // yuan taken. A sale counts on the day it was rung up, a refund on the day
 // it was given (net = gross − refunds of the same days), as on a Z report.
 // Filters: a way of paying, an order type, a cashier, words (order number,
-// customer, table), and which transactions (sales, refunds, voided, IOU).
+// customer, table), which transactions (sales, refunds, voided, IOU), and
+// where a sale was rung up: on this till, or on Square before it (brought
+// in by restaurantSquareImport — source 'square'). Up to a year at a time.
+// It also counts the guests who sat down, for the spend per guest.
 
 var KINDS = ['all', 'sales', 'refunds', 'voided', 'iou'];
 var FULFILLMENTS = ['dine_in', 'pickup', 'delivery'];
@@ -22,7 +25,7 @@ function datesOf(q) {
   var from = q.from || today, to = q.to || from;
   if (!DAY.test(from) || !DAY.test(to)) fail('invalid', 'Pick the days for the report.');
   if (to < from) { var x = from; from = to; to = x; }
-  if ((Date.parse(to) - Date.parse(from)) / 86400000 > 92) fail('invalid', 'The sales report covers at most three months at a time.');
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) fail('invalid', 'The sales report covers at most a year at a time.');
   return { from: from, to: to };
 }
 
@@ -36,6 +39,8 @@ async function report(companyId, q) {
   // The filters, written for a sale (o) and for a refund (r of sale o).
   var common = [];
   if (FULFILLMENTS.indexOf(q.fulfillment) >= 0) common.push('o.fulfillment = ' + arg(q.fulfillment));
+  if (q.source === 'square') common.push("o.source = 'square'");
+  else if (q.source === 'till') common.push("o.source <> 'square'");
   if (q.q && String(q.q).trim()) {
     var w = arg('%' + String(q.q).trim().replace(/[%_]/g, '') + '%');
     common.push('(o.order_no ILIKE ' + w + ' OR o.customer_name ILIKE ' + w + ' OR o.ticket_name ILIKE ' + w + ' OR g.name ILIKE ' + w + ' OR t.name ILIKE ' + w + ')');
@@ -60,7 +65,8 @@ async function report(companyId, q) {
   var head = (await pool.query(
     'SELECT count(*)::int AS n, coalesce(sum(o.total), 0) AS gross, ' +
     "count(*) FILTER (WHERE o.payment_method = 'iou' AND o.iou_paid_at IS NULL)::int AS iou_n, coalesce(sum(o.total - o.refunded_total) FILTER (WHERE o.payment_method = 'iou' AND o.iou_paid_at IS NULL), 0) AS iou_owed, " +
-    'count(DISTINCT o.guest_id)::int AS customers' + COMPLETED, args)).rows[0];
+    'count(DISTINCT o.guest_id)::int AS customers, coalesce(sum(o.guests), 0)::int AS guests, coalesce(sum(o.total) FILTER (WHERE o.guests IS NOT NULL), 0) AS guest_sales, ' +
+    "count(*) FILTER (WHERE o.source = 'square')::int AS square_n, coalesce(sum(o.total) FILTER (WHERE o.source = 'square'), 0) AS square_amount" + COMPLETED, args)).rows[0];
   var voided = (await pool.query("SELECT count(*)::int AS n, coalesce(sum(o.total), 0) AS amount" + SALES + " AND o.status = 'voided'", args)).rows[0];
   var refunds = (await pool.query('SELECT count(*)::int AS n, coalesce(sum(r.amount), 0) AS amount' + REFUNDS, args)).rows[0];
   var dishes = (await pool.query('SELECT coalesce(sum(i.qty), 0) AS qty FROM restaurant_order_items i WHERE i.order_id IN (SELECT o.id' + COMPLETED + ')', args)).rows[0];
@@ -88,8 +94,10 @@ async function report(companyId, q) {
     .map(function (r) { return { id: r.id, name: r.name, sales: r.n, amount: round2(r.amount) }; });
   var byHour = (await pool.query('SELECT extract(hour FROM o.created_at)::int AS h, count(*)::int AS n, sum(o.total) AS amount' + COMPLETED + ' GROUP BY 1 ORDER BY 1', args)).rows
     .map(function (r) { return { hour: r.h, sales: r.n, amount: round2(r.amount) }; });
+  // Day by day, or month by month over more than two months.
+  var long = (Date.parse(d.to) - Date.parse(d.from)) / 86400000 > 62;
   var byDay = d.from === d.to ? [] : (await pool.query(
-    "SELECT to_char(o.created_at, 'YYYY-MM-DD') AS day, count(*)::int AS n, sum(o.total) AS amount" + COMPLETED + ' GROUP BY 1 ORDER BY 1', args)).rows
+    "SELECT to_char(o.created_at, '" + (long ? 'YYYY-MM' : 'YYYY-MM-DD') + "') AS day, count(*)::int AS n, sum(o.total) AS amount" + COMPLETED + ' GROUP BY 1 ORDER BY 1', args)).rows
     .map(function (r) { return { day: r.day, sales: r.n, amount: round2(r.amount) }; });
   var topItems = (await pool.query(
     'SELECT i.name, bool_or(i.custom) AS custom, sum(i.qty) AS qty, sum(i.line_total) AS amount FROM restaurant_order_items i WHERE i.order_id IN (SELECT o.id' + COMPLETED + ') ' +
@@ -143,11 +151,12 @@ async function report(companyId, q) {
       sales: head.n, gross: gross, refunds: refunds.n, refunded: refunded, net: round2(gross - refunded),
       average: head.n ? round2(gross / head.n) : 0, dishes: Number(dishes.qty), customers: head.customers,
       voided: voided.n, voidedAmount: round2(voided.amount), iouOpen: head.iou_n, iouOwed: round2(head.iou_owed),
-      discounts: round2(extras.discounts), discounted: extras.discounted, serviceCharge: round2(extras.service), serviceOff: extras.service_off, taxAdded: round2(extras.tax_added)
+      discounts: round2(extras.discounts), discounted: extras.discounted, serviceCharge: round2(extras.service), serviceOff: extras.service_off, taxAdded: round2(extras.tax_added),
+      guests: head.guests, perGuest: head.guests ? round2(head.guest_sales / head.guests) : 0, fromSquare: { sales: head.square_n, amount: round2(head.square_amount) }
     },
     comps: comps, discountsBy: discountsBy, taxes: taxes, addOns: addOns,
     byMethod: byMethod, byFulfillment: byFulfillment, byCashier: byCashier, byHour: byHour, byDay: byDay, topItems: topItems, foreign: foreign,
-    rows: rows, more: more, staff: staff
+    rows: rows, more: more, staff: staff, byMonth: long
   };
 }
 
@@ -187,7 +196,7 @@ async function rowsOf(page) {
       var o = sales.get(p.id);
       var parts = payments.get(o.id) || [{ method: o.payment_method, amount: round2(o.total), currency: 'GHS', rate: 1, foreignAmount: null, tendered: null, changeGiven: 0 }];
       return {
-        kind: 'sale', id: o.id, at: o.created_at, orderNo: o.order_no, status: o.status, source: o.source, fulfillment: o.fulfillment || '',
+        kind: 'sale', id: o.id, at: o.created_at, orderNo: o.order_no, status: o.status, source: o.source, sourceName: o.source_name || '', guests: o.guests || null, fulfillment: o.fulfillment || '',
         table: o.table_name || null, customer: o.guest_name || o.customer_name || o.ticket_name || null, deliveryAddress: o.delivery_address || '',
         cashier: o.cashier_name || null, waiter: o.waiter_name || null, total: round2(o.total), refunded: round2(o.refunded_total),
         method: o.payment_method, payments: parts, items: items.get(o.id) || [],

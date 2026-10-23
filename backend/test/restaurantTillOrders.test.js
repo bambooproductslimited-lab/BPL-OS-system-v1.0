@@ -300,7 +300,7 @@ test('the sales report: every sale and refund, the day\'s totals, by way of payi
   await money.refundSale(tok.ama, sale.id, { items: [{ id: line.id, qty: 1 }], reason: 'Zqo warm lager', method: 'cash', managerPin: PINS.kojo }, IP);
 
   await assert.rejects(access.salesReport(tok.ama, {}, IP), /type a manager's PIN/);
-  await assert.rejects(access.salesReport(tok.kojo, { from: '2026-01-01', to: '2026-06-30' }, IP), /at most three months/);
+  await assert.rejects(access.salesReport(tok.kojo, { from: '2025-01-01', to: '2026-06-30' }, IP), /at most a year/);
   var r = await access.salesReport(tok.kojo, {}, IP);
   var orders = (await pool.query("SELECT count(*)::int AS n, sum(total) AS gross FROM restaurant_orders WHERE company_id = $1 AND status = 'completed'", [company.id])).rows[0];
   assert.equal(r.totals.sales, orders.n);

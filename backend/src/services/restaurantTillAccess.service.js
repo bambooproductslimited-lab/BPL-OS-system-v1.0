@@ -4,6 +4,7 @@ var { audit } = require('../utils/audit');
 var pinAuth = require('../lib/pinAuth');
 var { buildContext } = require('./context.service');
 var activity = require('./restaurantActivity.service');
+var times = require('./restaurantTillTimes.service');
 
 // Who may do what on a restaurant's till and kitchen screen, and the
 // till's other settings (migration 0155). Everyone signs in with their
@@ -70,7 +71,14 @@ var DEFAULTS = {
   // it too) and the taxes (included in the menu prices, or added on top).
   discounts: [],
   serviceCharge: { on: false, name: 'Service charge', rate: 10, types: { dine_in: true, pickup: false, delivery: false }, taxed: true },
-  tax: { included: true, list: [] }
+  tax: { included: true, list: [] },
+  // The clock (restaurantTillTimes.service.js): courses (the later ones
+  // wait at the kitchen until called; each category's course, 0 right
+  // away), menus by time of day (a category served only between two
+  // times) and happy hours (a percentage off some categories at set times).
+  courses: { on: false, names: ['Starters', 'Mains', 'Desserts'], categories: {} },
+  hours: { categories: {} },
+  happyHours: []
 };
 // Said when someone's role does not allow what they tried.
 var REFUSED = {
@@ -141,6 +149,13 @@ function merged(stored) {
     if (typeof s.tax.included === 'boolean') out.tax.included = s.tax.included;
     if (Array.isArray(s.tax.list)) out.tax.list = s.tax.list.filter(function (t) { return t && t.name && Number(t.rate) > 0; });
   }
+  if (s.courses) {
+    if (typeof s.courses.on === 'boolean') out.courses.on = s.courses.on;
+    if (Array.isArray(s.courses.names) && s.courses.names.length) out.courses.names = s.courses.names.slice(0, times.MAX_COURSES);
+    if (s.courses.categories && typeof s.courses.categories === 'object') out.courses.categories = s.courses.categories;
+  }
+  if (s.hours && s.hours.categories && typeof s.hours.categories === 'object') out.hours.categories = s.hours.categories;
+  if (Array.isArray(s.happyHours)) out.happyHours = s.happyHours.filter(function (h) { return h && h.id && h.name && Number(h.percent) > 0; });
   return out;
 }
 async function settingsOf(companyId, db) {
@@ -191,7 +206,8 @@ async function profile(token) {
     settings: {
       paymentMethods: a.settings.paymentMethods, currencies: a.settings.currencies, ratesSetAt: a.settings.ratesSetAt, receipt: a.settings.receipt,
       idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen,
-      discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax
+      discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax,
+      courses: a.settings.courses, hours: a.settings.hours, happyHours: a.settings.happyHours
     }
   };
 }
@@ -289,6 +305,11 @@ function tableOut(r) {
 }
 var SHAPES = ['square', 'round', 'long'];
 
+// The menu's categories, for courses, menu hours and happy hours.
+async function categoriesOf(companyId, db) {
+  return (await (db || pool).query("SELECT DISTINCT coalesce(category, '') AS c FROM restaurant_menu_items WHERE company_id = $1 AND active ORDER BY 1", [companyId])).rows
+    .map(function (r) { return r.c; }).filter(Boolean);
+}
 function settingsOut(settings, staff, companyId, tables) {
   return {
     companyId: companyId, settings: settings, staff: staff, tables: tables || [],
@@ -299,7 +320,7 @@ function settingsOut(settings, staff, companyId, tables) {
 async function openSettings(token, pin, ip) {
   var m = await settingsManager(token, pin, ip);
   var company = m.session.posCompanyId;
-  return Object.assign(settingsOut(await settingsOf(company), await staffOf(company), company, await tablesOf(company)), { managerName: m.manager.first_name + ' ' + m.manager.last_name });
+  return Object.assign(settingsOut(await settingsOf(company), await staffOf(company), company, await tablesOf(company)), { managerName: m.manager.first_name + ' ' + m.manager.last_name, categories: await categoriesOf(company) });
 }
 
 function text(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
@@ -392,6 +413,9 @@ function cleanSettings(p, base) {
       })
     };
   }
+  if (p.courses) out.courses = times.cleanCourses(p.courses, text);
+  if (p.hours) out.hours = times.cleanHours(p.hours, text);
+  if (p.happyHours !== undefined) out.happyHours = times.cleanHappyHours(p.happyHours, text);
   return out;
 }
 
@@ -439,7 +463,7 @@ async function saveSettings(token, p, ip) {
     await audit(client, who, 'restaurant.till.settings', 'company', company, 'Till settings changed' + (parts.length ? ': ' + parts.join(', ') : '') + '.');
     await activity.log(client, { companyId: company, employeeId: m.manager.id, app: 'settings', action: 'settings.saved',
       summary: 'Till settings changed' + (parts.length ? ': ' + parts.join(', ') : '') + '.', details: { parts: parts } });
-    return Object.assign(settingsOut(settings, await staffOf(company, client), company, await tablesOf(company, client)), { managerName: managerName });
+    return Object.assign(settingsOut(settings, await staffOf(company, client), company, await tablesOf(company, client)), { managerName: managerName, categories: await categoriesOf(company, client) });
   });
 }
 
@@ -527,6 +551,13 @@ async function kitchenScreens(token, p, ip) {
   if (p.action === 'claim') done = await screens.claim(company, m.manager, p);
   else if (p.action === 'update') done = await screens.update(company, m.manager, p.id, p);
   else if (p.action === 'remove') done = await screens.remove(company, m.manager, p.id);
+  // A station without a screen: the till prints its tickets when it sends an order.
+  else if (p.action === 'stationPrint') {
+    var st = (await pool.query('UPDATE restaurant_kds_stations SET print_tickets = $3, updated_at = now() WHERE id = $1 AND company_id = $2 RETURNING id, name', [p.id, company, !!p.printTickets])).rows[0];
+    if (!st) fail('notfound', 'That station is not set up any more.');
+    await activity.log(pool, { companyId: company, employeeId: m.manager.id, app: 'settings', action: 'settings.station',
+      summary: (p.printTickets ? 'The till prints the tickets of ' : 'The till stops printing the tickets of ') + st.name + '.', refType: 'station', refId: st.id });
+  }
   if (done && p.action !== 'list') {
     await activity.log(pool, { companyId: company, employeeId: m.manager.id, app: 'settings', action: 'settings.screen',
       summary: { claim: 'Set up the kitchen screen ', update: 'Changed the kitchen screen ', remove: 'Took off the kitchen screen ' }[p.action] + done.name + '.', refType: 'screen', refId: done.id });
@@ -602,6 +633,21 @@ async function salesReport(token, p, ip) {
   return require('./restaurantTillSales.service').report(m.session.posCompanyId, p);
 }
 
+// The monthly report (restaurantReport.service.js) for the back office: the
+// month's sales by kitchen group, shift and hour, the best sellers and the
+// kitchen bonus — over every sale on the books, those brought in from
+// Square (restaurantSquareImport) and the till's own. Read only: its
+// groups, shifts and bonus rule are set in the OS (Restaurants, Report).
+async function monthlyReport(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  var company = m.session.posCompanyId;
+  var out = await require('./restaurantReport.service').report({ can: function (perm) { return perm === 'restaurant.read'; } }, company, { month: p.month });
+  var square = (await pool.query("SELECT count(*)::int AS n, min(created_at) AS first, max(created_at) AS last FROM restaurant_orders WHERE company_id = $1 AND source = 'square' AND status = 'completed'", [company])).rows[0];
+  out.square = { sales: square.n, first: square.first, last: square.last };
+  return out;
+}
+
 // What happened on the till and the kitchen screen (restaurantActivity.service.js).
 async function activityReport(token, p, ip) {
   p = p || {};
@@ -614,6 +660,6 @@ module.exports = {
   TILL_METHODS: TILL_METHODS, CURRENCIES: CURRENCIES, FULFILLMENTS: FULFILLMENTS, ROLES: ROLES, PERMISSIONS: PERMISSIONS, DEFAULTS: DEFAULTS, cashierOnDuty: cashierOnDuty,
   settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
-  settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, kitchenScreens: kitchenScreens,
+  settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, monthlyReport: monthlyReport, kitchenScreens: kitchenScreens,
   drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock
 };

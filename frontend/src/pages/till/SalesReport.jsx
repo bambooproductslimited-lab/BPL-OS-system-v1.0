@@ -13,9 +13,11 @@ import { modsWords } from './tillBill';
 // yuan taken. A tap on a transaction opens its dishes and how it was paid.
 // Backend: restaurantTillSales.service.js (POST /pos/settings/sales).
 
-const RANGES = [['today', msg('Today')], ['yesterday', msg('Yesterday')], ['week', msg('Last 7 days')], ['month', msg('This month')], ['day', msg('A day…')]];
+const RANGES = [['today', msg('Today')], ['yesterday', msg('Yesterday')], ['week', msg('Last 7 days')], ['month', msg('This month')], ['lastMonth', msg('Last month')], ['year', msg('Last 12 months')], ['day', msg('A day…')], ['span', msg('From… to…')]];
+// Where a sale was rung up: this till, or Square before it (brought in by the OS's Square import).
+const SOURCES = [['', msg('Till and Square')], ['till', msg('This till')], ['square', msg('From Square')]];
 const KINDS = [['all', msg('All transactions')], ['sales', msg('Sales')], ['refunds', msg('Refunds')], ['iou', msg('Sold on IOU')], ['voided', msg('Voided')]];
-const METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'other'];
+const METHODS = ['cash', 'mobile_money', 'alipay', 'wechat', 'vip', 'iou', 'card', 'bank_transfer', 'other'];
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
 function pct(part, whole) { return whole > 0 ? Math.round((part / whole) * 100) : 0; }
 function hourLabel(h) { return new Date(2000, 0, 1, h).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }); }
@@ -24,6 +26,8 @@ export default function SalesReport({ token, pin, onFail }) {
   const today = dayISO(new Date());
   const [range, setRange] = useState('today');
   const [day, setDay] = useState(today);
+  const [span, setSpan] = useState({ from: today.slice(0, 8) + '01', to: today });
+  const [source, setSource] = useState('');
   const [method, setMethod] = useState('');
   const [fulfillment, setFulfillment] = useState('');
   const [cashier, setCashier] = useState('');
@@ -38,12 +42,15 @@ export default function SalesReport({ token, pin, onFail }) {
     if (range === 'yesterday') { const y = dayISO(new Date(d.getTime() - 86400000)); return { from: y, to: y }; }
     if (range === 'week') return { from: dayISO(new Date(d.getTime() - 6 * 86400000)), to: today };
     if (range === 'month') return { from: today.slice(0, 8) + '01', to: today };
+    if (range === 'lastMonth') { const first = new Date(d.getFullYear(), d.getMonth() - 1, 1); const last = new Date(d.getFullYear(), d.getMonth(), 0); return { from: dayISO(first), to: dayISO(last) }; }
+    if (range === 'year') return { from: dayISO(new Date(d.getTime() - 364 * 86400000)), to: today };
+    if (range === 'span') return span;
     return { from: day, to: day };
-  }, [range, day, today]);
+  }, [range, day, today, span]);
   const body = useCallback((extra) => ({
     managerPin: pin || undefined, from: dates.from, to: dates.to, method: method || undefined, fulfillment: fulfillment || undefined,
-    cashierId: cashier || undefined, kind, q: q || undefined, ...extra
-  }), [pin, dates, method, fulfillment, cashier, kind, q]);
+    cashierId: cashier || undefined, kind, q: q || undefined, source: source || undefined, ...extra
+  }), [pin, dates, method, fulfillment, cashier, kind, q, source]);
   useEffect(() => {
     let live = true;
     const t = setTimeout(async () => {
@@ -82,7 +89,8 @@ export default function SalesReport({ token, pin, onFail }) {
   const t = data && data.totals;
   const peak = data && data.byHour.length ? data.byHour.reduce((a, b) => (b.amount > a.amount ? b : a)) : null;
   const top = data && data.byMethod.length ? data.byMethod[0] : null;
-  const series = data ? (data.byDay.length ? data.byDay.map((d) => ({ key: d.day, label: new Date(d.day + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short' }), ...d })) : fillHours(data.byHour)) : [];
+  const series = data ? (data.byDay.length ? data.byDay.map((d) => ({ key: d.day, ...d,
+    label: data.byMonth ? new Date(d.day + '-15T12:00:00').toLocaleDateString(activeIntlLocale(), { month: 'short', year: 'numeric' }) : new Date(d.day + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short' }) })) : fillHours(data.byHour)) : [];
   const maxBar = Math.max(1, ...series.map((s) => s.amount));
   const fulTotal = data ? data.byFulfillment.reduce((s, f) => s + f.amount, 0) : 0;
 
@@ -92,8 +100,15 @@ export default function SalesReport({ token, pin, onFail }) {
         <div className="ts-chips" role="radiogroup" aria-label={tr('When')}>
           {RANGES.map(([k, label]) => <button key={k} type="button" role="radio" aria-checked={range === k} className={range === k ? 'is-on' : ''} onClick={() => setRange(k)}>{tr(label)}</button>)}
           {range === 'day' && <input className="input ts-act-day" type="date" max={today} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label={tr('Day')} />}
+          {range === 'span' && (<>
+            <input className="input ts-act-day" type="date" max={today} value={span.from} onChange={(e) => e.target.value && setSpan({ ...span, from: e.target.value })} aria-label={tr('From')} />
+            <input className="input ts-act-day" type="date" max={today} value={span.to} onChange={(e) => e.target.value && setSpan({ ...span, to: e.target.value })} aria-label={tr('To')} />
+          </>)}
         </div>
         <div className="sr-filters">
+          <select className="input" value={source} onChange={(e) => setSource(e.target.value)} aria-label={tr('Rung up on')}>
+            {SOURCES.map(([k, label]) => <option key={k} value={k}>{tr(label)}</option>)}
+          </select>
           <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} aria-label={tr('Transactions')}>
             {KINDS.map(([k, label]) => <option key={k} value={k}>{tr(label)}</option>)}
           </select>
@@ -128,6 +143,8 @@ export default function SalesReport({ token, pin, onFail }) {
               <span className={t.refunds ? 'is-bad' : ''}><b>{t.refunds}</b>{t.refunds === 1 ? tr('refund') : tr('refunds')}</span>
               {t.iouOpen > 0 && <span className="is-warn"><b>{money(t.iouOwed)}</b>{tr('still owed on {n} IOUs', { n: t.iouOpen })}</span>}
               {t.voided > 0 && <span><b>{t.voided}</b>{tr('voided ({amount})', { amount: money(t.voidedAmount) })}</span>}
+              {t.guests > 0 && <span className="is-guests"><b>{money(t.perGuest)}</b>{tr('per guest, {n} guests', { n: t.guests })}</span>}
+              {t.fromSquare && t.fromSquare.sales > 0 && !source && <span className="is-square"><b>{money(t.fromSquare.amount)}</b>{tr('from Square: {n} sales', { n: t.fromSquare.sales })}</span>}
             </div>
           </div>
           {t.sales > 0 && (
@@ -162,7 +179,7 @@ export default function SalesReport({ token, pin, onFail }) {
               </div>
 
               <div className="sr-card">
-                <h4>{data.byDay.length ? tr('Sales by day') : tr('Sales by hour')}</h4>
+                <h4>{data.byMonth ? tr('Sales by month') : data.byDay.length ? tr('Sales by day') : tr('Sales by hour')}</h4>
                 <div className="sr-cols" role="list">
                   {series.map((s) => (
                     <span key={s.key} role="listitem" tabIndex={0} className={'sr-col' + (s.amount === maxBar && s.amount > 0 ? ' is-peak' : '')}
@@ -269,7 +286,8 @@ export default function SalesReport({ token, pin, onFail }) {
                           {r.status === 'voided' && <em className="sr-chip is-bad">{tr('Voided')}</em>}
                           {r.kind === 'sale' && r.refunded > 0 && <em className="sr-chip is-bad">{tr('{amount} refunded', { amount: money(r.refunded) })}</em>}
                           {r.iou && <em className={'sr-chip ' + (r.iou.paid ? 'is-good' : 'is-warn')}>{r.iou.paid ? tr('IOU paid') : tr('IOU owed')}</em>}
-                          {r.source === 'square' && <em className="sr-chip">Square</em>}
+                          {r.source === 'square' && <em className="sr-chip is-square">Square{r.sourceName ? ' · ' + r.sourceName : ''}</em>}
+                          {r.guests > 0 && <em className="sr-chip">👥 {r.guests}</em>}
                         </strong>
                         <small>{[r.fulfillment ? fulfillmentName(r.fulfillment) : null, r.table, r.customer, r.cashier].filter(Boolean).join(' · ')}</small>
                       </span>

@@ -130,7 +130,8 @@ async function list(companyId, ip) {
   var waiting = (await pool.query(
     "SELECT * FROM restaurant_kds_screens WHERE status = 'waiting' AND ip = $1 AND last_seen_at > now() - interval '30 minutes' ORDER BY created_at DESC LIMIT 20",
     [String(ip || '')])).rows;
-  var stations = (await pool.query('SELECT id, name FROM restaurant_kds_stations WHERE company_id = $1 AND active = true ORDER BY sort_order, name', [companyId])).rows;
+  var stations = (await pool.query('SELECT id, name, print_tickets FROM restaurant_kds_stations WHERE company_id = $1 AND active = true ORDER BY sort_order, name', [companyId])).rows
+    .map(function (r) { return { id: r.id, name: r.name, printTickets: !!r.print_tickets }; });
   return { screens: mine.map(screenOut), waiting: waiting.map(screenOut), stations: stations };
 }
 

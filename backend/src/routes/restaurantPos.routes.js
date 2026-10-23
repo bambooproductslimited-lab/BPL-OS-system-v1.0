@@ -56,6 +56,12 @@ router.post('/settings/activity', posAuth, async function (req, res, next) {
 router.post('/settings/sales', posAuth, async function (req, res, next) {
   try { res.json(await access.salesReport(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// The monthly report (restaurantReport.service.js) — kitchen groups, shifts
+// and hours, best sellers and the kitchen bonus, over the sales imported
+// from Square and the till's own — for a manager in the back office.
+router.post('/settings/monthly-report', posAuth, async function (req, res, next) {
+  try { res.json(await access.monthlyReport(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 // The kitchen screens: listed, set up by their code, changed, taken off.
 router.post('/settings/screens', posAuth, async function (req, res, next) {
   try { res.json(await access.kitchenScreens(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
@@ -171,6 +177,10 @@ router.post('/tabs/:id/join', posAuth, async function (req, res, next) {
 });
 router.post('/tabs/:id/move', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.moveTab(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
+});
+// The next course called: what waited at the kitchen is cooked now.
+router.post('/tabs/:id/fire', posAuth, async function (req, res, next) {
+  try { res.json(await restaurantPosService.fireCourse(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
 // This cashier's shift so far.
