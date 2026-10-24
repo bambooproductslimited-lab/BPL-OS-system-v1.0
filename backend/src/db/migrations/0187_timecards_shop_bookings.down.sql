@@ -1,0 +1,18 @@
+ALTER TABLE quotations DROP COLUMN IF EXISTS pay_share_id;
+DROP TABLE IF EXISTS appointments;
+ALTER TABLE settings DROP COLUMN IF EXISTS booking;
+DROP TABLE IF EXISTS shop_orders;
+ALTER TABLE settings DROP COLUMN IF EXISTS shop;
+ALTER TABLE restaurant_paystack_payments DROP COLUMN IF EXISTS gift_card_id;
+ALTER TABLE restaurant_paystack_payments DROP COLUMN IF EXISTS meta;
+DELETE FROM restaurant_paystack_payments WHERE purpose = 'gift';
+ALTER TABLE restaurant_paystack_payments DROP CONSTRAINT restaurant_paystack_payments_purpose_check;
+ALTER TABLE restaurant_paystack_payments ADD CONSTRAINT restaurant_paystack_payments_purpose_check CHECK (purpose IN ('till', 'kiosk', 'table'));
+ALTER TABLE restaurant_gift_cards DROP COLUMN IF EXISTS buyer_email;
+ALTER TABLE restaurant_gift_cards DROP COLUMN IF EXISTS buyer_phone;
+ALTER TABLE restaurant_gift_cards DROP COLUMN IF EXISTS to_email;
+UPDATE restaurant_gift_cards SET sold_method = 'mobile_money' WHERE sold_method = 'online';
+ALTER TABLE restaurant_gift_cards DROP CONSTRAINT restaurant_gift_cards_sold_method_check;
+ALTER TABLE restaurant_gift_cards ADD CONSTRAINT restaurant_gift_cards_sold_method_check CHECK (sold_method IN ('cash', 'mobile_money'));
+DROP TABLE IF EXISTS restaurant_shift_swaps;
+DROP TABLE IF EXISTS attendance_breaks;

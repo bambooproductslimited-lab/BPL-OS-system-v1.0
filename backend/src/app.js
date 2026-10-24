@@ -208,6 +208,10 @@ app.use('/api/commercial-settings', commercialSettingsRoutes);
 // Defines POST /shares (requireAuth, staff generating a link) and GET
 // /share/:token (deliberately public) — see shares.routes.js.
 app.use('/api', sharesRoutes);
+// Bamboo Products' online shop: its page and orders public, the rest for staff (shop.routes.js).
+app.use('/api', require('./routes/shop.routes'));
+// Booking a consultation: the booking page public, the appointments for staff (bookings.routes.js).
+app.use('/api', require('./routes/bookings.routes'));
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 // oauthRoutes and whatsappRoutes are mounted first and at a more specific

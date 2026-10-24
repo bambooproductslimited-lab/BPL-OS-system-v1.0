@@ -167,3 +167,11 @@
   .sa-buttons .sa-btn { flex: 1 1 auto; }
 }
 @media print { .share-col { display: block; max-width: none; } }
+
+/* A quotation approved and invoiced at once for its deposit. */
+.sa-card.sa-deposit { display: flex; gap: 14px; align-items: flex-start; background: linear-gradient(135deg, #f3f0ff, #fff 55%); }
+.sa-card.sa-deposit::before { background: linear-gradient(90deg, #7048e8, #1c7ed6, #12b886); }
+.sa-card.sa-deposit .sa-body { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.sa-card.sa-deposit .sa-btn { margin-top: 6px; text-decoration: none; }
+.sa-card.sa-deposit.is-paid { background: linear-gradient(135deg, #ebfbee, #fff 55%); }
+.sa-card.sa-deposit.is-paid::before { background: linear-gradient(90deg, #2f9e44, #74b816); }

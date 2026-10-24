@@ -4,6 +4,7 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import './rota.css';
+import './eighth.css';
 
 // The rota, in the till settings (Setup → Rota; backend
 // restaurantRota.service.js): who works when this week, one row a person,
@@ -11,7 +12,8 @@ import './rota.css';
 // show dashed until the week is published; published, everyone on it is
 // told their shifts, and the till shows who is on today. Last week can be
 // copied in one go. Above it, the hours planned and what they cost, against
-// what the same days sold last week.
+// what the same days sold last week. Shifts offered by one person and
+// taken by another wait above it for a manager to approve or decline.
 
 function addDays(day, n) { const d = new Date(day + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function dayName(d, style) { return new Date(d + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), style); }
@@ -104,6 +106,26 @@ export default function RotaTab({ token, pin, onFail }) {
       {flash && <div className="ts-flash" role="status">✓ {flash}</div>}
       {error && !edit && <div className="error-banner" role="alert">{error}</div>}
 
+      {data.swaps && data.swaps.length > 0 && (
+        <div className="sw-strip">
+          <strong>🔁 {tr('Shift swaps')}</strong>
+          <ul>
+            {data.swaps.map((w) => (
+              <li key={w.id} className={'is-' + w.status}>
+                <span className="sw-who"><b>{w.offeredBy.name}</b><i aria-hidden="true">→</i>{w.takenBy ? <b>{w.takenBy.name}</b> : <em>{tr('nobody yet')}</em>}
+                  <small>{dayName(w.shift.day, { weekday: 'short', day: 'numeric', month: 'short' })} · {w.shift.starts}–{w.shift.ends}{w.shift.role ? ' · ' + roleWord(w.shift.role) : ''}{w.note ? ' · “' + w.note + '”' : ''}</small></span>
+                {w.status === 'taken' ? (
+                  <span className="sw-acts">
+                    <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => act({ action: 'decide', swapId: w.id, approve: false }, () => tr('Declined: the shift stays {name}\'s.', { name: w.offeredBy.name }))}>{tr('Decline')}</button>
+                    <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act({ action: 'decide', swapId: w.id, approve: true }, () => tr('Approved: the shift is {name}\'s now.', { name: w.takenBy.name }))}>✓ {tr('Approve')}</button>
+                  </span>
+                ) : <span className="sw-tag is-open">{tr('Up for grabs')}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="ro-cards">
         <div className="ro-card"><small>{tr('Hours planned')}</small><strong>{data.hours.toLocaleString(activeIntlLocale())}</strong><span>{tr('{n} shifts', { n: data.shifts.length })}</span></div>
         <div className="ro-card"><small>{tr('What they cost')}</small><strong>{money(data.cost)}</strong><span>{data.noRate ? tr('{n} shifts with no pay rate', { n: data.noRate }) : tr('at each person\'s rate')}</span></div>
@@ -178,5 +200,54 @@ export function OnToday({ shifts }) {
         );
       })}
     </ul>
+  );
+}
+
+// For the till: the shifts of whoever is signed in, to offer one to a
+// colleague (or take it back), and the shifts others offer, to take.
+export function MyShifts({ token, onToast }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const call = useCallback((body) => posFetch('POST', '/pos/rota/swaps', token, body), [token]);
+  useEffect(() => { call({ action: 'mine' }).then(setD).catch((e) => setError(e.message)); }, [call]);
+  async function act(body, said) {
+    setBusy(true); setError('');
+    try { setD(await call(body)); onToast(said); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  if (!d) return error ? <div className="error-banner" role="alert">{error}</div> : null;
+  const when = (x) => dayName(x.day, { weekday: 'short', day: 'numeric', month: 'short' });
+  return (
+    <div className="sw">
+      <h4>🙋 {tr('My shifts')}</h4>
+      {!d.mine.length ? <p className="dk-muted">{tr('No shifts on the rota for you in the next four weeks.')}</p> : (
+        <ul className="sw-list">
+          {d.mine.map((s) => (
+            <li key={s.id} className={s.swap ? 'is-' + s.swap.status : ''}>
+              <span className="sw-when"><b>{when(s)}</b><small>{s.starts}–{s.ends}{s.role ? ' · ' + roleWord(s.role) : ''}</small></span>
+              {s.swap && <span className={'sw-tag is-' + s.swap.status}>{s.swap.status === 'taken' ? tr('{name} would take it', { name: s.swap.takenBy.name }) : tr('Offered')}</span>}
+              {s.swap
+                ? <button type="button" className="btn btn-secondary sw-btn" disabled={busy} onClick={() => act({ action: 'cancel', swapId: s.swap.id }, tr('The shift is yours again.'))}>{tr('Take back')}</button>
+                : <button type="button" className="btn btn-secondary sw-btn" disabled={busy} onClick={() => act({ action: 'offer', shiftId: s.id }, tr('Offered: a colleague can take it, then a manager approves.'))}>🔁 {tr('Offer it')}</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {d.open.length > 0 && (
+        <>
+          <h4>🎯 {tr('Shifts up for grabs')}</h4>
+          <ul className="sw-list">
+            {d.open.map((w) => (
+              <li key={w.id} className="is-grab">
+                <span className="sw-when"><b>{when(w.shift)}</b><small>{w.shift.starts}–{w.shift.ends}{w.shift.role ? ' · ' + roleWord(w.shift.role) : ''} · {tr('from {name}', { name: w.offeredBy.name })}</small></span>
+                <button type="button" className="btn btn-primary sw-btn" disabled={busy} onClick={() => act({ action: 'take', swapId: w.id }, tr('Taken: a manager approves it, then it is yours.'))}>{tr('Take it')}</button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {d.waiting.length > 0 && <p className="sw-wait">⏳ {d.waiting.length === 1 ? tr('1 shift you took waits for a manager.') : tr('{n} shifts you took wait for a manager.', { n: d.waiting.length })}</p>}
+      {error && <div className="error-banner" role="alert">{error}</div>}
+    </div>
   );
 }

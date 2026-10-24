@@ -23,6 +23,7 @@ import DealsSettings from './till/Deals';
 import PurchasingTab from './till/Purchasing';
 import CloseDayTab from './till/CloseDay';
 import RotaTab from './till/Rota';
+import TimecardsTab from './till/Timecards';
 import './TillSettings.css';
 // The monthly report brings the OS's report and its styles: loaded when opened.
 const MonthlyReport = lazy(() => import('./till/MonthlyReport'));
@@ -85,7 +86,7 @@ const GROUPS = [
   ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['closeday', () => tr('Close the day'), 'check'], ['insights', () => tr('Insights'), 'pulse'], ['tips', () => tr('Tips'), 'cash'], ['foodcost', () => tr('Food cost'), 'percent'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
   ['guestsGroup', () => tr('Guests'), [['feedback', () => tr('Feedback'), 'star'], ['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['recipes', () => tr('Recipes and costs'), 'percent'], ['stock', () => tr('Stock'), 'layers'], ['purchasing', () => tr('Low stock and orders'), 'send']]],
-  ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['rota', () => tr('Rota'), 'calendar'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
+  ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['rota', () => tr('Rota'), 'calendar'], ['timecards', () => tr('Timecards'), 'clock'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
     ['screens', () => tr('Kitchen screens'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['deals', () => tr('Deals and promo codes'), 'spark'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'],
     ['apps', () => tr('Delivery apps'), 'send'], ['kiosk', () => tr('Self-order kiosk'), 'receipt'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
@@ -375,9 +376,10 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'deals' && <DealsSettings draft={draft} set={set} categories={data.categories} token={token} />}
             {tab === 'purchasing' && <PurchasingTab token={token} pin={pin} onFail={fail} />}
             {tab === 'rota' && <RotaTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'timecards' && <TimecardsTab token={token} pin={pin} onFail={fail} />}
             {tab === 'closeday' && <CloseDayTab token={token} pin={pin} draft={draft} set={set} onFail={fail} />}
             {tab === 'service' && <ServiceSettings draft={draft} set={set} categories={data.categories} />}
-            {tab === 'guests' && <GuestSettings draft={draft} set={set} companyName={companyName} />}
+            {tab === 'guests' && <GuestSettings draft={draft} set={set} companyName={companyName} paystackReady={!!data.choices.paystack} />}
 
             {tab === 'receipts' && (
               <section className="ts-sec ts-receipt-sec">

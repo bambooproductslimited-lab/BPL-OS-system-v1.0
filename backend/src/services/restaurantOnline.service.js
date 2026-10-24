@@ -205,8 +205,9 @@ async function menu(code) {
   var co = await shopOf(code);
   var m = await menuItems(co.id, true);
   var till = await access.settingsOf(co.id);
-  // book: tables booked on the website (restaurantBookings onlineOptions).
-  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online }), categories: m.categories, items: m.items };
+  // book: tables booked on the website (restaurantBookings onlineOptions);
+  // gift: gift cards sold on it (restaurantGiftCards buyOnline).
+  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online, gift: require('./restaurantGiftCards.service').onlineOptions(till) }), categories: m.categories, items: m.items };
 }
 // The service charge (on the order types it is charged on) and the taxes,
 // for a customer's phone to show the same total the restaurant charges

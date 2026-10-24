@@ -158,7 +158,94 @@ async function publish(companyId, m, weekOf) {
   return { published: rows.length, told: told.length };
 }
 
-// POST /api/pos/settings/rota { managerPin, action: 'week' | 'save' | 'remove' | 'copy' | 'publish', weekOf, shift, id }
+// ---- swaps ---------------------------------------------------------------
+// Someone offers a shift of theirs on the till; a colleague takes it; a
+// manager approves (the shift becomes the colleague's) or declines. The
+// managers are told when a shift is taken, both people when it is decided.
+
+function swapOut(r) {
+  return { id: r.id, status: r.status, note: r.note, shift: { id: r.shift_id, day: dayOf(r.day), starts: String(r.starts).slice(0, 5), ends: String(r.ends).slice(0, 5), role: r.role },
+    offeredBy: { id: r.offered_by, name: r.o_first + ' ' + r.o_last }, takenBy: r.taken_by ? { id: r.taken_by, name: r.t_first + ' ' + r.t_last } : null, createdAt: r.created_at };
+}
+var SWAP_SELECT = 'SELECT w.*, s.day, s.starts, s.ends, s.role, o.first_name AS o_first, o.last_name AS o_last, t.first_name AS t_first, t.last_name AS t_last ' +
+  'FROM restaurant_shift_swaps w JOIN restaurant_rota_shifts s ON s.id = w.shift_id JOIN employees o ON o.id = w.offered_by LEFT JOIN employees t ON t.id = w.taken_by ';
+async function managersOf(companyId) {
+  return (await pool.query("SELECT employee_id AS id FROM restaurant_till_staff WHERE company_id = $1 AND role = 'manager'", [companyId])).rows.map(function (r) { return r.id; });
+}
+async function nameOf(id) { var e = (await pool.query('SELECT first_name, last_name FROM employees WHERE id = $1', [id])).rows[0]; return e ? e.first_name + ' ' + e.last_name : ''; }
+function shiftWords(r) { var d = new Date(dayOf(r.day) + 'T00:00:00Z'); return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + String(r.starts).slice(0, 5) + '–' + String(r.ends).slice(0, 5); }
+
+// The swaps waiting on someone, for the manager's rota.
+async function swapsOpen(companyId) {
+  return (await pool.query(SWAP_SELECT + "WHERE w.company_id = $1 AND w.status IN ('open', 'taken') AND s.day >= $2 ORDER BY (w.status = 'taken') DESC, s.day, s.starts", [companyId, today()])).rows.map(swapOut);
+}
+
+// POST /api/pos/rota/swaps { action: 'mine' | 'offer' | 'take' | 'cancel', shiftId, swapId, note } — anyone signed in.
+async function swaps(companyId, employeeId, p) {
+  p = p || {};
+  var action = p.action || 'mine';
+  if (action === 'offer') {
+    var sh = (await pool.query('SELECT * FROM restaurant_rota_shifts WHERE id = $1 AND company_id = $2', [p.shiftId, companyId])).rows[0];
+    if (!sh || sh.employee_id !== employeeId) fail('forbidden', 'Only your own shifts can be offered.');
+    if (!sh.published) fail('conflict', 'That shift is not on the published rota yet.');
+    if (dayOf(sh.day) < today()) fail('conflict', 'That shift has passed.');
+    var made = await pool.query("INSERT INTO restaurant_shift_swaps (company_id, shift_id, offered_by, note) VALUES ($1, $2, $3, $4) ON CONFLICT (shift_id) WHERE status IN ('open', 'taken') DO NOTHING RETURNING id",
+      [companyId, sh.id, employeeId, text(p.note, 200)]);
+    if (!made.rowCount) fail('conflict', 'That shift is offered already.');
+  } else if (action === 'take' || action === 'cancel') {
+    var w = (await pool.query(SWAP_SELECT + 'WHERE w.id = $1 AND w.company_id = $2', [p.swapId, companyId])).rows[0];
+    if (!w) fail('notfound', 'That swap is gone.');
+    if (action === 'cancel') {
+      if (w.offered_by !== employeeId) fail('forbidden', 'Only who offered it can take it back.');
+      if (['open', 'taken'].indexOf(w.status) < 0) fail('conflict', 'That swap is decided already.');
+      await pool.query("UPDATE restaurant_shift_swaps SET status = 'cancelled', decided_at = now() WHERE id = $1", [w.id]);
+    } else {
+      if (w.offered_by === employeeId) fail('invalid', 'That is your own shift.');
+      if (dayOf(w.day) < today()) fail('conflict', 'That shift has passed.');
+      var clash = (await pool.query('SELECT starts, ends FROM restaurant_rota_shifts WHERE company_id = $1 AND employee_id = $2 AND day = $3', [companyId, employeeId, w.day])).rows
+        .find(function (o) { return overlaps(String(w.starts).slice(0, 5), String(w.ends).slice(0, 5), String(o.starts).slice(0, 5), String(o.ends).slice(0, 5)); });
+      if (clash) fail('conflict', 'You already work ' + String(clash.starts).slice(0, 5) + '–' + String(clash.ends).slice(0, 5) + ' that day.');
+      var took = await pool.query("UPDATE restaurant_shift_swaps SET status = 'taken', taken_by = $2 WHERE id = $1 AND status = 'open' RETURNING id", [w.id, employeeId]);
+      if (!took.rowCount) fail('conflict', 'Someone took it first.');
+      var taker = await nameOf(employeeId);
+      var mgrs = await managersOf(companyId);
+      for (var i = 0; i < mgrs.length; i++) await notify(pool, mgrs[i], '🔁 ' + taker + ' would take ' + w.o_first + ' ' + w.o_last + '\'s shift', shiftWords(w) + '. Approve it in the rota.', null);
+      await notify(pool, w.offered_by, '🔁 ' + taker + ' would take your shift', shiftWords(w) + '. A manager approves it.', null);
+    }
+  } else if (action !== 'mine') fail('invalid', 'Unknown action.');
+  var mine = (await pool.query('SELECT * FROM restaurant_rota_shifts WHERE company_id = $1 AND employee_id = $2 AND published AND day BETWEEN $3 AND $4 ORDER BY day, starts', [companyId, employeeId, today(), addDays(today(), 27)])).rows.map(shiftOut);
+  var live = (await pool.query(SWAP_SELECT + "WHERE w.company_id = $1 AND w.status IN ('open', 'taken') AND s.day >= $2 ORDER BY s.day, s.starts", [companyId, today()])).rows.map(swapOut);
+  return {
+    mine: mine.map(function (s) { var w2 = live.find(function (x) { return x.shift.id === s.id; }); return Object.assign(s, { swap: w2 ? { id: w2.id, status: w2.status, takenBy: w2.takenBy } : null }); }),
+    open: live.filter(function (x) { return x.status === 'open' && x.offeredBy.id !== employeeId; }),
+    waiting: live.filter(function (x) { return x.status === 'taken' && x.takenBy && x.takenBy.id === employeeId; })
+  };
+}
+function overlaps(a1s, a1e, b1s, b1e) {
+  var a = toMin(a1s), ae = a + hoursOf(a1s, a1e) * 60, b = toMin(b1s), be = b + hoursOf(b1s, b1e) * 60;
+  return a < be && b < ae;
+}
+function toMin(t) { return Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)); }
+
+// A manager decides a taken swap.
+async function decide(companyId, m, p) {
+  var approve = !!p.approve;
+  return withTransaction(async function (db) {
+    var w = (await db.query(SWAP_SELECT + 'WHERE w.id = $1 AND w.company_id = $2 FOR UPDATE OF w', [p.swapId, companyId])).rows[0];
+    if (!w) fail('notfound', 'That swap is gone.');
+    if (w.status !== 'taken') fail('conflict', w.status === 'open' ? 'Nobody has taken that shift yet.' : 'That swap is decided already.');
+    if (approve) {
+      await db.query('UPDATE restaurant_rota_shifts SET employee_id = $2, updated_at = now() WHERE id = $1', [w.shift_id, w.taken_by]);
+    }
+    await db.query('UPDATE restaurant_shift_swaps SET status = $2, decided_by = $3, decided_at = now() WHERE id = $1', [w.id, approve ? 'approved' : 'declined', m.id]);
+    var words = shiftWords(w);
+    await notify(db, w.offered_by, approve ? '✅ Your shift went to ' + w.t_first + ' ' + w.t_last : '✖ Your shift stays yours', words + (approve ? '. You are off then.' : '. The swap was declined.'), null);
+    await notify(db, w.taken_by, approve ? '✅ The shift is yours' : '✖ The swap was declined', words + (approve ? ' — on the rota now.' : '.'), null);
+    await audit(db, who(m), 'restaurant.rota_swap', 'restaurant_shift_swaps', w.id, (approve ? 'Approved' : 'Declined') + ' ' + w.o_first + ' ' + w.o_last + ' → ' + w.t_first + ' ' + w.t_last + ', ' + words + '.');
+  });
+}
+
+// POST /api/pos/settings/rota { managerPin, action: 'week' | 'save' | 'remove' | 'copy' | 'publish' | 'decide', weekOf, shift, id, swapId, approve }
 async function tab(companyId, m, p) {
   p = p || {};
   var action = p.action || 'week';
@@ -167,8 +254,9 @@ async function tab(companyId, m, p) {
   else if (action === 'remove') await remove(companyId, p.id);
   else if (action === 'copy') out.copied = await copyLast(companyId, m, p.weekOf);
   else if (action === 'publish') Object.assign(out, await publish(companyId, m, p.weekOf));
+  else if (action === 'decide') await decide(companyId, m, p);
   else if (action !== 'week') fail('invalid', 'Unknown action.');
-  return Object.assign(await week(companyId, p.weekOf), out);
+  return Object.assign(await week(companyId, p.weekOf), out, { swaps: await swapsOpen(companyId) });
 }
 
 // For the till: who works today, published shifts only.
@@ -179,4 +267,4 @@ async function onToday(companyId) {
   return rows.map(shiftOut);
 }
 
-module.exports = { tab: tab, week: week, onToday: onToday, mondayOf: mondayOf, hoursOf: hoursOf };
+module.exports = { tab: tab, week: week, onToday: onToday, swaps: swaps, mondayOf: mondayOf, hoursOf: hoursOf };

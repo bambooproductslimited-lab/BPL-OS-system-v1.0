@@ -118,6 +118,18 @@ async function documentView(documentType, documentId) {
     var answers = require('./documentAnswers.service');
     answer = await answers.latest(share.document_type, d.id);
     answerState = answers.openFor(share.document_type, d, answer);
+    // A quotation approved and invoiced at once for its deposit: the
+    // invoice's link, to pay it (documentAnswers invoiceOnApproval).
+    if (d.pay_share_id) {
+      var ps = (await pool.query(
+        'SELECT s.token, s.expires_at, i.invoice_no, i.status, i.balance_due, i.amount_paid, i.payment_schedule, i.grand_total FROM document_shares s JOIN invoices i ON i.id = s.document_id ' +
+        "WHERE s.id = $1 AND s.document_type = 'invoice'", [d.pay_share_id])).rows[0];
+      if (ps && ps.status !== 'void' && !(ps.expires_at && new Date(ps.expires_at) < new Date())) {
+        var sched = Array.isArray(ps.payment_schedule) ? ps.payment_schedule : [];
+        pay = { invoice: { token: ps.token, invoiceNo: ps.invoice_no, paid: ps.status === 'paid', balance: Number(ps.balance_due), amountPaid: Number(ps.amount_paid),
+          deposit: sched.length > 1 ? Number(sched[0].amount || 0) : null, depositPaid: sched.length > 1 && Number(ps.amount_paid) + 0.009 >= Number(sched[0].amount || 0) } };
+      }
+    }
   } else {
     pay = await require('./invoicePay.service').viewFor(d);
   }

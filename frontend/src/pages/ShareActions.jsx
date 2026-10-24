@@ -41,15 +41,32 @@ export function AnswerPanel({ doc, token, onAnswered }) {
   }
 
   if (a && a.action === 'approved') {
+    // Invoiced at once for its deposit (backend documentAnswers invoiceOnApproval).
+    const inv = doc.pay && doc.pay.invoice;
     return (
-      <section className="sa-card sa-done sa-ok no-print">
-        <div className="sa-badge" aria-hidden="true">✓</div>
-        <div className="sa-body">
-          <h2>{docTr('Approved — thank you!')}</h2>
-          <p>{docTr('Signed by {name} on {date}. We will be in touch about the next steps.', { name: a.name, date: when(a.at) })}</p>
-          <SignatureView strokes={a.signature} className="sa-sig" />
-        </div>
-      </section>
+      <>
+        <section className="sa-card sa-done sa-ok no-print">
+          <div className="sa-badge" aria-hidden="true">✓</div>
+          <div className="sa-body">
+            <h2>{docTr('Approved — thank you!')}</h2>
+            <p>{docTr('Signed by {name} on {date}. We will be in touch about the next steps.', { name: a.name, date: when(a.at) })}</p>
+            <SignatureView strokes={a.signature} className="sa-sig" />
+          </div>
+        </section>
+        {inv && (
+          <section className={'sa-card sa-deposit no-print' + (inv.paid || inv.depositPaid ? ' is-paid' : '')}>
+            <div className="sa-emoji" aria-hidden="true">{inv.paid || inv.depositPaid ? '🎉' : '💳'}</div>
+            <div className="sa-body">
+              {inv.paid ? <h2>{docTr('Invoice {no} is paid. Thank you!', { no: inv.invoiceNo })}</h2>
+                : inv.depositPaid ? <h2>{docTr('Deposit received. Thank you!')}</h2>
+                  : <h2>{inv.deposit ? docTr('Pay the deposit of {amount} now', { amount: money(inv.deposit, doc.currency) }) : docTr('Pay invoice {no} now', { no: inv.invoiceNo })}</h2>}
+              <p className="sa-muted">{inv.paid ? docTr('Its receipt is on the invoice.') : inv.depositPaid ? docTr('The rest is on invoice {no}, to pay when it is due.', { no: inv.invoiceNo })
+                : docTr('Invoice {no} is ready: pay by card or Mobile Money, and we start right away.', { no: inv.invoiceNo })}</p>
+              <a className="sa-btn sa-btn-go" href={'/share/' + inv.token}>{inv.paid || inv.depositPaid ? '🧾 ' + docTr('See the invoice') : '💳 ' + docTr('Pay now')}</a>
+            </div>
+          </section>
+        )}
+      </>
     );
   }
   if (a && a.action === 'declined') {

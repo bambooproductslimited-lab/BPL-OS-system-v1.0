@@ -70,6 +70,10 @@ import PokiEstimatesPage from './pages/PokiEstimatesPage';
 import PokiBillingPage from './pages/PokiBillingPage';
 import PokiMaintenancePage from './pages/PokiMaintenancePage';
 import SharePage from './pages/SharePage';
+import ShopPage from './pages/ShopPage';
+import ShopOrdersPage from './pages/ShopOrdersPage';
+import BookPage from './pages/BookPage';
+import AppointmentsPage from './pages/AppointmentsPage';
 import MeetPage from './pages/MeetPage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
 import CrmOverviewPage from './pages/crm/CrmOverviewPage';
@@ -107,13 +111,13 @@ const BUILT_SCREENS = {
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
   assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, owner: OwnerPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, expensesheets: ExpenseSheetsPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
-  catalog: CatalogPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
+  catalog: CatalogPage, shoporders: ShopOrdersPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
   marketing: MarketingDashboardPage, socialtracker: SocialTrackerPage, salesorders: SalesOrdersPage, roles: RolesPage, users: UsersPage,
   audit: AuditPage, settings: CompanySettingsPage, integrations: IntegrationsPage, assistant: AssistantPage,
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
   pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage,
-  crm: CrmOverviewPage, crmboard: CrmBoardPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
+  crm: CrmOverviewPage, crmboard: CrmBoardPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage, appointments: AppointmentsPage,
   crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage, crmroute: CrmRoutePage,
   mkhome: MkHomePage, mkcampaigns: MkCampaignsPage, mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage, mkbudget: MkBudgetPage, mkevents: MkEventsPage, mkpromotions: MkPromotionsPage, mkaudiences: MkAudiencesPage, mkbrand: MkBrandPage, mkmarket: MkMarketPage
 };
@@ -141,6 +145,9 @@ export default function App() {
       <Route path="/ready-board" element={<ReadyBoardPage />} />
       <Route path="/delivery/*" element={<Suspense fallback={null}><DeliverySite /></Suspense>} />
       <Route path="/share/:token" element={<SharePage />} />
+      <Route path="/shop" element={<ShopPage />} />
+      <Route path="/book" element={<BookPage />} />
+      <Route path="/book/:token" element={<BookPage />} />
       <Route path="/p/:token" element={<ProductSheetPage />} />
       <Route path="/meet/:token" element={<MeetPage />} />
       <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />

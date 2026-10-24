@@ -689,6 +689,17 @@ async function rota(token, p, ip) {
   var m = await settingsManager(token, p.managerPin, ip);
   return require('./restaurantRota.service').tab(m.session.posCompanyId, m.manager, p);
 }
+// Timecards (restaurantTimecards.service.js), by a manager.
+async function timecards(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  return require('./restaurantTimecards.service').tab(m.session.posCompanyId, m.manager, p);
+}
+// Shifts offered and taken, for anyone signed in at the till.
+async function rotaSwaps(token, p) {
+  var session = posSession(token);
+  return require('./restaurantRota.service').swaps(session.posCompanyId, session.posEmployeeId, p);
+}
 async function rotaToday(token) {
   var session = posSession(token);
   return { shifts: await require('./restaurantRota.service').onToday(session.posCompanyId) };
@@ -736,5 +747,5 @@ module.exports = {
   settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
   settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, monthlyReport: monthlyReport, kitchenScreens: kitchenScreens,
-  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, purchasing: purchasing, closeDay: closeDay, rota: rota, rotaToday: rotaToday, staffOf: staffOf
+  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, purchasing: purchasing, closeDay: closeDay, rota: rota, rotaToday: rotaToday, rotaSwaps: rotaSwaps, timecards: timecards, staffOf: staffOf
 };

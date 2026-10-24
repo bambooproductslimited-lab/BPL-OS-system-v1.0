@@ -24,13 +24,14 @@ import './BillingSettingsPage.css';
 // link rather than edited twice.
 
 const EMPTY = {
-  quotationIntro: '', quotationFooter: '', invoiceFooter: '', paymentTerms: '', terms: '', validityDays: '', invoiceDueDays: '',
+  quotationIntro: '', quotationFooter: '', invoiceFooter: '', paymentTerms: '', terms: '', validityDays: '', invoiceDueDays: '', invoiceOnApproval: 'deposit',
   bankName: '', accountName: '', accountNumber: '', branch: '', swift: '', momoProvider: '', momoNumber: '', instructions: ''
 };
 function formFrom(s) {
   return {
     quotationIntro: s.templates.quotationIntro || '', quotationFooter: s.templates.quotationFooter || '', invoiceFooter: s.templates.invoiceFooter || '',
     paymentTerms: s.templates.paymentTerms || '', terms: s.templates.termsAndConditions || '', validityDays: String(s.templates.validityDays || ''), invoiceDueDays: String(s.templates.invoiceDueDays || ''),
+    invoiceOnApproval: s.templates.invoiceOnApproval || 'deposit',
     bankName: s.paymentDetails.bankName || '', accountName: s.paymentDetails.accountName || '', accountNumber: s.paymentDetails.accountNumber || '',
     branch: s.paymentDetails.branch || '', swift: s.paymentDetails.swift || '', momoProvider: s.paymentDetails.momoProvider || '',
     momoNumber: s.paymentDetails.momoNumber || '', instructions: s.paymentDetails.instructions || ''
@@ -78,7 +79,8 @@ export default function BillingSettingsPage() {
       await api.patch('/commercial-settings', {
         templates: {
           quotationIntro: form.quotationIntro, quotationFooter: form.quotationFooter, invoiceFooter: form.invoiceFooter,
-          paymentTerms: form.paymentTerms, termsAndConditions: form.terms, validityDays: Number(form.validityDays), invoiceDueDays: Number(form.invoiceDueDays)
+          paymentTerms: form.paymentTerms, termsAndConditions: form.terms, validityDays: Number(form.validityDays), invoiceDueDays: Number(form.invoiceDueDays),
+          invoiceOnApproval: form.invoiceOnApproval
         },
         paymentDetails: {
           bankName: form.bankName, accountName: form.accountName, accountNumber: form.accountNumber, branch: form.branch,
@@ -177,6 +179,15 @@ export default function BillingSettingsPage() {
             <div className="field">
               <label htmlFor="bs-dd">{tr('Default invoice due period (days)')}</label>
               <input id="bs-dd" className="input" type="number" min="1" max="365" step="1" value={form.invoiceDueDays} onChange={set('invoiceDueDays')} required />
+            </div>
+            <div className="field tl-span">
+              <label htmlFor="bs-ioa">{tr('A quotation approved online')}</label>
+              <select id="bs-ioa" className="input" value={form.invoiceOnApproval} onChange={set('invoiceOnApproval')}>
+                <option value="deposit">{tr('Invoice it at once when it asks for a deposit, so the customer pays it there and then')}</option>
+                <option value="always">{tr('Invoice it at once, always')}</option>
+                <option value="never">{tr('Leave it to the rep to invoice')}</option>
+              </select>
+              <small className="muted">{tr('Needs online payments (PAYSTACK_BPL_SECRET_KEY) and a quotation in cedis.')}</small>
             </div>
             <div className="field tl-span">
               <label htmlFor="bs-pt">{tr('Default payment terms')}</label>

@@ -413,7 +413,7 @@ async function setStatus(ctx, id, status) {
 
 module.exports = {
   CHANNELS: CHANNELS, crmCompanyId: crmCompanyId, normIdentity: normIdentity, phoneLabel: phoneLabel, isEmail: isEmail, isAutomatedEmail: isAutomatedEmail,
-  addIdentities: addIdentities, backfillIdentities: backfillIdentities, stampCustomer: stampCustomer,
+  addIdentities: addIdentities, findCustomerByIdentities: findCustomerByIdentities, backfillIdentities: backfillIdentities, stampCustomer: stampCustomer,
   ingest: ingest, listConversations: listConversations, getConversation: getConversation, reply: reply,
   logInteraction: logInteraction, linkConversation: linkConversation, setStatus: setStatus, setSendersForTests: setSendersForTests
 };

@@ -115,7 +115,7 @@ export function GiftCardsReport({ token, pin, onFail }) {
               <li key={c.id} className={'is-' + status}>
                 <span className="ts-gcr-chip" aria-hidden="true">🎁</span>
                 <span className="ts-ac-main"><strong>•••• {c.code.slice(-4)}{c.toName ? ' · ' + c.toName : ''}</strong>
-                  <small>{[when(c.createdAt), c.soldBy, c.soldMethod === 'cash' ? tr('Cash') : tr('Mobile Money'), c.fromName ? tr('from {name}', { name: c.fromName }) : null].filter(Boolean).join(' · ')}</small>
+                  <small>{[when(c.createdAt), c.soldBy, c.soldMethod === 'cash' ? tr('Cash') : c.soldMethod === 'online' ? '🌐 ' + tr('On the website') : tr('Mobile Money'), c.fromName ? tr('from {name}', { name: c.fromName }) : null].filter(Boolean).join(' · ')}</small>
                   <i className="ts-gcr-bar" aria-hidden="true"><b style={{ width: Math.max(0, Math.min(100, (c.balance / c.amount) * 100)) + '%' }} /></i></span>
                 <span className={'ts-ac-tag is-' + status}>{STATUS[status]()}</span>
                 <b className="ts-ac-amt">{money(c.balance)}<small>{tr('of {amount}', { amount: money(c.amount) })}</small></b>

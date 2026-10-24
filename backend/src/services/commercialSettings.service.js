@@ -50,6 +50,9 @@ async function save(ctx, p) {
     pickText(p.templates, TEMPLATE_TEXT, c.templates);
     if (p.templates.validityDays !== undefined) c.templates.validityDays = cleanDays(p.templates.validityDays, 'Quotation validity');
     if (p.templates.invoiceDueDays !== undefined) c.templates.invoiceDueDays = cleanDays(p.templates.invoiceDueDays, 'Invoice due period');
+    // A quotation approved on its link: invoiced at once when it asks for a
+    // deposit (its payment schedule), always, or never (documentAnswers).
+    if (p.templates.invoiceOnApproval !== undefined) c.templates.invoiceOnApproval = ['deposit', 'always', 'never'].indexOf(p.templates.invoiceOnApproval) >= 0 ? p.templates.invoiceOnApproval : fail('invalid', 'Invoice on approval: deposit, always or never.');
   }
   if (p.paymentDetails) pickText(p.paymentDetails, PAYMENT_TEXT, c.paymentDetails);
   await saveParts({ templates: c.templates, paymentDetails: c.paymentDetails });

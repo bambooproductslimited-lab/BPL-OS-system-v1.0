@@ -28,7 +28,7 @@ const POOL = [['direct', '🙋', () => tr('To whoever served'), () => tr('The ta
   ['hours', '⏱️', () => tr('By hours'), () => tr('Each day\'s tips shared by the hours each person worked that day.')]];
 const POOL_ROLES = [['waiter', () => tr('Waiters')], ['cashier', () => tr('Cashiers')], ['kitchen', () => tr('Kitchen')], ['manager', () => tr('Managers')]];
 
-export default function GuestSettings({ draft, set, companyName }) {
+export default function GuestSettings({ draft, set, companyName, paystackReady }) {
   const b = draft.bookings;
   const tips = draft.tips;
   const rt = draft.readyText;
@@ -188,6 +188,11 @@ export default function GuestSettings({ draft, set, companyName }) {
             ))}
             <small className="dk-muted">{tr('The amounts the till offers first (any other amount can be typed).')}</small>
           </div>
+        )}
+        {gc.on && (
+          <Toggle on={!!gc.online && !!paystackReady} disabled={!paystackReady} title={'🌐 ' + tr('Sell gift cards on the website')}
+            note={paystackReady ? tr('Guests buy one on the restaurant\'s website, paid by card or Mobile Money through Paystack; the card is made when it is paid and sent to whoever it is for by text or email.') : tr('Needs Paystack set up on the server (PAYSTACK_SECRET_KEY).')}
+            onChange={(v) => set(['giftCards'], { ...gc, online: v })} />
         )}
       </div>
     </section>

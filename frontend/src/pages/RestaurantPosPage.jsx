@@ -17,7 +17,8 @@ import TillSettings from './TillSettings';
 import PayDialog from './till/PayDialog';
 import HandInDialog from './till/HandInDialog';
 import MoreMenu from './till/MoreMenu';
-import { OnToday } from './till/Rota';
+import { OnToday, MyShifts } from './till/Rota';
+import TimeClock from './till/TimeClock';
 import { TableMapPicker } from './till/TableMap';
 import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
@@ -207,6 +208,8 @@ export default function RestaurantPosPage() {
   const [pin, setPin] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState(null);
+  // The PIN screen as the time clock: clock in, a break, clock out (till/TimeClock).
+  const [clockMode, setClockMode] = useState(false);
 
   const [menu, setMenu] = useState([]);
   const [menuLoading, setMenuLoading] = useState(false);
@@ -828,7 +831,7 @@ export default function RestaurantPosPage() {
   function tapClear() { if (!loggingIn) setPin(''); }
   // A till with a keyboard can type the PIN as well as tap it.
   useEffect(() => {
-    if (session || !sessionChecked) return undefined;
+    if (session || !sessionChecked || clockMode) return undefined;
     function onKey(e) {
       if (/^[0-9]$/.test(e.key)) tapDigit(e.key);
       else if (e.key === 'Backspace') tapBackspace();
@@ -1577,22 +1580,28 @@ export default function RestaurantPosPage() {
             </div>
           </div>
           <div className="pos-gate-pad">
-            <div className={'pos-pin' + (loginError ? ' is-bad' : '')} aria-label={tr('PIN')}>
-              {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
+            <div className="tc-mode" role="tablist" aria-label={tr('What for')}>
+              <button type="button" role="tab" aria-selected={!clockMode} className={!clockMode ? 'is-on' : ''} onClick={() => setClockMode(false)}>🔓 {tr('Sign in')}</button>
+              <button type="button" role="tab" aria-selected={clockMode} className={clockMode ? 'is-on' : ''} onClick={() => { setPin(''); setLoginError(null); setClockMode(true); }}>⏱ {tr('Time clock')}</button>
             </div>
-            <p className={'pos-pin-note' + (loginError ? ' is-bad' : '')} role="status">
-              {loggingIn ? tr('Checking…') : loginError || (idleNote && drawerLeftOpen ? tr('Signed out after {n} minutes without use. The cash drawer stays open: tap your PIN to carry on.', { n: idleNote })
-                : idleNote ? tr('Signed out after {n} minutes without use. Tap your PIN to carry on.', { n: idleNote })
-                  : drawerLeftOpen ? tr('Signed out. The cash drawer stays open until it is counted and closed: tap your PIN to carry on.') : tr('Tap your PIN or type it.'))}
-            </p>
-            <div className="pos-keypad">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-                <button key={d} type="button" disabled={loggingIn} onClick={() => tapDigit(d)}>{d}</button>
-              ))}
-              <button type="button" className="is-muted" disabled={loggingIn} onClick={tapClear}>{tr('Clear')}</button>
-              <button type="button" disabled={loggingIn} onClick={() => tapDigit('0')}>0</button>
-              <button type="button" className="is-muted" disabled={loggingIn} onClick={tapBackspace} aria-label={tr('Backspace')}>⌫</button>
-            </div>
+            {clockMode ? <TimeClock onClose={() => setClockMode(false)} /> : <>
+              <div className={'pos-pin' + (loginError ? ' is-bad' : '')} aria-label={tr('PIN')}>
+                {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
+              </div>
+              <p className={'pos-pin-note' + (loginError ? ' is-bad' : '')} role="status">
+                {loggingIn ? tr('Checking…') : loginError || (idleNote && drawerLeftOpen ? tr('Signed out after {n} minutes without use. The cash drawer stays open: tap your PIN to carry on.', { n: idleNote })
+                  : idleNote ? tr('Signed out after {n} minutes without use. Tap your PIN to carry on.', { n: idleNote })
+                    : drawerLeftOpen ? tr('Signed out. The cash drawer stays open until it is counted and closed: tap your PIN to carry on.') : tr('Tap your PIN or type it.'))}
+              </p>
+              <div className="pos-keypad">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+                  <button key={d} type="button" disabled={loggingIn} onClick={() => tapDigit(d)}>{d}</button>
+                ))}
+                <button type="button" className="is-muted" disabled={loggingIn} onClick={tapClear}>{tr('Clear')}</button>
+                <button type="button" disabled={loggingIn} onClick={() => tapDigit('0')}>0</button>
+                <button type="button" className="is-muted" disabled={loggingIn} onClick={tapBackspace} aria-label={tr('Backspace')}>⌫</button>
+              </div>
+            </>}
           </div>
         </div>
       </div>
@@ -2332,9 +2341,10 @@ export default function RestaurantPosPage() {
       {kiosksOpen && <Kiosks token={session.token} onToast={setToast} onClose={() => setKiosksOpen(false)} />}
       {rotaOpen && (
         <div className="dialog-backdrop" onClick={() => setRotaOpen(false)}>
-          <div className="dialog ro-dlg" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ro-today-title">
+          <div className="dialog ro-dlg is-today" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ro-today-title">
             <h3 id="ro-today-title">🗓️ {tr('Who is on today')}</h3>
             {rotaToday ? <OnToday shifts={rotaToday} /> : <p className="dk-muted">{tr('Loading…')}</p>}
+            <MyShifts token={session.token} onToast={setToast} />
             <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={() => setRotaOpen(false)}>{tr('Close')}</button></div>
           </div>
         </div>

@@ -69,6 +69,7 @@ export const NAV_GROUPS = [
     { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
     { key: 'crmcustomers', label: msg('Customers & prospects'), perm: 'crm.read', icon: 'user' },
     { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
+    { key: 'appointments', label: msg('Appointments'), perm: 'crm.read', icon: 'clock' },
     { key: 'crmroute', label: msg('Today\'s route'), perm: 'crm.read', icon: 'route' },
     { key: 'crmhealth', label: msg('Data health'), perm: 'crm.read', icon: 'shield' }
   ] },
@@ -96,6 +97,7 @@ export const NAV_GROUPS = [
     { key: 'payments', label: msg('Payments'), perm: 'invoice.read', icon: 'cash' },
     { key: 'receipts', label: msg('Receipts'), perm: 'invoice.read', icon: 'receipt' },
     { key: 'catalog', label: msg('Products & Services'), perm: 'catalog.read', icon: 'box' },
+    { key: 'shoporders', label: msg('Online shop'), perm: 'invoice.read', icon: 'cart' },
     { key: 'billingsettings', label: msg('Settings'), perm: 'settings.manage', icon: 'gear' }
   ] },
   { label: msg('Finance'), items: [

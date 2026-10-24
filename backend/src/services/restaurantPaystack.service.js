@@ -63,7 +63,8 @@ function out(r) {
 
 // Starts a payment of `amount` cedis for a restaurant: its page to pay on.
 // extra (paying at the table): { tabId, tip, payer } — the open order it is
-// for, the tip in it, and the payer's name.
+// for, the tip in it, and the payer's name; meta: what else it is for (a gift
+// card bought on the website: restaurantGiftCards buyOnline).
 async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callbackUrl, extra) {
   extra = extra || {};
   amount = round2(amount);
@@ -76,8 +77,8 @@ async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callb
     metadata: { restaurant: co.code, purpose: purpose }
   });
   var row = (await pool.query(
-    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
-    [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null, extra.tabId || null, round2(extra.tip || 0), String(extra.payer || '').slice(0, 60)])).rows[0];
+    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer, meta) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *',
+    [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null, extra.tabId || null, round2(extra.tip || 0), String(extra.payer || '').slice(0, 60), extra.meta || {}])).rows[0];
   return out(row);
 }
 
@@ -138,6 +139,7 @@ async function claimFor(client, companyId, refs) {
   var map = {};
   for (var i = 0; i < refs.length; i++) {
     var r = await rowOf(companyId, refs[i]);
+    if (r.purpose === 'gift') fail('conflict', 'That Paystack payment bought a gift card on the website.');
     if (r.status === 'pending') r = await check(r, true);
     if (r.status !== 'success') fail('conflict', r.status === 'pending' ? 'That Paystack payment is not paid yet.' : 'That Paystack payment did not go through.');
     var locked = (await client.query('SELECT * FROM restaurant_paystack_payments WHERE id = $1 FOR UPDATE', [r.id])).rows[0];
@@ -166,7 +168,11 @@ async function webhook(rawBody, signature) {
   if (!data || !data.reference) return { ok: true };
   var known = (await pool.query('SELECT 1 FROM restaurant_paystack_payments WHERE reference = $1', [String(data.reference)])).rows[0];
   if (!known) return { ok: true };
-  if (event.event === 'charge.success') await record(String(data.reference), data);
+  if (event.event === 'charge.success') {
+    var row = await record(String(data.reference), data);
+    // A gift card bought on the website is made as soon as it is paid.
+    if (row && row.purpose === 'gift' && row.status === 'success') await require('./restaurantGiftCards.service').settleOnline(row);
+  }
   return { ok: true };
 }
 

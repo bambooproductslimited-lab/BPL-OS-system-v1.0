@@ -13,6 +13,7 @@ import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
 import { happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
 import AccountSheet from './AccountSheet';
 import BookSheet from './BookSheet';
+import { GiftBuySheet } from './GiftBuy';
 import { billOf, modsWords, serviceWords } from '../till/tillBill';
 import { dealWords } from '../till/promos';
 import PromoCodeDialog from '../till/PromoCode';
@@ -70,6 +71,7 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
   }, []);
   const [acctOpen, setAcctOpen] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
+  const [giftOpen, setGiftOpen] = useState(false);
   const sections = useRef({});
   useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
   useEffect(() => {
@@ -147,7 +149,12 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
           {r.location && r.location.address && <span>📍 {r.location.address}</span>}
         </div>
         {r.note && <p className="on-note">{r.note}</p>}
-        {r.book && <button type="button" className="on-book-btn" onClick={() => setBookOpen(true)}><span aria-hidden="true">📅</span>{tr('Book a table')}<b aria-hidden="true">→</b></button>}
+        {(r.book || r.gift) && (
+          <div className="on-hero-btns">
+            {r.book && <button type="button" className="on-book-btn" onClick={() => setBookOpen(true)}><span aria-hidden="true">📅</span>{tr('Book a table')}<b aria-hidden="true">→</b></button>}
+            {r.gift && <button type="button" className="on-book-btn is-gift" onClick={() => setGiftOpen(true)}><span aria-hidden="true">🎁</span>{tr('Send a gift card')}<b aria-hidden="true">→</b></button>}
+          </div>
+        )}
       </header>
 
       {last && (
@@ -217,6 +224,7 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
         </button>
       )}
       {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => { add(line); setItem(null); }} />}
+      {giftOpen && <GiftBuySheet code={code} restaurant={r} account={account} onClose={() => setGiftOpen(false)} />}
       {bookOpen && <BookSheet code={code} account={account} onClose={() => setBookOpen(false)} onBooked={(b) => { setBookOpen(false); onBooking(b.token); }} />}
       {acctOpen && <AccountSheet account={account} onAccount={setAccount} onClose={() => setAcctOpen(false)}
         onFollow={(o) => { setAcctOpen(false); onTrackMine(o); }} onReorder={(o) => { reorder(o); setAcctOpen(false); }} />}

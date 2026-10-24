@@ -5,6 +5,7 @@ import TableShop from './TableShop';
 import OnlineReceipt from './OnlineReceipt';
 import { BookingPage } from './BookSheet';
 import GiftPage from './GiftPage';
+import { GiftBoughtPage } from './GiftBuy';
 import { PaidPage, UnsubscribePage } from './GuestPages';
 import { loadAccount } from './onlineShared';
 
@@ -12,7 +13,8 @@ import { loadAccount } from './onlineShared';
 // followed at /t/<its link> (?t= also works, for testing), and a table's
 // own menu at /q/<its code> — the QR code on the table (?q=), and a till
 // sale's receipt at /receipt/<its link> (?receipt=), a booking at
-// /b/<its link> (?b=), a gift card at /g/<its link> (?g=), the stop link of
+// /b/<its link> (?b=), a gift card at /g/<its link> (?g=), back from paying
+// for one bought here at /gp/<its secret> (?gp=), the stop link of
 // a text or email at /u/<its link> (?u=) and the page after paying the
 // till's QR code at /paid. Which
 // restaurant: ?r=<code> (Bamboo Garden: ?r=BGN), else the one it was built
@@ -26,7 +28,9 @@ function route() {
   const bk = window.location.pathname.match(/\/b\/([A-Za-z0-9_-]{16,64})/);
   const g = window.location.pathname.match(/\/g\/([A-Za-z0-9_-]{16,64})/);
   const u = window.location.pathname.match(/\/u\/([A-Za-z0-9_-]{8,40})/);
+  const gp = window.location.pathname.match(/\/gp\/([A-Za-z0-9_-]{16,64})/) || String(q.get('gp') || '').match(/^[A-Za-z0-9_-]{16,64}/);
   return { unsubscribe: u ? u[1] : q.get('u'), paid: /\/paid\/?$/.test(window.location.pathname) || q.has('paid'), track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), booking: bk ? bk[1] : q.get('b'), gift: g ? g[1] : q.get('g'),
+    giftBought: gp ? gp[1] || gp[0] : null,
     mine: q.get('mine'), code: q.get('r') || HOME_CODE };
 }
 // On the site's own address the paths are / and /t/<link>; opened as a
@@ -46,6 +50,7 @@ export default function OnlineSite() {
   if (r.paid) return <PaidPage />;
   if (r.receipt) return <OnlineReceipt token={r.receipt} />;
   if (r.gift) return <GiftPage token={r.gift} />;
+  if (r.giftBought) return <GiftBoughtPage secret={r.giftBought} onMenu={(code) => go(menuOf(code))} />;
   if (r.booking) return <BookingPage token={r.booking} onMenu={(code) => go(menuOf(code))} />;
   if (r.table) return <TableShop code={r.table} />;
   // An order of the signed-in customer's own (their account, on any phone).

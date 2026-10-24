@@ -84,6 +84,9 @@ router.post('/settings/export', h(async function (req) {
 }));
 // A gift card's own page: whoever has the link has the card.
 router.get('/online/gift/:token', h(function (req) { return gifts.publicCard(req.params.token); }));
+// Gift cards bought on the website: Paystack's page to pay on, then the card once paid.
+router.post('/online/:code/gift', h(function (req) { return gifts.buyOnline(req.params.code, body(req), req.ip); }));
+router.get('/online/gift-bought/:secret', h(function (req) { return gifts.bought(req.params.secret); }));
 
 // ── campaigns to guests (migration 0175): a manager's tab, a guest's details, the stop link ──
 router.post('/settings/campaigns', h(function (req) { return campaigns.tab(posToken(req), body(req), req.ip); }));

@@ -21,7 +21,7 @@ const SECTIONS = [
   ['menu', msg('Menu and stock'), msg('What the till sells, at what price, and what is left.'), [
     ['menu', 'receipt', msg('Menu')], ['recipes', 'percent', msg('Recipes and costs')], ['stock', 'layers', msg('Stock')], ['purchasing', 'send', msg('Low stock and orders')]]],
   ['setup', msg('Setup'), msg('Who does what, how customers pay, the bill\'s discounts and taxes, the floor and the kitchen screens.'), [
-    ['people', 'people', msg('People')], ['rota', 'calendar', msg('Rota')], ['roles', 'key', msg('What each role can do')], ['screens', 'layers', msg('Kitchen screens')], ['payments', 'cash', msg('Payments')],
+    ['people', 'people', msg('People')], ['rota', 'calendar', msg('Rota')], ['timecards', 'clock', msg('Timecards')], ['roles', 'key', msg('What each role can do')], ['screens', 'layers', msg('Kitchen screens')], ['payments', 'cash', msg('Payments')],
     ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['bill', 'percent', msg('Discounts, service and tax')], ['deals', 'spark', msg('Deals and promo codes')], ['service', 'clock', msg('Courses, menu times and happy hours')], ['apps', 'send', msg('Delivery apps')], ['kiosk', 'receipt', msg('Self-order kiosk')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
 ];
 
@@ -43,7 +43,8 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
     ask('/pos/settings/costs', { action: 'report' }, 'costs', (d) => d.totals);
     ask('/pos/settings/screens', { action: 'list' }, 'screens', (d) => ({ set: d.screens.length, online: d.screens.filter((s) => s.online).length, waiting: d.waiting.length }));
     ask('/pos/settings/closeday', { action: 'preview' }, 'closeday', (d) => ({ closed: d.closed, net: d.live.sales.net, open: d.live.openOrders.count }));
-    ask('/pos/settings/rota', { action: 'week' }, 'rota', (d) => ({ drafts: d.drafts, hours: d.hours, today: d.days.find((x) => x.day === d.today) }));
+    ask('/pos/settings/rota', { action: 'week' }, 'rota', (d) => ({ drafts: d.drafts, hours: d.hours, today: d.days.find((x) => x.day === d.today), swaps: (d.swaps || []).filter((w) => w.status === 'taken').length }));
+    ask('/pos/settings/timecards', { action: 'week' }, 'timecards', (d) => ({ onNow: d.staff.filter((p) => p.onNow).length, hours: d.hours, missed: d.missed.length, late: d.late }));
     ask('/pos/settings/purchasing', { action: 'list' }, 'purchasing', (d) => ({ sent: d.orders.filter((o) => o.status === 'sent').length, drafts: d.orders.filter((o) => o.status === 'draft').length }));
     return () => { on = false; };
   }, [token]);
@@ -74,8 +75,14 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
     }
     if (k === 'rota' && live.rota) {
       const r = live.rota;
+      if (r.swaps) return [String(r.swaps), r.swaps === 1 ? tr('shift swap to decide') : tr('shift swaps to decide'), 'warn'];
       if (r.drafts) return [String(r.drafts), r.drafts === 1 ? tr('change to publish') : tr('changes to publish'), 'warn'];
       return r.hours ? [tr('{n} on today', { n: r.today ? r.today.people : 0 }), tr('{n} h planned this week', { n: r.hours })] : [tr('Not planned'), tr('this week')];
+    }
+    if (k === 'timecards' && live.timecards) {
+      const t = live.timecards;
+      if (t.missed) return [String(t.missed), t.missed === 1 ? tr('shift missed this week') : tr('shifts missed this week'), 'warn'];
+      return [tr('{n} on shift', { n: t.onNow }), tr('{n} h worked this week', { n: t.hours })];
     }
     if (k === 'screens' && sc) return sc.waiting ? [tr('{n} new', { n: sc.waiting }), tr('waiting to be set up'), 'warn'] : [tr('{n} of {m}', { n: sc.online, m: sc.set }), tr('online now')];
     return null;

@@ -98,6 +98,16 @@ router.post('/settings/rota', posAuth, async function (req, res, next) {
 router.get('/rota/today', posAuth, async function (req, res, next) {
   try { res.json(await access.rotaToday(req.posToken)); } catch (e) { next(e); }
 });
+router.post('/rota/swaps', posAuth, async function (req, res, next) {
+  try { res.json(await access.rotaSwaps(req.posToken, req.body)); } catch (e) { next(e); }
+});
+// Timecards, by a manager; the time clock on the PIN pad, by PIN alone.
+router.post('/settings/timecards', posAuth, async function (req, res, next) {
+  try { res.json(await access.timecards(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/timeclock', async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTimecards.service').timeclock(req.body.pin, req.body.action, req.ip)); } catch (e) { next(e); }
+});
 // A complaint or a wrong charge raised on the till.
 router.post('/disputes', posAuth, async function (req, res, next) {
   try { res.status(201).json(await restaurantPosService.raiseDispute(req.posToken, req.body)); } catch (e) { next(e); }

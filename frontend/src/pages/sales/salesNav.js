@@ -20,8 +20,8 @@ const pick = (keys) => keys.map((k) => OS[k]).filter(Boolean);
 const MARKETING = pick(['mkcalendar', 'mkrequests', 'mkbrand']).map((item) => (item.key === 'mkcalendar' ? { ...item, perm: ['marketing.read', 'crm.read'] } : item));
 
 export const SALES_GROUPS = [
-  { label: msg('My day'), items: pick(['crmboard', 'crminbox', 'crmroute', 'crmvisits']) },
-  { label: msg('Pipeline'), items: pick(['crmleads', 'crmcustomers', 'estimates', 'quotations', 'invoices', 'salesorders']) },
+  { label: msg('My day'), items: pick(['crmboard', 'crminbox', 'crmroute', 'crmvisits', 'appointments']) },
+  { label: msg('Pipeline'), items: pick(['crmleads', 'crmcustomers', 'estimates', 'quotations', 'invoices', 'salesorders', 'shoporders']) },
   { label: msg('Marketing'), items: MARKETING },
   { label: msg('Toolkit'), items: pick(['catalog', 'expensesheets', 'messages', 'assistant']) },
   { label: msg('Results'), items: pick(['crmcommissions', 'crm', 'crmhealth']) }

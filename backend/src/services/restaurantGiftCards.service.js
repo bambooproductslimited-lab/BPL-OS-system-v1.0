@@ -13,12 +13,17 @@ var activity = require('./restaurantActivity.service');
 // planPayments) until its balance — the sum of its entries — is used up. A
 // refund of a sale it paid can go back on it. A manager voids a card sold
 // by mistake: what is left on it is given back in cash from the drawer.
+// Bought on the restaurant's website too (migration 0187; till settings
+// giftCards.online): paid through Paystack first, the card made once it is
+// paid and sent to whoever it is for by text or email.
 
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function cleanText(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
 function digitsOf(code) { return String(code || '').replace(/\D/g, ''); }
 function codeWords(c) { return String(c).replace(/(\d{4})(?=\d)/g, '$1 '); }
 function online() { return require('./restaurantOnline.service'); }
+function paystack() { return require('./restaurantPaystack.service'); }
+function mail() { return require('./mail.service'); }
 var MONEY = ['cash', 'mobile_money'];
 var METHOD_NAME = { cash: 'cash', mobile_money: 'Mobile Money' };
 
@@ -88,6 +93,10 @@ async function lookup(token, code) {
   return cardOut(pool, c, true);
 }
 
+function wordsOf(c, restaurant, link) {
+  return (c.from_name ? c.from_name + ' sent you' : 'You have') + ' a ' + restaurant + ' gift card of GHS ' + round2(c.amount).toFixed(2) + (c.message ? ': "' + c.message + '"' : '.') + ' ' + link;
+}
+
 // POST /api/pos/gift-cards/:id/send { channel: sms | whatsapp, phone } —
 // the card's link to whoever it is for.
 async function send(token, id, p) {
@@ -98,7 +107,7 @@ async function send(token, id, p) {
   var digits = internationalNumber(p.phone || c.to_phone);
   if (!digits) fail('invalid', 'Type the phone number to send it to, e.g. 024 412 3456.');
   var co = (await pool.query('SELECT name FROM companies WHERE id = $1', [c.company_id])).rows[0];
-  var words = (c.from_name ? c.from_name + ' sent you' : 'You have') + ' a ' + co.name + ' gift card of GHS ' + round2(c.amount).toFixed(2) + (c.message ? ': "' + c.message + '"' : '.') + ' ' + linkOf(c.company_code, c.token);
+  var words = wordsOf(c, co.name, linkOf(c.company_code, c.token));
   if (p.channel === 'sms') {
     await require('./sms.service').send({ to: '+' + digits, message: words, purpose: 'gift_card', refId: c.id });
     return { sent: true, channel: 'sms' };
@@ -218,7 +227,142 @@ async function publicCard(token) {
   };
 }
 
+// ── bought on the website ──
+function onlineOn(settings) { return !!(settings.giftCards.on && settings.giftCards.online) && paystack().configured(); }
+// For the website's menu (restaurantOnline menu): the amounts offered, when it sells them.
+function onlineOptions(settings) { return onlineOn(settings) ? { amounts: settings.giftCards.amounts } : null; }
+
+var boughtBy = new Map();
+var PER_IP_HOUR = 10;
+function throttle(ip) {
+  var now = Date.now(), key = String(ip || '');
+  var list = (boughtBy.get(key) || []).filter(function (t) { return now - t < 3600000; });
+  if (list.length >= PER_IP_HOUR) fail('ratelimited', 'Too many gift cards started from here in the last hour. Try again later.');
+  list.push(now);
+  boughtBy.set(key, list);
+  if (boughtBy.size > 5000) boughtBy.clear();
+}
+
+// POST /api/pos/online/:code/gift { amount, toName, toPhone, toEmail,
+// fromName, message, buyerPhone, buyerEmail, back } — Paystack's page to pay
+// on; back on the website after it (/gp/<secret>: bought below).
+async function buyOnline(code, p, ip) {
+  p = p || {};
+  var co = await online().shopOf(code);
+  var settings = await access.settingsOf(co.id);
+  if (!onlineOn(settings)) fail('conflict', 'This restaurant does not sell gift cards on its website.');
+  var amount = round2(p.amount);
+  if (!(amount >= 10 && amount <= 5000)) fail('invalid', 'A gift card bought here is from GHS 10 to GHS 5,000.');
+  var toName = cleanText(p.toName, 60);
+  if (toName.length < 2) fail('invalid', 'Who is the gift card for? Type their name.');
+  var toPhone = cleanText(p.toPhone, 30);
+  var toEmail = cleanText(p.toEmail, 120).toLowerCase();
+  if (toPhone && !internationalNumber(toPhone)) fail('invalid', 'Their phone number does not look right.');
+  if (toEmail && !mail().isEmail(toEmail)) fail('invalid', 'Their email address does not look right.');
+  if (!toPhone && !toEmail) fail('invalid', 'Give their phone number or email: the card is sent there.');
+  var fromName = cleanText(p.fromName, 60);
+  if (fromName.length < 2) fail('invalid', 'Who is it from? Type your name.');
+  var buyerPhone = cleanText(p.buyerPhone, 30);
+  var buyerEmail = cleanText(p.buyerEmail, 120).toLowerCase();
+  if (buyerPhone && !internationalNumber(buyerPhone)) fail('invalid', 'Your phone number does not look right.');
+  if (buyerEmail && !mail().isEmail(buyerEmail)) fail('invalid', 'Your email address does not look right.');
+  throttle(ip);
+  var secret = crypto.randomBytes(18).toString('base64url');
+  var base = require('./restaurantKiosk.service').backUrl(p.back) || online().siteUrlFor(co.code) + '/';
+  var back = /\.html$/.test(base) ? base + '?r=' + encodeURIComponent(co.code) + '&gp=' + secret : base.replace(/\/+$/, '') + '/gp/' + secret;
+  var pay = await paystack().begin(co.id, amount, 'gift', null, null, back, { payer: fromName, meta: {
+    secret: secret, toName: toName, toPhone: toPhone, toEmail: toEmail, fromName: fromName, message: cleanText(p.message, 200), buyerPhone: buyerPhone, buyerEmail: buyerEmail } });
+  await activity.log(pool, { companyId: co.id, employeeId: null, app: 'online', action: 'online.gift_started',
+    summary: fromName + ' is paying for a gift card of ' + amount.toFixed(2) + ' for ' + toName + ' on the website.', amount: amount });
+  return { url: pay.url, reference: pay.reference, secret: secret };
+}
+
+// The card a gift card payment bought, made once (the payment's row held
+// while it is): by whichever comes first of the buyer back on the website
+// and Paystack's webhook. Sent to whoever it is for when it is made.
+async function settleOnline(payRow) {
+  var made = await withTransaction(async function (client) {
+    var r = (await client.query('SELECT * FROM restaurant_paystack_payments WHERE id = $1 FOR UPDATE', [payRow.id])).rows[0];
+    if (!r || r.purpose !== 'gift' || r.status !== 'success') return null;
+    if (r.gift_card_id) return { card: (await client.query(CARD_SELECT + 'WHERE g.id = $1', [r.gift_card_id])).rows[0], fresh: false };
+    var m = r.meta || {};
+    var amount = round2(r.amount);
+    var code = await newCode(client);
+    var c = (await client.query(
+      'INSERT INTO restaurant_gift_cards (company_id, code, token, amount, to_name, to_phone, to_email, from_name, message, sold_method, buyer_phone, buyer_email) ' +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'online',$10,$11) RETURNING *",
+      [r.company_id, code, crypto.randomBytes(18).toString('base64url'), amount, m.toName || '', m.toPhone || '', m.toEmail || '', m.fromName || '', m.message || '', m.buyerPhone || '', m.buyerEmail || ''])).rows[0];
+    await client.query("INSERT INTO restaurant_gift_card_entries (card_id, company_id, kind, amount, method, note) VALUES ($1,$2,'sold',$3,'online',$4)", [c.id, r.company_id, amount, 'Paystack ' + r.reference]);
+    await client.query('UPDATE restaurant_paystack_payments SET gift_card_id = $2 WHERE id = $1', [r.id, c.id]);
+    await activity.log(client, { companyId: r.company_id, employeeId: null, app: 'online', action: 'online.gift_card',
+      summary: (m.fromName || 'Someone') + ' bought a gift card of ' + amount.toFixed(2) + ' for ' + (m.toName || 'a guest') + ' on the website (' + (r.channel === 'mobile_money' ? 'Mobile Money' : 'card') + '), card ending ' + code.slice(-4) + '.',
+      amount: amount, refType: 'gift_card', refId: c.id });
+    return { card: (await client.query(CARD_SELECT + 'WHERE g.id = $1', [c.id])).rows[0], fresh: true };
+  });
+  if (!made) return null;
+  if (made.fresh) await deliver(made.card);
+  return made.card;
+}
+
+// A card bought online, to whoever it is for (by text and/or email) and a
+// copy to the buyer's email. Not sent (no texts or email set up here, a
+// wrong number): the buyer still has its link on the website to share.
+async function deliver(c) {
+  var co = (await pool.query('SELECT name FROM companies WHERE id = $1', [c.company_id])).rows[0];
+  var link = linkOf(c.company_code, c.token);
+  var words = wordsOf(c, co.name, link);
+  var sent = { sms: false, email: false };
+  var digits = c.to_phone ? internationalNumber(c.to_phone) : null;
+  if (digits) {
+    try { await require('./sms.service').send({ to: '+' + digits, message: words, purpose: 'gift_card', refId: c.id }); sent.sms = true; } catch (e) { /* the buyer shares the link */ }
+  }
+  var esc = mail().escapeHtml;
+  function html(intro) {
+    return '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937;max-width:480px">' +
+      '<p style="margin:0 0 14px">' + esc(intro) + '</p>' +
+      '<div style="padding:22px;border-radius:18px;background:linear-gradient(135deg,#7c3aed,#db2777);color:#fff">' +
+      '<div style="font-size:13px;opacity:.85">🎁 ' + esc(co.name) + '</div><div style="font-size:32px;font-weight:800;margin:6px 0">GHS ' + round2(c.amount).toFixed(2) + '</div>' +
+      (c.message ? '<div style="font-style:italic">“' + esc(c.message) + '”</div>' : '') + '</div>' +
+      '<p style="margin:18px 0"><a href="' + esc(link) + '" style="display:inline-block;padding:12px 20px;border-radius:12px;background:#111827;color:#fff;text-decoration:none;font-weight:700">Open the gift card</a></p></div>';
+  }
+  if (mail().configured()) {
+    if (c.to_email) {
+      try {
+        await mail().send({ to: c.to_email, subject: (c.from_name || co.name) + ' sent you a gift card', fromName: co.name, text: words, html: html(words.replace(' ' + link, '')) });
+        sent.email = true;
+      } catch (e) { /* the buyer shares the link */ }
+    }
+    if (c.buyer_email && c.buyer_email !== c.to_email) {
+      var copy = 'Thank you! Your ' + co.name + ' gift card of GHS ' + round2(c.amount).toFixed(2) + ' for ' + c.to_name + ' is paid. Its link: ' + link;
+      try { await mail().send({ to: c.buyer_email, subject: 'Your gift card for ' + c.to_name, fromName: co.name, text: copy, html: html(copy.replace(' Its link: ' + link, '')) }); } catch (e) { /* their page has it */ }
+    }
+  }
+  return sent;
+}
+
+// GET /api/pos/online/gift-bought/:secret — back from Paystack: paid or not;
+// paid, the card (made then if Paystack's webhook has not made it) and its
+// link to share.
+async function bought(secret) {
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(String(secret || ''))) fail('notfound', 'We cannot find that gift card payment.');
+  var row = (await pool.query("SELECT * FROM restaurant_paystack_payments WHERE purpose = 'gift' AND meta->>'secret' = $1", [secret])).rows[0];
+  if (!row) fail('notfound', 'We cannot find that gift card payment.');
+  var co = (await pool.query('SELECT code, name FROM companies WHERE id = $1', [row.company_id])).rows[0];
+  if (row.status === 'pending') row = await paystack().check(row, false);
+  var m = row.meta || {};
+  var c = row.status === 'success' ? await settleOnline(row) : null;
+  var link = c ? linkOf(co.code, c.token) : null;
+  var digits = m.toPhone ? internationalNumber(m.toPhone) : null;
+  return {
+    status: row.status, amount: round2(row.amount), restaurant: { code: co.code, name: co.name, website: require('./restaurantDelivery.service').shopUrl(co.code) },
+    toName: m.toName || '', fromName: m.fromName || '', message: m.message || '', toPhone: !!m.toPhone, toEmail: !!m.toEmail,
+    card: c ? { token: c.token, link: link, codeWords: codeWords(c.code),
+      whatsapp: digits ? 'https://wa.me/' + digits + '?text=' + encodeURIComponent(wordsOf(c, co.name, link)) : 'https://wa.me/?text=' + encodeURIComponent(wordsOf(c, co.name, link)) } : null
+  };
+}
+
 module.exports = {
+  onlineOn: onlineOn, onlineOptions: onlineOptions, buyOnline: buyOnline, settleOnline: settleOnline, bought: bought,
   digitsOf: digitsOf, codeWords: codeWords, balanceOf: balanceOf, sell: sell, lookup: lookup, send: send, voidCard: voidCard,
   redeemForSale: redeemForSale, refundToCard: refundToCard, onVoid: onVoid, drawerCash: drawerCash, drawerMoves: drawerMoves, report: report, publicCard: publicCard
 };

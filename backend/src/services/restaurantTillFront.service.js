@@ -35,8 +35,8 @@ var DEFAULTS = {
   // ([{ id, name, points, kind: 'amount' | 'percent', value }]).
   loyalty: { on: false, spend: 10, rewards: [] },
   // Gift cards sold at the till and taken as a way of paying; the amounts
-  // offered first.
-  giftCards: { on: false, amounts: [50, 100, 200, 500] },
+  // offered first; online: bought on the website too (paid through Paystack).
+  giftCards: { on: false, amounts: [50, 100, 200, 500], online: false },
   // Texts and emails to guests (restaurantCampaigns): the automatic ones,
   // at most one marketing message a guest every perGuestDays, dailyMax a
   // day, sent only between from and to; onlyAgreed: only to guests who
@@ -114,6 +114,7 @@ function merge(out, s) {
   }
   if (s.giftCards && typeof s.giftCards === 'object') {
     if (typeof s.giftCards.on === 'boolean') out.giftCards.on = s.giftCards.on;
+    if (typeof s.giftCards.online === 'boolean') out.giftCards.online = s.giftCards.online;
     if (Array.isArray(s.giftCards.amounts)) { var a = s.giftCards.amounts.map(num).filter(function (x) { return x > 0 && x <= 100000; }).slice(0, 6); if (a.length) out.giftCards.amounts = a; }
   }
   var c = s.campaigns;
@@ -201,7 +202,7 @@ function clean(out, p, text) {
   }
   if (p.giftCards) {
     var amounts = Array.isArray(p.giftCards.amounts) ? p.giftCards.amounts.map(num).filter(function (x) { return x > 0 && x <= 100000; }).slice(0, 6) : [];
-    out.giftCards = { on: !!p.giftCards.on, amounts: amounts.length ? amounts : out.giftCards.amounts };
+    out.giftCards = { on: !!p.giftCards.on, amounts: amounts.length ? amounts : out.giftCards.amounts, online: !!p.giftCards.on && !!p.giftCards.online };
   }
   if (p.campaigns) {
     var c = p.campaigns, cc = clone(out.campaigns);

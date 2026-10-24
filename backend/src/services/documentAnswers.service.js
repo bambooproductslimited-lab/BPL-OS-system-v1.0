@@ -134,7 +134,45 @@ async function answer(token, p, ip, ua) {
     }
     return { type: type, id: d.id, answer: answerOut(row) };
   });
+  if (done.type === 'quotation' && action === 'approved') done.pay = await invoiceOnApproval(done.id);
   return done;
+}
+
+// A quotation approved on its link is invoiced at once when it asks for a
+// deposit — a payment schedule of two parts or more — (or always, as the
+// commercial settings say: templates.invoiceOnApproval deposit | always |
+// never), so the customer can pay the deposit there and then (invoicePay:
+// Bamboo Products' Paystack, in cedis). Its link is kept on the quotation
+// (pay_share_id) for the quotation's page to offer. Anything in the way
+// (online payments not set up, another currency, invoiced already): the
+// rep invoices it as before.
+async function invoiceOnApproval(quotationId) {
+  try {
+    var pay = require('./invoicePay.service');
+    if (!pay.configured()) return null;
+    var c = ((await pool.query('SELECT commercial FROM settings WHERE id = 1')).rows[0].commercial || {}).templates || {};
+    var when = c.invoiceOnApproval || 'deposit';
+    if (when === 'never') return null;
+    var q = (await pool.query('SELECT * FROM quotations WHERE id = $1', [quotationId])).rows[0];
+    if (!q || q.status !== 'accepted' || q.currency !== 'GHS') return null;
+    var schedule = Array.isArray(q.payment_schedule) ? q.payment_schedule : [];
+    if (when === 'deposit' && schedule.length < 2) return null;
+    var maker = q.created_by ? (await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = $1', [q.created_by])).rows[0] : null;
+    var ctx = { can: function () { return true; }, user: { id: null }, employee: maker || { id: null, first_name: 'Approved online', last_name: '' } };
+    var inv = await require('./invoices.service').createFromQuotation(ctx, q.id);
+    var link = await require('./shares.service').issueLink('invoice', inv.id, 30, maker ? maker.id : null);
+    var share = (await pool.query('SELECT id FROM document_shares WHERE token = $1', [link.token])).rows[0];
+    await pool.query('UPDATE quotations SET pay_share_id = $2 WHERE id = $1', [q.id, share.id]);
+    var deposit = schedule.length > 1 ? Math.round(Number(schedule[0].amount || 0) * 100) / 100 : null;
+    var reps = await repsOf(pool, 'quotation', q);
+    for (var i = 0; i < reps.length; i++) {
+      await notify(pool, reps[i], '🧾 ' + inv.invoiceNo + ' raised from ' + q.quote_no, 'Approved online: the customer can pay ' + (deposit ? 'the deposit (GHS ' + deposit.toFixed(2) + ')' : 'it') + ' on its link.', '/invoices?open=' + inv.id);
+    }
+    return { token: link.token, invoiceNo: inv.invoiceNo, deposit: deposit, total: Math.round(Number(inv.grandTotal) * 100) / 100 };
+  } catch (e) {
+    console.error('Invoice on approval not raised:', e.message);
+    return null;
+  }
 }
 
 // GET /api/document-answers/:type/:id — every answer to a document, for staff.
@@ -154,4 +192,4 @@ async function seen(documentType, documentId) {
   if (documentType === 'quotation') await pool.query("UPDATE quotations SET status = 'viewed' WHERE id = $1 AND status = 'sent'", [documentId]);
 }
 
-module.exports = { answer: answer, list: list, latest: latest, openFor: openFor, seen: seen, cleanSignature: cleanSignature, BOX_W: BOX_W, BOX_H: BOX_H };
+module.exports = { answer: answer, invoiceOnApproval: invoiceOnApproval, list: list, latest: latest, openFor: openFor, seen: seen, cleanSignature: cleanSignature, BOX_W: BOX_W, BOX_H: BOX_H };
