@@ -3,17 +3,24 @@ import { ALL_NAV_ITEMS } from '../../layout/navModel';
 import { osOrigin } from '../../lib/osOrigin';
 
 // What the sales team's own app shows (SalesApp.jsx): the OS's Sales & CRM
-// screens, and the quotations, invoices and sales orders those screens link
-// to — the same pages, labels, icons and permissions as in the OS's menu
+// screens, the quotations, invoices and sales orders those screens link
+// to, and the marketing calendar and requests to marketing — the same
+// pages, labels, icons and permissions as in the OS's menu
 // (layout/navModel.js), grouped for a rep's day. TABS are the four at the
 // bottom of a phone's screen; the rest are under "More".
 
 const OS = Object.fromEntries(ALL_NAV_ITEMS.map((item) => [item.key, item]));
 const pick = (keys) => keys.map((k) => OS[k]).filter(Boolean);
 
+// The marketing calendar is open to the sales team here (backend
+// mkHome.service.js calendar(): crm.read sees it without marketing's
+// workings); requests to marketing are for everyone, as in the OS.
+const MARKETING = pick(['mkcalendar', 'mkrequests']).map((item) => (item.key === 'mkcalendar' ? { ...item, perm: ['marketing.read', 'crm.read'] } : item));
+
 export const SALES_GROUPS = [
   { label: msg('My day'), items: pick(['crmboard', 'crminbox', 'crmvisits']) },
   { label: msg('Pipeline'), items: pick(['crmleads', 'crmcustomers', 'quotations', 'invoices', 'salesorders']) },
+  { label: msg('Marketing'), items: MARKETING },
   { label: msg('Results'), items: pick(['crmcommissions', 'crm', 'crmhealth']) }
 ];
 export const SALES_ITEMS = SALES_GROUPS.flatMap((g) => g.items);

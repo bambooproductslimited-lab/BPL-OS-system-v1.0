@@ -12,24 +12,28 @@ import CrmHealthPage from '../crm/CrmHealthPage';
 import QuotationsPage from '../QuotationsPage';
 import InvoicesPage from '../InvoicesPage';
 import SalesOrdersPage from '../SalesOrdersPage';
+import MkCalendarPage from '../marketing/MkCalendarPage';
+import MkRequestsPage from '../marketing/MkRequestsPage';
 import SalesShell from './SalesShell';
 import { HOME, OS_URL, SALES_ITEMS, allowed } from './salesNav';
 import { msg, tr } from '../../lib/i18n.jsx';
 import './SalesLogin.css';
 
-// The sales team's own app: sales.oseitutu.com (tools/build-site.mjs sales),
+// The sales team's own app: sales.oseitutu.com (tools/build-sales.mjs),
 // and oseitutu.com/sales in the OS. A rep signs in with their OS account —
 // email and password, and the two-step code if theirs has it on — and sees
 // only Sales & CRM: their board, inbox and follow-ups, leads, customers and
 // prospects, site visits, and the quotations, invoices, sales orders and
-// commissions those lead to (SalesShell.jsx; salesNav.js). The pages are
+// commissions those lead to, with the marketing calendar and requests to
+// marketing (SalesShell.jsx; salesNav.js). The pages are
 // the OS's own, at the same addresses, so their links work here unchanged;
 // anything else (a link into the rest of the OS) offers to open the OS.
 
 const PAGES = {
   crmboard: CrmBoardPage, crm: CrmOverviewPage, crminbox: CrmInboxHub, crmleads: CrmLeadsPage, crmcustomers: CrmCustomersHub,
   crmvisits: CrmVisitsPage, crmhealth: CrmHealthPage, crmcommissions: CrmCommissionsPage,
-  quotations: QuotationsPage, invoices: InvoicesPage, salesorders: SalesOrdersPage
+  quotations: QuotationsPage, invoices: InvoicesPage, salesorders: SalesOrdersPage,
+  mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage
 };
 const AREAS = [
   ['target', msg('Your sales board: who to call today')],

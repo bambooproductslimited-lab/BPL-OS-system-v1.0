@@ -144,8 +144,15 @@ function moments(year) {
 }
 
 // GET /api/mk/calendar?company=&from=&to=
+// marketing.read sees everything. The sales team (crm.read; the sales app)
+// sees what they sell around — campaigns, posts, events, promotions,
+// holidays and the year's moments — and, of the requests, only their own
+// (as on Requests to marketing); not the events' checklists or the
+// requests routines will make. full says which.
 async function calendar(ctx, opts) {
-  S.requireRead(ctx);
+  var full = S.canRead(ctx);
+  if (!full && !ctx.can('crm.read')) S.requireRead(ctx);
+  var mine = full ? null : ctx.employee && ctx.employee.id;
   var co = await S.company(opts && opts.company);
   var from = S.dateOrNull(opts && opts.from, 'From') || S.iso(monthStart(new Date()));
   var to = S.dateOrNull(opts && opts.to, 'To') || addDaysIso(from, 41);
@@ -158,11 +165,16 @@ async function calendar(ctx, opts) {
       "WHERE ch.company_id = $1 AND coalesce(p.published_at, p.scheduled_at)::date BETWEEN $2 AND $3 AND p.status <> 'failed'", [co.id, from, to]),
     pool.query("SELECT id, name, kind, status, starts_on, ends_on, venue FROM marketing_events WHERE company_id = $1 AND status <> 'cancelled' AND starts_on <= $3 AND coalesce(ends_on, starts_on) >= $2", [co.id, from, to]),
     pool.query('SELECT id, name, code, starts_on, ends_on, active FROM marketing_promotions WHERE company_id = $1 AND starts_on <= $3 AND coalesce(ends_on, $3) >= $2', [co.id, from, to]),
-    pool.query("SELECT id, number, title, status, due_on, priority, routine_id FROM marketing_requests WHERE company_id = $1 AND due_on BETWEEN $2 AND $3 AND status <> 'declined'", [co.id, from, to]),
-    pool.query('SELECT t.id, t.title, t.due_on, t.done, ev.id AS event_id, ev.name AS event_name FROM marketing_event_tasks t JOIN marketing_events ev ON ev.id = t.event_id ' +
-      "WHERE ev.company_id = $1 AND ev.status <> 'cancelled' AND t.due_on BETWEEN $2 AND $3", [co.id, from, to]),
+    full
+      ? pool.query("SELECT id, number, title, status, due_on, priority, routine_id FROM marketing_requests WHERE company_id = $1 AND due_on BETWEEN $2 AND $3 AND status <> 'declined'", [co.id, from, to])
+      : pool.query("SELECT id, number, title, status, due_on, priority, routine_id FROM marketing_requests r WHERE company_id = $1 AND due_on BETWEEN $2 AND $3 AND status <> 'declined' " +
+        'AND (r.requested_by = $4 OR r.assigned_to = $4 OR EXISTS (SELECT 1 FROM marketing_request_members m WHERE m.request_id = r.id AND m.employee_id = $4))', [co.id, from, to, mine]),
+    full
+      ? pool.query('SELECT t.id, t.title, t.due_on, t.done, ev.id AS event_id, ev.name AS event_name FROM marketing_event_tasks t JOIN marketing_events ev ON ev.id = t.event_id ' +
+        "WHERE ev.company_id = $1 AND ev.status <> 'cancelled' AND t.due_on BETWEEN $2 AND $3", [co.id, from, to])
+      : { rows: [] },
     pool.query('SELECT date, name FROM holidays WHERE (company_id = $1 OR company_id IS NULL) AND date BETWEEN $2 AND $3', [co.id, from, to]),
-    routines.upcoming(co.id, from, to)
+    full ? routines.upcoming(co.id, from, to) : []
   ]);
   var items = [];
   q[0].rows.forEach(function (r) { items.push({ kind: 'campaign', id: r.id, title: r.name, start: r.start_date || from, end: r.end_date || r.start_date || from, status: r.status }); });
@@ -182,7 +194,7 @@ async function calendar(ctx, opts) {
   });
   var ORDER = ['holiday', 'moment', 'campaign', 'event', 'promotion', 'post', 'request', 'routine', 'task'];
   items.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind); });
-  return { company: { code: co.code, name: co.name }, from: from, to: to, items: items };
+  return { company: { code: co.code, name: co.name }, from: from, to: to, full: full, items: items };
 }
 
 module.exports = { home: home, calendar: calendar, _moments: moments, _easter: easter };

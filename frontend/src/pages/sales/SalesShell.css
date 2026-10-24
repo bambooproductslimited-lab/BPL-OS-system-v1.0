@@ -82,7 +82,10 @@
 .sa-me { display: none; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; }
 .sa-me .sa-avatar { width: 36px; height: 36px; font-size: 13px; box-shadow: 0 0 0 2px var(--color-bg), 0 0 0 4px rgba(16, 185, 129, .5); }
 .sa-content { flex: 1; padding: 28px 32px 40px; }
-.sa-content > * { animation: sa-in .35s ease-out both; }
+/* backwards, not both: a transform kept after the animation would make the
+   page the containing block of its fixed pop-ups, which would then dim and
+   centre in the page alone rather than the whole screen. */
+.sa-content > * { animation: sa-in .35s ease-out backwards; }
 @keyframes sa-in { from { opacity: 0; transform: translateY(8px); } }
 
 /* ── phones and tablets held upright: tabs at the bottom ── */
