@@ -14,6 +14,13 @@ import InvoicesPage from '../InvoicesPage';
 import SalesOrdersPage from '../SalesOrdersPage';
 import MkCalendarPage from '../marketing/MkCalendarPage';
 import MkRequestsPage from '../marketing/MkRequestsPage';
+import MkBrandPage from '../marketing/MkBrandPage';
+import EstimatesPage from '../EstimatesPage';
+import CatalogPage from '../CatalogPage';
+import ExpenseSheetsPage from '../expenseSheets/ExpenseSheetsPage';
+import MessagesPage from '../MessagesPage';
+import AssistantPage from '../AssistantPage';
+import CrmRoutePage from '../crm/CrmRoutePage';
 import SalesShell from './SalesShell';
 import { HOME, OS_URL, SALES_ITEMS, allowed } from './salesNav';
 import { msg, tr } from '../../lib/i18n.jsx';
@@ -24,8 +31,9 @@ import './SalesLogin.css';
 // email and password, and the two-step code if theirs has it on — and sees
 // only Sales & CRM: their board, inbox and follow-ups, leads, customers and
 // prospects, site visits, and the quotations, invoices, sales orders and
-// commissions those lead to, with the marketing calendar and requests to
-// marketing (SalesShell.jsx; salesNav.js). The pages are
+// commissions those lead to, with the marketing calendar, requests to
+// marketing and the brand kit, and the products and prices, expenses,
+// messages and the assistant (SalesShell.jsx; salesNav.js). The pages are
 // the OS's own, at the same addresses, so their links work here unchanged;
 // anything else (a link into the rest of the OS) offers to open the OS.
 
@@ -33,7 +41,8 @@ const PAGES = {
   crmboard: CrmBoardPage, crm: CrmOverviewPage, crminbox: CrmInboxHub, crmleads: CrmLeadsPage, crmcustomers: CrmCustomersHub,
   crmvisits: CrmVisitsPage, crmhealth: CrmHealthPage, crmcommissions: CrmCommissionsPage,
   quotations: QuotationsPage, invoices: InvoicesPage, salesorders: SalesOrdersPage,
-  mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage
+  mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage, mkbrand: MkBrandPage, estimates: EstimatesPage,
+  catalog: CatalogPage, expensesheets: ExpenseSheetsPage, messages: MessagesPage, assistant: AssistantPage, crmroute: CrmRoutePage
 };
 const AREAS = [
   ['target', msg('Your sales board: who to call today')],

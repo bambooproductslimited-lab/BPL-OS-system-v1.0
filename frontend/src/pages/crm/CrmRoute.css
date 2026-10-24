@@ -1,0 +1,82 @@
+/* Today's route (CrmRoutePage.jsx): a road-trip hero with a dashed road
+   running across it, the map beside the round on a computer (above it on a
+   phone), and the visits as numbered stops joined by their legs. */
+.rt { --rt-a: #10b981; --rt-b: #0ea5e9; --rt-grad: linear-gradient(120deg, var(--rt-a), var(--rt-b)); display: flex; flex-direction: column; gap: 16px; }
+
+.rt-hero { position: relative; overflow: hidden; padding: 22px 24px; border-radius: 26px; color: #fff;
+  background: radial-gradient(70% 120% at 100% 0%, rgba(14, 165, 233, .45), transparent 60%), radial-gradient(60% 100% at 0% 100%, rgba(163, 230, 53, .3), transparent 60%), linear-gradient(135deg, #062a24, #0b2540 70%);
+  box-shadow: 0 24px 50px -32px rgba(6, 42, 36, .9); }
+.rt-hero-road { position: absolute; left: -10%; right: -10%; bottom: 18px; height: 4px; opacity: .35; pointer-events: none;
+  background: repeating-linear-gradient(90deg, #fde68a 0 26px, transparent 26px 46px); animation: rt-drive 2.4s linear infinite; }
+@keyframes rt-drive { to { transform: translateX(-46px); } }
+.rt-hero-main { position: relative; display: flex; flex-direction: column; gap: 8px; }
+.rt-eyebrow { font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: #a7f3d0; }
+.rt-hero h1 { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.02em; }
+.rt-hero h1 small { font-size: .6em; font-weight: 700; opacity: .8; }
+.rt-hero p { margin: 0; max-width: 680px; font-size: 14.5px; line-height: 1.5; opacity: .9; }
+.rt-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.rt-days, .rt-seg { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .18); }
+.rt-days button, .rt-seg button { min-width: 36px; padding: 6px 12px; font: inherit; font-size: 13px; font-weight: 800; color: #e0f2fe; background: none; border: 0; border-radius: 999px; cursor: pointer; }
+.rt-days button.is-on, .rt-seg button[aria-pressed='true'] { color: #052e2b; background: #fff; }
+.rt-here { padding: 6px 12px; font-size: 12.5px; font-weight: 700; border-radius: 999px; background: rgba(255, 255, 255, .1); color: #fde68a; }
+.rt-here.is-on { color: #bbf7d0; }
+.rt-gmaps { margin-left: auto; padding: 8px 14px; font-size: 13px; font-weight: 800; color: #052e2b; text-decoration: none; border-radius: 999px; background: #fde68a; box-shadow: 0 8px 18px -10px #fde68a; }
+.rt-gmaps:hover { text-decoration: none; filter: brightness(1.05); }
+
+.rt-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+.rt-mapbox { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 10px; }
+.rt-map { height: min(68vh, 640px); border-radius: 22px; overflow: hidden; box-shadow: 0 20px 44px -30px rgba(0, 0, 0, .6); }
+.rt-placing { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 18px; background: var(--color-bg-subtle); border: 2px solid var(--rt-a); animation: rt-in .25s ease-out; }
+.rt-placing span { font-size: 13px; color: var(--color-text-muted); }
+.rt-placing div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.rt-placing .btn { border-radius: 12px; }
+@keyframes rt-in { from { opacity: 0; transform: translateY(6px); } }
+
+.rt-list { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rt-stops { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.rt-stop { animation: rt-in .35s calc(var(--i) * 60ms) ease-out backwards; }
+.rt-leg { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: 22px; padding: 10px 0 10px 26px; font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); border-left: 3px dashed color-mix(in srgb, var(--rt-a) 55%, transparent); }
+.rt-jam { padding: 2px 8px; border-radius: 999px; color: #b91c1c; background: rgba(239, 68, 68, .12); }
+:root[data-theme='dark'] .rt-jam { color: #fca5a5; }
+.rt-guess { padding: 2px 8px; border-radius: 999px; font-weight: 700; color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+small.rt-guess { align-self: flex-start; margin-top: 2px; }
+.rt-card { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 14px; border-radius: 20px; background: var(--color-bg-subtle); border: 1px solid var(--color-divider); }
+:root[data-theme='glass'] .rt-card, :root[data-theme='glass'] .rt-box { background: var(--gl-sheen), var(--gl-fill); border-color: var(--gl-edge); box-shadow: var(--gl-shine), var(--gl-shadow); }
+.rt-n { grid-row: span 2; display: grid; place-items: center; width: 44px; height: 44px; font-size: 19px; font-weight: 900; color: #fff; border-radius: 15px; background: var(--rt-grad); box-shadow: 0 10px 20px -12px var(--rt-a); }
+.rt-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rt-what b { font-size: 15.5px; }
+.rt-what span { font-size: 13px; color: var(--color-text-muted); }
+.rt-what small { font-size: 12px; color: var(--color-text-muted); }
+.rt-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.rt-act { padding: 6px 12px; font: inherit; font-size: 12.5px; font-weight: 800; color: var(--color-text); text-decoration: none; cursor: pointer; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg); }
+.rt-act:hover { text-decoration: none; border-color: var(--rt-a); }
+.rt-act.is-go { color: #fff; border-color: transparent; background: var(--rt-grad); }
+.rt-act.is-done { color: #047857; border-color: rgba(16, 185, 129, .45); background: rgba(16, 185, 129, .1); }
+:root[data-theme='dark'] .rt-act.is-done { color: #6ee7b7; }
+.rt-back { margin: 10px 0 0 22px; padding: 6px 0 0 26px; font-size: 13px; font-weight: 700; color: var(--color-text-muted); border-left: 3px dotted var(--color-border); }
+
+.rt-box { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 20px; background: var(--color-bg-subtle); border: 1px dashed var(--color-border); }
+.rt-box h3 { margin: 0; font-size: 15px; }
+.rt-box p { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.rt-box.is-done { border-style: solid; opacity: .85; }
+.rt-un { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--color-divider); }
+.rt-un span { display: flex; flex-direction: column; min-width: 0; }
+.rt-un small { font-size: 12px; color: var(--color-text-muted); }
+.rt-un .btn { border-radius: 12px; white-space: nowrap; }
+
+@media (max-width: 1000px) {
+  .rt-main { grid-template-columns: minmax(0, 1fr); }
+  .rt-mapbox { position: static; }
+  .rt-map { height: 52vh; }
+  .rt-gmaps { margin-left: 0; }
+}
+@media (max-width: 640px) {
+  .rt-hero { padding: 18px 16px 26px; border-radius: 22px; }
+  .rt-map { height: 46vh; border-radius: 18px; }
+  .rt-card { grid-template-columns: auto 1fr; }
+  .rt-acts { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { .rt-hero-road, .rt-stop, .rt-placing { animation: none; } }
+
+/* The visits' numbers on their pins (DeliveryMap's pins are white inside in every theme). */
+.rt-map .dm-pin.is-order .dm-dot > i { color: #0f172a; font-size: 17px; font-weight: 900; font-family: var(--font-heading, system-ui); }

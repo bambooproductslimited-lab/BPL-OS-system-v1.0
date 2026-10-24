@@ -69,6 +69,7 @@ export const NAV_GROUPS = [
     { key: 'crmleads', label: msg('Leads'), perm: 'crm.read', icon: 'users' },
     { key: 'crmcustomers', label: msg('Customers & prospects'), perm: 'crm.read', icon: 'user' },
     { key: 'crmvisits', label: msg('Site visits'), perm: 'crm.read', icon: 'calendar' },
+    { key: 'crmroute', label: msg('Today\'s route'), perm: 'crm.read', icon: 'route' },
     { key: 'crmhealth', label: msg('Data health'), perm: 'crm.read', icon: 'shield' }
   ] },
   { label: msg('Marketing'), items: [

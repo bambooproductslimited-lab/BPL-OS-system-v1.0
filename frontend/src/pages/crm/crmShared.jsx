@@ -7,6 +7,7 @@ import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import { PriorityPanel } from './leadPriority';
+import { SendProductsButton } from './SendProducts';
 
 // What the CRM pages share (pages/crm/*): the stages a lead goes through,
 // the lead window, the new-lead form, the spreadsheet import and the site
@@ -281,7 +282,10 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                     <div><dt>{tr('Sales rep')}</dt><dd>{lead.repName || tr('Nobody yet')}</dd></div>
                     <div><dt>{tr('Customer profile')}</dt><dd>{lead.customerName || tr('None yet')}</dd></div>
                   </dl>
-                  <ContactButtons name={lead.name} phone={lead.phone} email={lead.email} />
+                  <div className="crm-contact-row">
+                    <ContactButtons name={lead.name} phone={lead.phone} email={lead.email} />
+                    {isOpen && <SendProductsButton leadId={leadId} name={lead.name} phone={lead.phone} />}
+                  </div>
                   {lead.comments && <p className="crm-comments">{lead.comments}</p>}
                 </>
               )}

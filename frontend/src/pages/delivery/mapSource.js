@@ -12,6 +12,10 @@ export const GOOGLE_LOGO = 'https://developers.google.com/static/maps/documentat
 export const GOOGLE_LOGO_DARK = 'https://developers.google.com/static/maps/documentation/images/google_on_non_white.png';
 
 let config = null;
+// A page that already has the server's answer (the sales team's route,
+// CrmRoutePage.jsx, gets it with the day's visits) hands it over, so the
+// map need not ask the till's API — which the sales app cannot reach.
+export function setMapConfig(c) { config = Promise.resolve(c || { google: null }); }
 export function mapConfig() {
   if (!config) config = posFetch('GET', '/pos/map').catch(() => ({ google: null }));
   return config;

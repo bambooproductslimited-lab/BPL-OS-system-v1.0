@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { Empty, Glossary, Hero, Icon, Section, Status, fmtDate } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
@@ -48,7 +49,10 @@ export default function CrmVisitsPage() {
       {error && <div className="error-banner" role="alert">{error}</div>}
       <Hero eyebrow={tr('Sales & CRM')} title={tr('Site visits')}
         sub={tr('Going to a client\'s site to measure or assess a job before quoting: when, who goes, and what they found.')}
-        actions={canManage && <button type="button" className="btn btn-primary" onClick={() => setEditing({})}>{tr('Book a site visit')}</button>}
+        actions={<>
+          <Link className="btn btn-secondary" to="/crmroute">🗺️ {tr('Today\'s route on the map')}</Link>
+          {canManage && <button type="button" className="btn btn-primary" onClick={() => setEditing({})}>{tr('Book a site visit')}</button>}
+        </>}
         stats={[
           { icon: 'calendar', value: String(groups.upcoming.length), label: tr('booked ahead'), note: groups.upcoming[0] ? tr('next: {client}, {date}', { client: groups.upcoming[0].client, date: fmtDate(groups.upcoming[0].scheduledOn) }) : tr('nothing booked'), onClick: () => setShow('upcoming') },
           { icon: 'warn', value: String(groups.missed.length), label: tr('past, not marked'), note: tr('say whether they happened'), tone: groups.missed.length ? 'alert' : '', onClick: () => setShow('missed') },

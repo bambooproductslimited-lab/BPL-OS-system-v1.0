@@ -254,7 +254,7 @@ export default function DeliveryMap({ markers = [], routes = [], fitKey, pick, o
     const m = map.current;
     if (!m) return;
     if (!pick || pick.lat == null) { if (pickPin.current) { pickPin.current.remove(); pickPin.current = null; } return; }
-    const icon = L.divIcon({ className: 'dm-icon', html: '<div class="dm-pin is-pick"><span class="dm-dot"><i>📍</i></span><span class="dm-label">' + esc(tr('Drag me to the door')) + '</span></div>', iconSize: [0, 0] });
+    const icon = L.divIcon({ className: 'dm-icon', html: '<div class="dm-pin is-pick"><span class="dm-dot"><i>📍</i></span><span class="dm-label">' + esc(pick.label || tr('Drag me to the door')) + '</span></div>', iconSize: [0, 0] });
     if (!pickPin.current) {
       pickPin.current = L.marker([pick.lat, pick.lng], { draggable: true, icon, zIndexOffset: 2000, autoPan: true }).addTo(m);
       pickPin.current.on('dragend', () => { const p = pickPin.current.getLatLng(); if (onPickRef.current) onPickRef.current(p.lat, p.lng); });

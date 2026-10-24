@@ -84,6 +84,8 @@ import MkHomePage from './pages/marketing/MkHomePage';
 import MkCampaignsPage from './pages/marketing/MkCampaignsPage';
 import MkCalendarPage from './pages/marketing/MkCalendarPage';
 import MkRequestsPage from './pages/marketing/MkRequestsPage';
+import CrmRoutePage from './pages/crm/CrmRoutePage';
+import ProductSheetPage from './pages/ProductSheetPage';
 import MkBudgetPage from './pages/marketing/MkBudgetPage';
 import MkEventsPage from './pages/marketing/MkEventsPage';
 import MkPromotionsPage from './pages/marketing/MkPromotionsPage';
@@ -112,7 +114,7 @@ const BUILT_SCREENS = {
   pokidash: PokiDashboardPage, pokiproperties: PokiPropertiesPage, pokitenants: PokiTenantsPage,
   pokibookings: PokiBookingsPage, pokiestimates: PokiEstimatesPage, pokibilling: PokiBillingPage, pokimaintenance: PokiMaintenancePage,
   crm: CrmOverviewPage, crmboard: CrmBoardPage, crmleads: CrmLeadsPage, crmvisits: CrmVisitsPage, crmcommissions: CrmCommissionsPage,
-  crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage,
+  crmcustomers: CrmCustomersHub, crminbox: CrmInboxHub, crmhealth: CrmHealthPage, crmmarketing: CrmMarketingPage, crmroute: CrmRoutePage,
   mkhome: MkHomePage, mkcampaigns: MkCampaignsPage, mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage, mkbudget: MkBudgetPage, mkevents: MkEventsPage, mkpromotions: MkPromotionsPage, mkaudiences: MkAudiencesPage, mkbrand: MkBrandPage, mkmarket: MkMarketPage
 };
 const SCREEN_ROUTES = ALL_NAV_ITEMS.map((item) => {
@@ -139,6 +141,7 @@ export default function App() {
       <Route path="/ready-board" element={<ReadyBoardPage />} />
       <Route path="/delivery/*" element={<Suspense fallback={null}><DeliverySite /></Suspense>} />
       <Route path="/share/:token" element={<SharePage />} />
+      <Route path="/p/:token" element={<ProductSheetPage />} />
       <Route path="/meet/:token" element={<MeetPage />} />
       <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />
 

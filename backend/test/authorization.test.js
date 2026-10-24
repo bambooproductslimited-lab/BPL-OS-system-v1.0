@@ -80,6 +80,8 @@ var ALLOWED = {
   'GET /api/roles/permissions': 'static permission catalogue, not per-user data',
   'GET /api/menu-photos/:id': 'a plain <img src> cannot send a bearer token; POS and app both render it',
   'GET /api/share/:token': 'customer-facing document link; the unguessable token is the credential',
+  'GET /api/public/products/:token': 'products a rep sent a customer on WhatsApp; the unguessable token is the credential, and it expires (salesField.test.js)',
+  'GET /api/public/products/:token/photos/:photoId': 'the photos of those products only, under the same token (salesField.test.js)',
   'GET /api/push/public-key': "this server's own public VAPID key; useless without the private half",
   'POST /api/push/subscribe': "registers the caller's own device against the caller's own employee id",
   'POST /api/push/unsubscribe': "scoped to the caller's own employee id in the DELETE itself",

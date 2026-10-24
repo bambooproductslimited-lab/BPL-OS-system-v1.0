@@ -592,7 +592,9 @@ async function listVisitsWhere(where, args) {
   return res.rows.map(function (r) {
     return {
       id: r.id, leadId: r.lead_id, leadRef: r.lead_ref, client: r.client, location: r.location, scheduledOn: dateOnly(r.scheduled_on),
-      status: r.status, assessors: r.assessors, assessorsText: r.assessors_text, findings: r.findings
+      status: r.status, assessors: r.assessors, assessorsText: r.assessors_text, findings: r.findings,
+      // Where it is on the map (crmRoute.service.js), if anyone has placed it.
+      place: r.lat != null && r.lng != null ? { lat: Number(r.lat), lng: Number(r.lng) } : null, placedBy: r.placed_by || null
     };
   });
 }
@@ -627,6 +629,8 @@ async function saveVisit(ctx, id, p) {
     var v;
     if (cur) {
       await db.query('UPDATE crm_site_visits SET lead_id = $2, client = $3, location = $4, scheduled_on = $5, status = $6, assessor_ids = $7, assessors_text = $8, findings = $9, updated_at = now() WHERE id = $1', [id].concat(vals));
+      // A place Google read from the old location is not where the new one is.
+      if (cur.placed_by === 'address' && cur.location !== vals[2]) await db.query('UPDATE crm_site_visits SET lat = NULL, lng = NULL, placed_by = NULL WHERE id = $1', [id]);
       v = id;
     } else {
       v = (await db.query('INSERT INTO crm_site_visits (lead_id, client, location, scheduled_on, status, assessor_ids, assessors_text, findings, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id', vals.concat([me(ctx)]))).rows[0].id;

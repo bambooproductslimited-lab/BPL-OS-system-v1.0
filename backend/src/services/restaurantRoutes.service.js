@@ -80,4 +80,55 @@ async function route(from, to, vehicle) {
   return null;
 }
 
-module.exports = { enabled: enabled, route: route, decode: decode, MODES: MODES, setFetchForTests: setFetchForTests };
+// A day's round of site visits (crmRoute.service.js): by car, from origin
+// through every stop in the order Google finds quickest with today's
+// traffic, to destination (back to origin when none is given). A place is
+// { lat, lng } or { address } — Google reads the address, and where it put
+// it comes back as the leg's end. Up to 25 stops. Each leg: its road, its
+// slow and jammed stretches, how long with traffic and without, how far.
+// null without a key or an answer.
+var TOUR_FIELDS = 'routes.duration,routes.staticDuration,routes.distanceMeters,routes.optimizedIntermediateWaypointIndex,routes.legs.duration,routes.legs.staticDuration,' +
+  'routes.legs.distanceMeters,routes.legs.polyline.encodedPolyline,routes.legs.startLocation,routes.legs.endLocation,routes.legs.travelAdvisory.speedReadingIntervals';
+var TOUR_TIMEOUT_MS = 12000;
+function waypoint(p) { return p.address ? { address: p.address } : latLng(p); }
+function placeOf(loc) { var l = loc && loc.latLng; return l && isFinite(l.latitude) && isFinite(l.longitude) ? { lat: l.latitude, lng: l.longitude } : null; }
+async function tour(origin, stops, destination) {
+  if (!enabled() || !origin || !stops || !stops.length || stops.length > 25) return null;
+  var body = {
+    origin: waypoint(origin), destination: waypoint(destination || origin), intermediates: stops.map(waypoint), optimizeWaypointOrder: stops.length > 1,
+    travelMode: 'DRIVE', routingPreference: 'TRAFFIC_AWARE', extraComputations: ['TRAFFIC_ON_POLYLINE'],
+    polylineQuality: 'OVERVIEW', languageCode: 'en-GB', regionCode: 'GH', units: 'METRIC'
+  };
+  var ctl = new AbortController();
+  var timer = setTimeout(function () { ctl.abort(); }, TOUR_TIMEOUT_MS);
+  try {
+    var res = await fetcher(ENDPOINT, {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': config.googleRoutesKey, 'X-Goog-FieldMask': TOUR_FIELDS },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) return null;
+    var j = await res.json();
+    var r = j && j.routes && j.routes[0];
+    if (!r || !Array.isArray(r.legs) || r.legs.length !== stops.length + 1) return null;
+    var order = Array.isArray(r.optimizedIntermediateWaypointIndex) && r.optimizedIntermediateWaypointIndex.length === stops.length
+      ? r.optimizedIntermediateWaypointIndex : stops.map(function (x, i) { return i; });
+    var legs = r.legs.map(function (leg) {
+      var points = leg.polyline && leg.polyline.encodedPolyline ? decode(leg.polyline.encodedPolyline) : [];
+      var last = Math.max(0, points.length - 1);
+      var traffic = ((leg.travelAdvisory && leg.travelAdvisory.speedReadingIntervals) || [])
+        .filter(function (x) { return x.speed === 'SLOW' || x.speed === 'TRAFFIC_JAM'; })
+        .map(function (x) { return [Math.min(last, x.startPolylinePointIndex || 0), Math.min(last, x.endPolylinePointIndex == null ? last : x.endPolylinePointIndex), x.speed === 'TRAFFIC_JAM' ? 'jam' : 'slow']; });
+      var secs = seconds(leg.duration);
+      return { points: points, traffic: traffic, seconds: secs, freeSeconds: seconds(leg.staticDuration) || secs, meters: leg.distanceMeters || 0, from: placeOf(leg.startLocation), to: placeOf(leg.endLocation) };
+    });
+    var total = seconds(r.duration);
+    return { order: order, legs: legs, seconds: total, freeSeconds: seconds(r.staticDuration) || total, meters: r.distanceMeters || 0 };
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { enabled: enabled, route: route, tour: tour, decode: decode, MODES: MODES, setFetchForTests: setFetchForTests };

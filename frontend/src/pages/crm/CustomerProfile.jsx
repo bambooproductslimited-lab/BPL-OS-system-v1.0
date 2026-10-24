@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import ContactButtons from '../../components/ContactButtons';
+import { SendProductsButton } from './SendProducts';
 import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
 import { StageTag, addDays, followUpClass, followUpText, todayISO } from './crmShared';
@@ -101,6 +102,7 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
             </div>
           </div>
           <div className="hub-p-headacts">
+            <SendProductsButton customerId={id} name={p.contactPerson || p.name} phone={p.phone} />
             <ContactButtons name={p.name} phone={p.phone} email={p.email} />
             <button type="button" className="crm-x" onClick={onClose} aria-label={tr('Close')}>✕</button>
           </div>

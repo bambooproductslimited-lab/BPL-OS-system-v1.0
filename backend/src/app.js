@@ -185,6 +185,8 @@ app.use('/api/pos', restaurantPosRoutes);
 app.use('/api/pos', restaurantDeliveryRoutes);
 app.use('/api/pos', restaurantFrontRoutes);
 app.use('/api/menu-photos', menuPhotosRoutes);
+// Products a rep sent a customer, for the customer (no account) — see publicProducts.routes.js.
+app.use('/api/public/products', require('./routes/publicProducts.routes'));
 app.use('/api/it-devices', itDevicesRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/timestation', timestationRoutes);

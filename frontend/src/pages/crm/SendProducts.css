@@ -1,0 +1,79 @@
+/* Send products on WhatsApp (SendProducts.jsx): WhatsApp's green, product
+   cards with their photo that tick when picked, a tray of what is picked
+   with the total, and a rocket when it is ready to send. */
+.wsp-open { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 800; color: #fff; cursor: pointer;
+  border: 0; border-radius: 999px; background: linear-gradient(120deg, #25d366, #128c7e); box-shadow: 0 8px 18px -10px rgba(18, 140, 126, .9); transition: transform .15s, box-shadow .15s; }
+.wsp-open:hover { transform: translateY(-1px); box-shadow: 0 12px 22px -10px rgba(18, 140, 126, 1); }
+.wsp-open svg { width: 16px; height: 16px; }
+
+.wsp-back { z-index: 80; }
+.dialog.wsp { --wsp-g: #25d366; --wsp-d: #128c7e; width: min(1040px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px); display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; border-radius: 24px; overflow: hidden; }
+.wsp-head { display: flex; align-items: flex-start; gap: 14px; }
+.wsp-head > div { flex: 1; min-width: 0; }
+.wsp-head h2 { margin: 0; font-size: 21px; letter-spacing: -.01em; }
+.wsp-head p { margin: 4px 0 0; font-size: 13.5px; color: var(--color-text-muted); line-height: 1.45; }
+.wsp-head-icon { display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; color: #fff; border-radius: 15px; background: linear-gradient(140deg, var(--wsp-g), var(--wsp-d)); box-shadow: 0 10px 22px -12px var(--wsp-d); }
+.wsp-head-icon svg { width: 24px; height: 24px; }
+
+.wsp-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; min-height: 0; flex: 1; }
+.wsp-pick { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; padding-right: 4px; }
+.wsp-search { border-radius: 14px; }
+.wsp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.wsp-card { position: relative; display: flex; flex-direction: column; border-radius: 18px; border: 1.5px solid var(--color-divider); background: var(--color-bg-subtle); overflow: hidden; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.wsp-card:hover { transform: translateY(-2px); }
+.wsp-card.is-on { border-color: var(--wsp-g); box-shadow: 0 0 0 3px color-mix(in srgb, var(--wsp-g) 22%, transparent), 0 12px 24px -16px var(--wsp-d); }
+.wsp-card-main { display: flex; flex-direction: column; gap: 4px; padding: 0 0 10px; font: inherit; color: inherit; text-align: left; background: none; border: 0; cursor: pointer; }
+.wsp-card-main b { padding: 0 10px; font-size: 13px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.wsp-price { padding: 0 10px; font-size: 13px; font-weight: 800; color: var(--wsp-d); }
+:root[data-theme='dark'] .wsp-price { color: #4ade80; }
+.wsp-price small { font-weight: 600; color: var(--color-text-muted); }
+.wsp-photo { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; font-size: 34px; background: color-mix(in srgb, var(--wsp-g) 10%, var(--color-bg)); overflow: hidden; }
+.wsp-photo img { width: 100%; height: 100%; object-fit: cover; }
+.wsp-tick { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 26px; height: 26px; font-size: 14px; line-height: 1; font-style: normal; font-weight: 900; color: #fff; border-radius: 50%; background: var(--wsp-g); box-shadow: 0 4px 10px rgba(0, 0, 0, .3); animation: wsp-pop .3s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes wsp-pop { from { transform: scale(0); } }
+.wsp-qty { display: flex; align-items: center; justify-content: space-between; margin: 0 10px 10px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--wsp-g) 14%, transparent); }
+.wsp-qty button { width: 30px; height: 30px; font: inherit; font-size: 18px; font-weight: 800; color: #fff; border: 0; border-radius: 50%; background: var(--wsp-d); cursor: pointer; }
+.wsp-qty b { font-size: 14px; }
+
+.wsp-tray { display: flex; flex-direction: column; gap: 12px; padding: 14px; overflow: auto; border-radius: 20px; background: var(--color-bg-subtle); border: 1px solid var(--color-divider); }
+.wsp-tray h3 { margin: 0; font-size: 15px; }
+.wsp-tray .field { display: flex; flex-direction: column; gap: 5px; margin: 0; font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); }
+.wsp-tray .input { border-radius: 12px; }
+.wsp-chosen { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.wsp-chosen li { display: flex; justify-content: space-between; gap: 10px; }
+.wsp-chosen li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsp-total { padding-top: 6px; margin-top: 2px; font-size: 14px; border-top: 1px dashed var(--color-border); }
+.wsp-send, .wsp-wa { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; font-size: 15px; border: 0; border-radius: 14px; background: linear-gradient(120deg, var(--wsp-g), var(--wsp-d)); color: #fff; }
+.wsp-send svg, .wsp-wa svg { width: 19px; height: 19px; }
+.wsp-send:disabled { opacity: .5; }
+.wsp-before { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--color-divider); }
+.wsp-before h4 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.wsp-before-row { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; }
+.wsp-seen { font-weight: 700; color: var(--color-text-muted); }
+.wsp-seen.is-seen { color: var(--wsp-d); }
+:root[data-theme='dark'] .wsp-seen.is-seen { color: #4ade80; }
+.wsp-muted { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+
+.wsp-sent { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px 6px 4px; overflow: auto; text-align: center; }
+.wsp-sent-art { font-size: 54px; animation: wsp-fly 1.6s ease-in-out infinite alternate; }
+@keyframes wsp-fly { to { transform: translate(6px, -8px) rotate(8deg); } }
+.wsp-sent h3 { margin: 0; font-size: 22px; }
+.wsp-sent p { margin: 0; max-width: 520px; color: var(--color-text-muted); }
+.wsp-message { width: min(520px, 100%); margin: 4px 0; padding: 14px 16px; font: inherit; font-size: 13.5px; line-height: 1.5; text-align: left; white-space: pre-wrap; border-radius: 4px 18px 18px 18px;
+  color: #111b21; background: #d9fdd3; box-shadow: 0 1px 1px rgba(0, 0, 0, .12); }
+.wsp-sent-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.wsp-sent-acts .btn { border-radius: 14px; }
+
+@media (max-width: 760px) {
+  .dialog.wsp { padding: 16px 14px; border-radius: 22px 22px 0 0; max-height: 94dvh; align-self: flex-end; margin-bottom: 0 !important; }
+  .wsp-back { align-items: flex-end; padding: 0; }
+  .wsp-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .wsp-pick { overflow: visible; padding: 0; }
+  .wsp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wsp-tray { overflow: visible; }
+  .wsp-head h2 { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .wsp-tick, .wsp-sent-art { animation: none; } }
+
+/* The lead's call, WhatsApp and email buttons, with Send products beside them. */
+.crm-contact-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }

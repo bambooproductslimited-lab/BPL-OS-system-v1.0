@@ -7,6 +7,8 @@ var crmImport = require('../services/crmImport.service');
 var crmExecutive = require('../services/crmExecutive.service');
 var crmBoard = require('../services/crmBoard.service');
 var crmWeekly = require('../services/crmWeekly.service');
+var crmRoute = require('../services/crmRoute.service');
+var productSheets = require('../services/crmProductSheets.service');
 
 // The CRM (services/crm.service.js) and its spreadsheet import
 // (services/crmImport.service.js).
@@ -63,6 +65,10 @@ router.delete('/referrals/:id', h(function (req) { return crm.removeReferral(req
 
 
 router.get('/visits', h(function (req) { return crm.listVisits(req.ctx, req.query); }));
+router.get('/visits/day', h(function (req) { return crmRoute.day(req.ctx, req.query); }));
+router.post('/visits/:id/place', h(function (req) { return crmRoute.place(req.ctx, req.params.id, req.body); }));
+router.get('/product-sheets', h(function (req) { return productSheets.list(req.ctx, req.query); }));
+router.post('/product-sheets', h(function (req) { return productSheets.create(req.ctx, req.body); }));
 router.post('/visits', h(function (req) { return crm.saveVisit(req.ctx, null, req.body); }));
 router.put('/visits/:id', h(function (req) { return crm.saveVisit(req.ctx, req.params.id, req.body); }));
 router.delete('/visits/:id', h(function (req) { return crm.removeVisit(req.ctx, req.params.id); }));

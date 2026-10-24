@@ -1,0 +1,62 @@
+/* The customer's page for products sent on WhatsApp (ProductSheetPage.jsx):
+   light and warm in every theme — it is the company's shop window on a
+   customer's phone — bamboo green, big photos, prices that stand out, and
+   WhatsApp's green for the reply. */
+.ps { --ps-g: #3f7d3b; --ps-gd: #234d21; --ps-wa: #25d366; --ps-ink: #1f2a1c; --ps-muted: #66705f;
+  min-height: 100vh; min-height: 100dvh; max-width: 680px; margin: 0 auto; padding: 18px 16px 40px; color: var(--ps-ink); font-family: var(--font-body, 'Archivo', system-ui, sans-serif);
+  background: radial-gradient(120% 40% at 100% 0%, rgba(132, 204, 22, .16), transparent 60%), radial-gradient(90% 40% at 0% 30%, rgba(63, 125, 59, .12), transparent 60%), #fbfaf5; }
+html:has(.ps), body:has(.ps) { background: #fbfaf5; }
+.ps-mid { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.ps-mid h1 { margin: 0; font-size: 22px; }
+.ps-mid p { margin: 0; color: var(--ps-muted); max-width: 420px; }
+.ps-spin { font-size: 48px; animation: ps-bob 1.4s ease-in-out infinite; }
+@keyframes ps-bob { 50% { transform: translateY(-8px) rotate(-8deg); } }
+
+.ps-top { display: flex; align-items: center; gap: 12px; padding: 8px 4px 16px; }
+.ps-logo { width: 64px; height: auto; border-radius: 12px; background: #fff; padding: 4px; box-shadow: 0 6px 18px -10px rgba(35, 77, 33, .6); }
+.ps-top b { display: block; font-size: 16px; }
+.ps-top small { font-size: 12px; color: var(--ps-muted); }
+
+.ps-hello { position: relative; padding: 22px 20px; border-radius: 26px; color: #fff; overflow: hidden;
+  background: radial-gradient(80% 120% at 100% 0%, rgba(163, 230, 53, .35), transparent 60%), linear-gradient(140deg, var(--ps-g), var(--ps-gd)); box-shadow: 0 22px 40px -26px rgba(35, 77, 33, .9); }
+.ps-hello h1 { margin: 6px 0 4px; font-size: 28px; letter-spacing: -.02em; }
+.ps-hello p { margin: 0; font-size: 15px; opacity: .92; line-height: 1.45; }
+.ps-wave { display: inline-block; font-size: 30px; transform-origin: 70% 80%; animation: ps-wave 2.2s ease-in-out infinite; }
+@keyframes ps-wave { 0%, 60%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(16deg); } 20%, 40% { transform: rotate(-8deg); } }
+.ps-note { margin: 14px 0 0; padding: 10px 14px; font-size: 14px; font-style: italic; border-radius: 4px 16px 16px 16px; background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .25); }
+
+.ps-list { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.ps-card { display: grid; grid-template-columns: 1fr; border-radius: 22px; overflow: hidden; background: #fff; box-shadow: 0 1px 2px rgba(31, 42, 28, .06), 0 16px 34px -24px rgba(31, 42, 28, .5);
+  animation: ps-in .5s calc(var(--i) * 80ms) cubic-bezier(.2, 1.1, .4, 1) both; }
+@keyframes ps-in { from { opacity: 0; transform: translateY(14px); } }
+.ps-photo { display: grid; place-items: center; aspect-ratio: 4 / 3; padding: 0; font-size: 60px; border: 0; cursor: zoom-in; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
+.ps-photo:disabled { cursor: default; }
+.ps-photo img { width: 100%; height: 100%; object-fit: cover; }
+.ps-info { padding: 14px 16px 16px; }
+.ps-info h2 { margin: 0; font-size: 19px; line-height: 1.25; }
+.ps-info p { margin: 6px 0 0; font-size: 14px; color: var(--ps-muted); line-height: 1.5; }
+.ps-price { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; margin-top: 10px; }
+.ps-price b { font-size: 22px; color: var(--ps-gd); letter-spacing: -.01em; }
+.ps-price small { color: var(--ps-muted); font-weight: 600; }
+.ps-qty { margin-left: auto; padding: 3px 10px; font-size: 13px; font-weight: 700; border-radius: 999px; background: #eef5e6; color: var(--ps-gd); }
+
+.ps-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 14px; padding: 14px 18px; border-radius: 18px; background: #fff; border: 2px dashed rgba(63, 125, 59, .35); }
+.ps-total span { font-weight: 700; color: var(--ps-muted); }
+.ps-total b { font-size: 22px; color: var(--ps-gd); }
+
+.ps-foot { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 22px; text-align: center; }
+.ps-reply { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; font-size: 17px; font-weight: 800; color: #fff; text-decoration: none;
+  border-radius: 18px; background: linear-gradient(120deg, var(--ps-wa), #128c7e); box-shadow: 0 16px 30px -16px rgba(18, 140, 126, .9); }
+.ps-reply svg { width: 22px; height: 22px; }
+.ps-foot p { margin: 0; font-size: 12.5px; color: var(--ps-muted); max-width: 440px; }
+
+.ps-big { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: rgba(10, 16, 9, .9); cursor: zoom-out; }
+.ps-big img { max-width: 100%; max-height: 82vh; border-radius: 14px; }
+.ps-big span { color: #fff; font-weight: 700; }
+
+@media (min-width: 620px) {
+  .ps { padding-top: 28px; }
+  .ps-card { grid-template-columns: 240px 1fr; }
+  .ps-photo { aspect-ratio: auto; min-height: 200px; }
+}
+@media (prefers-reduced-motion: reduce) { .ps-spin, .ps-wave, .ps-card { animation: none; } }
