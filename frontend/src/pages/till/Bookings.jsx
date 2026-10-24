@@ -175,7 +175,7 @@ export default function Bookings({ token, tables, onSeat, onToast, onClose }) {
                       <div className="bk-who">
                         <strong>{b.name} <span className="bk-pax">👥 {b.party}</span>{b.source === 'website' && <span className="bk-web">🌐 {tr('Website')}</span>}</strong>
                         <small>{[b.tableName ? '🪑 ' + b.tableName : null, b.phone || null, b.note ? '✎ ' + b.note : null].filter(Boolean).join(' · ')}</small>
-                        <span className={'bk-status ' + st[1]}>{st[0]} {st[2]()}{b.texted.length > 0 && <em>💬 {tr('texted')}</em>}</span>
+                        <span className={'bk-status ' + st[1]}>{st[0]} {st[2]()}{b.texted.length > 0 && <em>💬 {tr('texted')}</em>}{b.texted.some((x) => x.what === 'reminder') && <em>⏰ {tr('Reminded')}</em>}</span>
                       </div>
                       <div className="bk-acts">
                         {b.status === 'requested' && <>

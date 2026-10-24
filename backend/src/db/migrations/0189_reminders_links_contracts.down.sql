@@ -1,0 +1,11 @@
+ALTER TABLE restaurant_delivery_settings DROP COLUMN busy;
+ALTER TABLE shop_orders DROP COLUMN discount;
+ALTER TABLE shop_orders DROP COLUMN promo_code;
+DROP TABLE contracts;
+DROP SEQUENCE contract_no_seq;
+DROP TABLE contract_templates;
+DROP INDEX idx_invoices_payment_link;
+ALTER TABLE invoices DROP COLUMN payment_link_id;
+DROP TABLE payment_links;
+ALTER TABLE restaurant_bookings DROP COLUMN reminded_at;
+ALTER TABLE appointments DROP COLUMN reminded_at;

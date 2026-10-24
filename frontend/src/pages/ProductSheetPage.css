@@ -29,9 +29,10 @@ html:has(.ps), body:has(.ps) { background: #fbfaf5; }
 .ps-card { display: grid; grid-template-columns: 1fr; border-radius: 22px; overflow: hidden; background: #fff; box-shadow: 0 1px 2px rgba(31, 42, 28, .06), 0 16px 34px -24px rgba(31, 42, 28, .5);
   animation: ps-in .5s calc(var(--i) * 80ms) cubic-bezier(.2, 1.1, .4, 1) both; }
 @keyframes ps-in { from { opacity: 0; transform: translateY(14px); } }
-.ps-photo { display: grid; place-items: center; aspect-ratio: 4 / 3; padding: 0; font-size: 60px; border: 0; cursor: zoom-in; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
+.ps-photo { position: relative; overflow: hidden; display: grid; place-items: center; aspect-ratio: 4 / 3; padding: 0; font-size: 60px; border: 0; cursor: zoom-in; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
 .ps-photo:disabled { cursor: default; }
-.ps-photo img { width: 100%; height: 100%; object-fit: cover; }
+/* Cropped to its frame, never sizing it (tap it for the whole photo). */
+.ps-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .ps-info { padding: 14px 16px 16px; }
 .ps-info h2 { margin: 0; font-size: 19px; line-height: 1.25; }
 .ps-info p { margin: 6px 0 0; font-size: 14px; color: var(--ps-muted); line-height: 1.5; }

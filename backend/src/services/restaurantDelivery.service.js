@@ -121,11 +121,62 @@ function merged(s) {
   return out;
 }
 async function settingsRow(companyId, db) {
-  return (await (db || pool).query('SELECT settings, updated_at FROM restaurant_delivery_settings WHERE company_id = $1', [companyId])).rows[0] || null;
+  return (await (db || pool).query('SELECT settings, busy, updated_at FROM restaurant_delivery_settings WHERE company_id = $1', [companyId])).rows[0] || null;
 }
 async function settingsOf(companyId, db) {
   var row = await settingsRow(companyId, db);
   return merged(row && row.settings);
+}
+
+// Busy mode (migration 0189; the till's More menu, the delivery screen): for
+// a while, website orders take extraMinutes longer ('busy'), or none are
+// taken but for later ('paused'). Over once its time is up.
+var BUSY_EXTRA = [10, 15, 20, 30, 45, 60];
+function busyNow(b, now) {
+  if (!b || (b.mode !== 'busy' && b.mode !== 'paused') || !b.until) return null;
+  var until = new Date(b.until);
+  if (!(until.getTime() > (now || new Date()).getTime())) return null;
+  return { mode: b.mode, extraMinutes: b.mode === 'busy' ? Number(b.extraMinutes) || 0 : 0, until: until.toISOString(), by: b.by || '' };
+}
+// The settings as the website works with them now: busy, its orders' time
+// is the longer one.
+async function liveSettingsOf(companyId, db) {
+  var row = await settingsRow(companyId, db);
+  var out = merged(row && row.settings);
+  out.busy = busyNow(row && row.busy);
+  if (out.busy && out.busy.mode === 'busy') out.readyMinutes = Math.min(240, out.readyMinutes + out.busy.extraMinutes);
+  return out;
+}
+// GET /api/pos/busy — whether the website is busy or paused, till when.
+async function busy(token) {
+  var session = await access.need(token, 'delivery');
+  var row = await settingsRow(session.posCompanyId);
+  var s = merged(row && row.settings);
+  return { busy: busyNow(row && row.busy), open: s.open, takesOnline: !!row, readyMinutes: s.readyMinutes, extras: BUSY_EXTRA };
+}
+// POST /api/pos/busy { mode: busy|paused|off, minutes (how long, 15 to
+// 240), extraMinutes (busy: how much longer) }
+async function setBusy(token, p) {
+  var session = await access.need(token, 'delivery');
+  p = p || {};
+  var company = session.posCompanyId;
+  if (!(await settingsRow(company))) fail('conflict', 'This restaurant does not take orders online yet: set it up in Delivery settings.');
+  var next = {};
+  if (p.mode === 'busy' || p.mode === 'paused') {
+    var minutes = Math.round(Number(p.minutes));
+    if (!(minutes >= 15 && minutes <= 240)) fail('invalid', 'For 15 minutes to 4 hours.');
+    var extra = Math.round(Number(p.extraMinutes));
+    if (p.mode === 'busy' && BUSY_EXTRA.indexOf(extra) < 0) fail('invalid', 'How much longer: ' + BUSY_EXTRA.join(', ') + ' minutes.');
+    var who = (await pool.query('SELECT first_name FROM employees WHERE id = $1', [session.posEmployeeId])).rows[0];
+    next = { mode: p.mode, extraMinutes: p.mode === 'busy' ? extra : 0, until: new Date(Date.now() + minutes * 60000).toISOString(), by: who ? who.first_name : '' };
+  } else if (p.mode !== 'off') {
+    fail('invalid', 'Busy, paused or back to normal?');
+  }
+  await pool.query('UPDATE restaurant_delivery_settings SET busy = $2 WHERE company_id = $1', [company, JSON.stringify(next)]);
+  await activity.log(pool, { companyId: company, employeeId: session.posEmployeeId, app: 'delivery', action: 'delivery.busy',
+    summary: next.mode === 'busy' ? 'Busy: website orders take ' + next.extraMinutes + ' min longer, for ' + Math.round(Number(p.minutes)) + ' min.'
+      : next.mode === 'paused' ? 'Website orders paused for ' + Math.round(Number(p.minutes)) + ' min.' : 'Website orders back to normal.' });
+  return busy(token);
 }
 
 // What a delivery comes to: by road from the restaurant to the pin, the fee
@@ -783,7 +834,7 @@ async function forOnline(onlineId) {
 }
 
 module.exports = {
-  VEHICLES: VEHICLES, settingsOf: settingsOf, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
+  VEHICLES: VEHICLES, settingsOf: settingsOf, liveSettingsOf: liveSettingsOf, busyNow: busyNow, busy: busy, setBusy: setBusy, quote: quote, pointOf: pointOf, roadKm: roadKm, travelMinutes: travelMinutes,
   settings: settings, setOpen: setOpen, riders: riders, board: board, send: send, setStatus: setStatus, reassign: reassign,
   onlineMenu: onlineMenu, handIn: handIn, recordHandIn: recordHandIn, shopUrl: shopUrl, mapConfig: mapConfig, trailWith: trailWith, refreshRoute: refreshRoute, settled: settled, offRoadKm: offRoadKm, riderView: riderView, riderLocation: riderLocation, riderStatus: riderStatus, forOnline: forOnline, restaurantOf: restaurantOf, deliveryOut: deliveryOut
 };

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
-import { tr } from '../../lib/i18n.jsx';
+import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme, saveTheme } from '../../lib/theme';
 import ThemeSwitch from '../../components/ThemeSwitch';
 import DeviceLanguage from '../../components/DeviceLanguage';
@@ -18,6 +18,9 @@ import { billOf, modsWords, serviceWords } from '../till/tillBill';
 import { dealWords } from '../till/promos';
 import PromoCodeDialog from '../till/PromoCode';
 import './online.css';
+
+// Until when the restaurant is busy (Ghana keeps UTC all year, as the till does).
+function busyTime(iso) { return new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }); }
 
 // The restaurant's website (online.starbartema.com): its menu with photos,
 // a basket, and checkout — delivered to a pin dropped on the map (or this
@@ -148,6 +151,14 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
           <span>💵 {tr('Pay on delivery: cash or Mobile Money')}</span>
           {r.location && r.location.address && <span>📍 {r.location.address}</span>}
         </div>
+        {r.busy && r.open && (
+          <p className={'on-busy is-' + r.busy.mode} role="status">
+            <span aria-hidden="true">{r.busy.mode === 'paused' ? '⏸️' : '🔥'}</span>
+            <span>{r.busy.mode === 'paused'
+              ? <><b>{tr('We are very busy right now')}</b> {later ? tr('New orders are paused until {time}: order for later instead.', { time: busyTime(r.busy.until) }) : tr('New orders are paused until {time}. Thank you for your patience!', { time: busyTime(r.busy.until) })}</>
+              : <><b>{tr('We are busy right now')}</b> {tr('Orders take about {n} min longer than usual, until {time}.', { n: r.busy.extraMinutes, time: busyTime(r.busy.until) })}</>}</span>
+          </p>
+        )}
         {r.note && <p className="on-note">{r.note}</p>}
         {(r.book || r.gift) && (
           <div className="on-hero-btns">
@@ -282,7 +293,9 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const [locating, setLocating] = useState(false);
   const [fitKey, setFitKey] = useState('start');
   const later = r.later && r.later.on ? r.later : null;
-  const [when, setWhen] = useState(r.open ? 'now' : 'later');
+  // Paused (busy mode on the till): only orders for later.
+  const paused = !!(r.busy && r.busy.mode === 'paused');
+  const [when, setWhen] = useState(r.open && !paused ? 'now' : 'later');
   const [day, setDay] = useState(null);
   const [time, setTime] = useState(null);
   const website = useRef(null);
@@ -305,7 +318,7 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const slots = dayRow ? slotsOf(dayRow.from[how], dayRow.to, later.step) : [];
   const chosen = when === 'later' && slots.includes(time) ? time : null;
   const scheduledFor = chosen ? dayRow.date + 'T' + chosen + ':00.000Z' : null;
-  const ready = name.trim() && phone.replace(/\D/g, '').length >= 9 && (how === 'pickup' || (pin && address.trim())) && !tooFar && !short && basket.length && (when === 'now' ? r.open : !!chosen);
+  const ready = name.trim() && phone.replace(/\D/g, '').length >= 9 && (how === 'pickup' || (pin && address.trim())) && !tooFar && !short && basket.length && (when === 'now' ? r.open && !paused : !!chosen);
 
   function locate() {
     if (!navigator.geolocation) { setError(tr('This phone cannot tell where it is: tap the map instead.')); return; }
@@ -355,8 +368,8 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
           <fieldset className="on-fs on-when">
             <legend>{tr('When')}</legend>
             <div className="on-how" role="radiogroup" aria-label={tr('When')}>
-              <button type="button" role="radio" aria-checked={when === 'now'} className={when === 'now' ? 'is-on' : ''} disabled={!r.open} onClick={() => setWhen('now')}>
-                <span aria-hidden="true">⚡</span><strong>{tr('As soon as possible')}</strong><small>{r.open ? tr('about {m}', { m: minText(r.readyMinutes + (how === 'delivery' ? 10 : 0)) }) : tr('Closed now')}</small>
+              <button type="button" role="radio" aria-checked={when === 'now'} className={when === 'now' ? 'is-on' : ''} disabled={!r.open || paused} onClick={() => setWhen('now')}>
+                <span aria-hidden="true">⚡</span><strong>{tr('As soon as possible')}</strong><small>{paused ? tr('Paused for now') : r.open ? tr('about {m}', { m: minText(r.readyMinutes + (how === 'delivery' ? 10 : 0)) }) : tr('Closed now')}</small>
               </button>
               <button type="button" role="radio" aria-checked={when === 'later'} className={when === 'later' ? 'is-on' : ''} onClick={() => setWhen('later')}>
                 <span aria-hidden="true">🗓️</span><strong>{tr('Later')}</strong><small>{chosen ? dayName(dayRow.date) + ' · ' + chosen : tr('choose a day and a time')}</small>
@@ -447,6 +460,7 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
             onApply={(c, deal) => { setPromo(c ? { code: c, deal } : null); setPromoOpen(false); }} onClose={() => setPromoOpen(false)} />
         )}
         {!r.open && !later && <p className="on-dist is-bad">{tr('Not taking orders right now')}</p>}
+        {paused && !later && <p className="on-dist is-bad">{tr('Very busy: not taking orders until {time}.', { time: busyTime(r.busy.until) })}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
         <button type="submit" className="on-go is-big" disabled={busy || !ready}>{busy ? tr('Sending your order…') : tr('Place order · {amount}', { amount: money(bill.total) })}</button>
         <p className="on-hint is-center">{scheduledFor ? tr('The restaurant confirms your order first, and starts cooking it in time. You can cancel until then.') : tr('The restaurant accepts your order first; you can watch it here all the way to your door.')}</p>

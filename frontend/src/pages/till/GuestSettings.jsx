@@ -48,6 +48,14 @@ export default function GuestSettings({ draft, set, companyName, paystackReady }
         <p className="dk-muted">{tr('The till always takes bookings and walk-ins waiting for a table (Bookings and waitlist in the More menu). The website can take them too.')}</p>
         <Toggle on={b.online} title={tr('Book a table on the website')} note={tr('Customers pick a day, a time and how many; a table is not given until the till does.')} onChange={(v) => setB({ online: v })} />
         <Toggle on={b.autoConfirm} title={tr('Confirm website bookings at once')} note={b.autoConfirm ? tr('They are booked as soon as asked, while there is room.') : tr('Each one waits for someone at the till to confirm or decline it.')} onChange={(v) => setB({ autoConfirm: v })} />
+        <Toggle on={!!b.remind} title={tr('Text a reminder before the booking')} note={b.remind ? tr('Each booked table gets one text, with its link to cancel. Only by SMS: set up on the server.') : tr('No reminder is sent.')} onChange={(v) => setB({ remind: v })} />
+        {b.remind && (
+          <div className="field"><label>{tr('Send it')}</label>
+            <div className="dk-segment" role="radiogroup" aria-label={tr('Send it')}>
+              {[[2, () => tr('2 hours before')], [4, () => tr('4 hours before')], [24, () => tr('The day before')]].map(([h, label]) => <button key={h} type="button" role="radio" aria-checked={b.remindHours === h} className={b.remindHours === h ? 'is-on' : ''} onClick={() => setB({ remindHours: h })}>{label()}</button>)}
+            </div>
+          </div>
+        )}
         <div className="ts-guests-grid">
           <div className="field"><label htmlFor="gs-from">{tr('First booking')}</label><input id="gs-from" className="input" type="time" value={b.from} onChange={(e) => setB({ from: e.target.value })} /></div>
           <div className="field"><label htmlFor="gs-to">{tr('Last booking')}</label><input id="gs-to" className="input" type="time" value={b.to} onChange={(e) => setB({ to: e.target.value })} /></div>

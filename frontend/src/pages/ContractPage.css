@@ -1,0 +1,55 @@
+/* A contract to sign (ContractPage.jsx): the words on a sheet of paper over
+   the shop's warm background, the two signatures at its foot, and the form
+   to sign it below; printed, only the paper. */
+.csg { max-width: 860px; }
+.csg-bar { position: sticky; top: 8px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 20px;
+  background: rgba(255, 255, 255, .85); border: 1px solid var(--shp-line); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 10px 30px -24px rgba(31, 42, 28, .6); }
+.csg-bar .shp-logo { width: 38px; }
+.csg-bar-t { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.csg-bar-t strong { font-size: 15px; letter-spacing: .02em; white-space: nowrap; }
+.csg-bar-t small { font-size: 12px; color: var(--shp-muted); }
+.csg-lang select { color: var(--shp-ink); border-color: var(--shp-line); background: #fff; }
+.csg-print { flex: none; min-height: 38px; padding: 0 14px; font-size: 14px; }
+.csg-banner { display: flex; align-items: center; gap: 12px; margin-top: 14px; padding: 14px 16px; border-radius: 20px; animation: shp-pop2 .6s cubic-bezier(.2, 1.3, .4, 1) both; }
+.csg-banner > span:first-child { font-size: 30px; }
+.csg-banner > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.csg-banner small { font-size: 13px; opacity: .85; }
+.csg-banner.is-signed { color: #14532d; background: linear-gradient(120deg, #e3f7d9, #cdeec0); border: 1px solid #9fd88c; }
+.csg-banner.is-declined { color: #7c2d12; background: #fff1e6; border: 1px solid #fbc59c; }
+.csg-banner.is-void { color: #3f3f46; background: #f1f1f0; border: 1px solid #d6d6d3; }
+.csg-paper { position: relative; margin-top: 16px; padding: clamp(22px, 5vw, 56px); color: #1e1e1b; border-radius: 6px; background: #fffefb;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .04), 0 30px 60px -40px rgba(31, 42, 28, .55), 0 0 0 1px rgba(31, 42, 28, .06); font-family: Georgia, 'Times New Roman', serif; }
+.csg-paper::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 6px; border-radius: 6px 6px 0 0; background: linear-gradient(90deg, var(--shp-g), var(--shp-lime)); }
+.csg-paper-head { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 18px; font-family: var(--font-body, 'Archivo', system-ui, sans-serif); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--shp-muted); }
+.ctx h1 { margin: 0 0 18px; font-size: clamp(22px, 4.5vw, 30px); line-height: 1.2; letter-spacing: -.01em; }
+.ctx h2 { margin: 22px 0 6px; font-size: 17px; }
+.ctx p { margin: 0 0 10px; font-size: 15.5px; line-height: 1.7; }
+.ctx ul { margin: 0 0 10px; padding-left: 22px; font-size: 15.5px; line-height: 1.7; }
+.csg-sigs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 34px; font-family: var(--font-body, 'Archivo', system-ui, sans-serif); }
+.csg-sig { display: flex; flex-direction: column; justify-content: flex-end; gap: 4px; min-height: 110px; }
+.csg-sig small { font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--shp-muted); }
+.csg-sig-draw { width: 100%; max-width: 280px; height: auto; stroke: #14213d; stroke-width: 3.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.csg-sig-line { padding-top: 6px; font-size: 14px; border-top: 1.5px solid #1e1e1b; }
+.csg-sig-line.is-typed { font-family: 'Brush Script MT', 'Segoe Script', cursive; font-size: 22px; border-top: 0; border-bottom: 1.5px solid #1e1e1b; }
+.csg-sig-line.is-empty { color: var(--shp-muted); font-style: italic; }
+.csg-form { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; padding: 20px; border-radius: 24px; background: #fff; border: 1px solid var(--shp-line); box-shadow: 0 20px 40px -32px rgba(31, 42, 28, .6); }
+.csg-form h2 { margin: 0; font-size: 20px; }
+.csg-form .input { color: var(--shp-ink); background: #fff; border-color: rgba(31, 42, 28, .18); }
+.csg-pad-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; font-weight: 800; color: var(--shp-muted); }
+.csg-agree { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.45; border-radius: 14px; background: #f6fbf1; border: 1px solid #d6ebc8; cursor: pointer; }
+.csg-agree input { width: 20px; height: 20px; margin-top: 1px; accent-color: var(--shp-g); flex: none; }
+.csg-no { align-self: center; color: var(--shp-muted); }
+.csg-decline { background: linear-gradient(135deg, #c2410c, #9a3412); }
+@media (max-width: 560px) {
+  .csg-sigs { grid-template-columns: 1fr; }
+  .csg-bar-t small { display: none; }
+  .csg-lang select { max-width: 104px; }
+  .csg-print { padding: 0 10px; }
+}
+@media print {
+  .csg-bar, .csg-banner, .csg-form, .shp-foot { display: none !important; }
+  .csg, html:has(.csg), body:has(.csg) { padding: 0; background: #fff !important; }
+  .csg-paper { margin: 0; padding: 0; box-shadow: none; }
+  .csg-paper::before { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .csg-banner { animation: none; } }

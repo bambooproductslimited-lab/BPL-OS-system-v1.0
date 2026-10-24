@@ -24,7 +24,9 @@ var DEFAULT_SERVICES = [
   { id: 'measure', name: 'Site measurement', minutes: 90, visit: true, note: 'We come to your home or site to measure for blinds, furniture or a fit-out.' },
   { id: 'call', name: 'Phone or video call', minutes: 30, visit: false, note: 'Talk your project through with us.' }
 ];
-var DEFAULTS = { on: false, intro: '', services: DEFAULT_SERVICES, days: [1, 2, 3, 4, 5, 6], from: '08:00', to: '17:00', step: 30, perSlot: 1, daysAhead: 30, noticeHours: 12, assignTo: null, areas: [], feeNote: '' };
+var DEFAULTS = { on: false, intro: '', services: DEFAULT_SERVICES, days: [1, 2, 3, 4, 5, 6], from: '08:00', to: '17:00', step: 30, perSlot: 1, daysAhead: 30, noticeHours: 12, assignTo: null, areas: [], feeNote: '', remindHours: 24 };
+// When the reminder goes out before a booking (0: none).
+var REMIND_HOURS = [0, 3, 24, 48];
 var ctxBooking = { can: function () { return true; }, user: { id: null }, employee: { id: null, first_name: 'Online booking', last_name: '' } };
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function feeOf(v) { var n = round2(v); return n > 0 && n <= 100000 ? n : 0; }
@@ -78,7 +80,8 @@ async function settingsOf(db) {
     daysAhead: Number(s.daysAhead) >= 1 && Number(s.daysAhead) <= 90 ? Math.round(Number(s.daysAhead)) : DEFAULTS.daysAhead,
     noticeHours: Number(s.noticeHours) >= 0 && Number(s.noticeHours) <= 72 ? Math.round(Number(s.noticeHours)) : DEFAULTS.noticeHours,
     assignTo: /^[0-9a-f-]{36}$/i.test(String(s.assignTo || '')) ? s.assignTo : null,
-    areas: cleanAreas(s.areas), feeNote: text(s.feeNote, 200)
+    areas: cleanAreas(s.areas), feeNote: text(s.feeNote, 200),
+    remindHours: REMIND_HOURS.indexOf(Number(s.remindHours)) >= 0 && s.remindHours !== null && s.remindHours !== '' ? Number(s.remindHours) : DEFAULTS.remindHours
   };
 }
 // What a booking costs: a visit's area's fee (when areas are set), else the service's.
@@ -290,7 +293,7 @@ function staffOut(r) {
   return {
     id: r.id, service: r.service, serviceName: r.service_name, startsAt: r.starts_at, endsAt: r.ends_at, name: r.name, phone: r.phone, email: r.email, location: r.location, note: r.note,
     status: r.status, createdAt: r.created_at, leadId: r.lead_id, leadRef: r.lead_ref || null, siteVisitId: r.site_visit_id,
-    assignedTo: r.assigned_to ? { id: r.assigned_to, name: r.a_first + ' ' + r.a_last } : null, area: r.area || '', fee: feeOut(r)
+    assignedTo: r.assigned_to ? { id: r.assigned_to, name: r.a_first + ' ' + r.a_last } : null, area: r.area || '', fee: feeOut(r), remindedAt: r.reminded_at || null
   };
 }
 var STAFF_SELECT = 'SELECT a.*, l.ref AS lead_ref, e.first_name AS a_first, e.last_name AS a_last, ' + FEE_COLS + ' FROM appointments a LEFT JOIN crm_leads l ON l.id = a.lead_id LEFT JOIN employees e ON e.id = a.assigned_to ' + FEE_JOIN;
@@ -361,6 +364,35 @@ async function update(ctx, id, p) {
   return Object.assign(staffOut((await pool.query(STAFF_SELECT + 'WHERE a.id = $1', [id])).rows[0]), { texted: texted });
 }
 
+// The reminder (jobs/reminders.js): remindHours before a confirmed booking,
+// a text and an email, once, with its fee when it is still to pay. Not for
+// one booked inside that time: it was just made. Each is claimed before it
+// is sent, so two servers send it once. Says how many went.
+async function remindDue(now) {
+  now = now || new Date();
+  var s = await settingsOf();
+  if (!s.remindHours) return 0;
+  var sms = require('./sms.service');
+  var rows = (await pool.query(
+    "SELECT a.*, " + FEE_COLS + " FROM appointments a " + FEE_JOIN + "WHERE a.status = 'confirmed' AND a.reminded_at IS NULL " +
+    "AND a.starts_at > $1 AND a.starts_at <= $1::timestamptz + ($2 || ' hours')::interval AND a.created_at < a.starts_at - ($2 || ' hours')::interval ORDER BY a.starts_at",
+    [now, String(s.remindHours)])).rows;
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!(await pool.query('UPDATE appointments SET reminded_at = now() WHERE id = $1 AND reminded_at IS NULL RETURNING id', [r.id])).rows[0]) continue;
+    var fee = feeOut(r);
+    var words = 'Bamboo Products: a reminder of your ' + r.service_name.toLowerCase() + ' on ' + whenText(r.starts_at) + (r.location ? ' (' + r.location + ')' : '') + '.' +
+      (fee && !fee.paid && !fee.void && fee.token ? ' The fee of GHS ' + fee.due.toFixed(2) + ' is still to pay: ' + config.bplSiteUrl + '/share/' + fee.token + '.' : '') +
+      ' See or cancel it: ' + config.bplSiteUrl + '/book/' + r.token;
+    var went = false;
+    if (sms.configured()) { try { await sms.send({ to: r.phone, message: words, purpose: 'booking', refId: r.id }); went = true; } catch (e) { /* the email, if any */ } }
+    if (await tell(r, 'A reminder of your booking', words)) went = true;
+    if (went) sent++;
+  }
+  return sent;
+}
+
 // GET/PUT /api/appointments/settings — the booking page: on or off, its
 // words, what can be booked, the days and hours, how many at once.
 async function getSettings(ctx) {
@@ -381,11 +413,12 @@ async function saveSettings(ctx, p) {
     perSlot: Math.max(1, Math.min(10, Math.round(Number(p.perSlot) || 1))), daysAhead: Math.max(1, Math.min(90, Math.round(Number(p.daysAhead) || 30))),
     noticeHours: Math.max(0, Math.min(72, Math.round(Number(p.noticeHours) || 0))),
     assignTo: p.assignTo && (await pool.query("SELECT 1 FROM employees WHERE id = $1 AND status = 'active'", [p.assignTo])).rows[0] ? p.assignTo : null,
-    areas: cleanAreas(p.areas), feeNote: text(p.feeNote, 200)
+    areas: cleanAreas(p.areas), feeNote: text(p.feeNote, 200),
+    remindHours: REMIND_HOURS.indexOf(Number(p.remindHours)) >= 0 && p.remindHours !== null && p.remindHours !== '' ? Number(p.remindHours) : DEFAULTS.remindHours
   };
   await pool.query('UPDATE settings SET booking = $1 WHERE id = 1', [JSON.stringify(s)]);
   await audit(pool, ctx, 'settings.booking', 'settings', 'booking', 'Booking page ' + (s.on ? 'open' : 'closed') + ': ' + s.services.map(function (x) { return x.name; }).join(', ') + '.');
   return getSettings(ctx);
 }
 
-module.exports = { options: options, book: book, view: view, cancel: cancel, list: list, update: update, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf, DEFAULT_SERVICES: DEFAULT_SERVICES };
+module.exports = { options: options, book: book, view: view, cancel: cancel, list: list, update: update, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf, remindDue: remindDue, REMIND_HOURS: REMIND_HOURS, DEFAULT_SERVICES: DEFAULT_SERVICES };

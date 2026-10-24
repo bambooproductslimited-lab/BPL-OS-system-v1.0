@@ -9,7 +9,9 @@ import './ShopPage.css';
 // category, with a search; an item's sheet with its photos and choices; a
 // basket kept on this phone; and the order — delivery or pickup — which
 // becomes an invoice, opened to pay at once (by card or Mobile Money when
-// online payments are on, else by the bank details on it).
+// online payments are on, else by the bank details on it). Items made to
+// order say how many days they take, and the checkout the days the order
+// will be ready between; a discount code is checked before it is placed.
 
 const CART_KEY = 'bplShopCart';
 function loadCart() { try { const c = JSON.parse(localStorage.getItem(CART_KEY) || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
@@ -23,6 +25,19 @@ async function call(method, path, body) {
   return j;
 }
 const LEAVES = ['🎋', '🌿', '🍃', '🎍', '🌱'];
+// How long an item takes to make: "3–7 days", "5 days".
+function daysText(md) { return md.from === md.to ? tr('{n} days', { n: md.to }) : tr('{from}–{to} days', { from: md.from, to: md.to }); }
+function made(md) { return md && md.to > 0 ? md : null; }
+// The days an order will be ready between, as the server works them out
+// (shop.service readyOf): the longest of its items', Sundays skipped.
+function readyOf(mds) {
+  const list = mds.filter(Boolean);
+  if (!list.length) return null;
+  const at = (n) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + n); if (d.getDay() === 0) d.setDate(d.getDate() + 1); return d; };
+  const from = Math.max(...list.map((m) => m.from)), to = Math.max(...list.map((m) => m.to));
+  return { from: at(from), by: at(to), days: { from, to } };
+}
+function dayWords(d) { return new Date(d).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }); }
 
 function ItemSheet({ item, onAdd, onClose }) {
   const [vid, setVid] = useState(item.variations[0].id);
@@ -48,6 +63,9 @@ function ItemSheet({ item, onAdd, onClose }) {
           <small className="shp-cat">{item.category}</small>
           <h2 id="shp-item-title">{item.name}</h2>
           {item.description && <p className="shp-desc">{item.description}</p>}
+          {made(item.makeDays) && (
+            <p className="shp-made-note"><span aria-hidden="true">🛠️</span>{tr('Made to order for you: ready in about {days}.', { days: daysText(item.makeDays) })}</p>
+          )}
           {item.variations.length > 1 && (
             <div className="shp-vars" role="radiogroup" aria-label={tr('Choose one')}>
               {item.variations.map((x) => (
@@ -77,12 +95,27 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
   const [f, setF] = useState({ name: '', phone: '', email: '', address: '', note: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [code, setCode] = useState('');
+  const [promo, setPromo] = useState(null);
+  const [codeError, setCodeError] = useState(null);
   const lines = cart.map((c) => {
     const it = items.find((i) => i.id === c.itemId);
     const v = it && it.variations.find((x) => x.id === c.variationId);
     return it && v ? { ...c, item: it, v } : null;
   }).filter(Boolean);
   const total = lines.reduce((a, l) => a + l.v.price * l.qty, 0);
+  const ready = readyOf(lines.map((l) => made(l.item.makeDays)));
+  const toPay = Math.max(0, total - (promo ? promo.discount : 0));
+  // The basket changed: the code is checked again for it.
+  useEffect(() => {
+    if (!promo) return;
+    call('GET', '/shop/code?code=' + encodeURIComponent(promo.code) + '&subtotal=' + total).then(setPromo).catch((e) => { setPromo(null); setCodeError(e.message); });
+  }, [total]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function apply() {
+    if (!code.trim()) return;
+    setCodeError(null);
+    try { setPromo(await call('GET', '/shop/code?code=' + encodeURIComponent(code.trim()) + '&subtotal=' + total)); } catch (e) { setPromo(null); setCodeError(e.message); }
+  }
   function setQty(l, q) {
     setCart(q <= 0 ? cart.filter((c) => c.variationId !== l.variationId) : cart.map((c) => (c.variationId === l.variationId ? { ...c, qty: q } : c)));
   }
@@ -90,7 +123,7 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const r = await call('POST', '/shop/orders', { ...f, fulfilment: how, lines: lines.map((l) => ({ variationId: l.variationId, qty: l.qty })), website: '' });
+      const r = await call('POST', '/shop/orders', { ...f, fulfilment: how, code: promo ? promo.code : '', lines: lines.map((l) => ({ variationId: l.variationId, qty: l.qty })), website: '' });
       onDone(r);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
@@ -106,7 +139,8 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
             {lines.map((l) => (
               <li key={l.variationId}>
                 {l.item.photos[0] ? <img src={photoUrl(l.item.photos[0].id)} alt="" /> : <span className="shp-line-ico" aria-hidden="true">🎋</span>}
-                <span className="shp-line-main"><strong>{l.item.name}</strong><small>{l.v.name ? l.v.name + ' · ' : ''}{cedis(l.v.price)}</small></span>
+                <span className="shp-line-main"><strong>{l.item.name}</strong><small>{l.v.name ? l.v.name + ' · ' : ''}{cedis(l.v.price)}</small>
+                  {made(l.item.makeDays) && <em className="shp-made is-line">🛠️ {daysText(l.item.makeDays)}</em>}</span>
                 <span className="shp-qty is-small">
                   <button type="button" onClick={() => setQty(l, l.qty - 1)} aria-label={tr('Fewer')}>−</button><b>{l.qty}</b><button type="button" onClick={() => setQty(l, Math.min(999, l.qty + 1))} aria-label={tr('More')}>+</button>
                 </span>
@@ -115,8 +149,31 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
             ))}
           </ul>
         )}
-        <div className="shp-total"><span>{tr('Total')}</span><strong>{cedis(total)}</strong></div>
+        {shop.codes && lines.length > 0 && (
+          <div className="shp-code">
+            {promo ? (
+              <p className="shp-code-on"><span aria-hidden="true">🏷️</span><b>{promo.code}</b><span>{promo.kind === 'percent' ? tr('{n}% off', { n: promo.value }) : tr('{amount} off', { amount: cedis(promo.value) })}</span>
+                <button type="button" className="shp-link" onClick={() => { setPromo(null); setCode(''); }}>{tr('Remove')}</button></p>
+            ) : (
+              <div className="shp-code-row">
+                <input className="input" value={code} maxLength={24} onChange={(e) => setCode(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } }}
+                  placeholder={tr('Discount code')} aria-label={tr('Discount code')} autoCapitalize="characters" />
+                <button type="button" className="shp-go is-ghost" onClick={apply} disabled={!code.trim()}>{tr('Apply')}</button>
+              </div>
+            )}
+            {codeError && <small className="shp-code-err" role="alert">{codeError}</small>}
+          </div>
+        )}
+        {promo && promo.discount > 0 && <div className="shp-total is-off"><span>{tr('Discount ({code})', { code: promo.code })}</span><strong>− {cedis(promo.discount)}</strong></div>}
+        <div className="shp-total"><span>{tr('Total')}</span><strong>{cedis(toPay)}</strong></div>
         <p className="shp-hint">{tr('Prices include what is charged on the invoice; delivery is agreed with you on the phone.')}</p>
+        {ready && (
+          <div className="shp-ready" role="note">
+            <span className="shp-ready-ico" aria-hidden="true">🗓️</span>
+            <span><strong>{tr('Made to order: ready in about {days}', { days: daysText(ready.days) })}</strong>
+              <small>{tr('Between {from} and {to}. We will call you when it is ready.', { from: dayWords(ready.from), to: dayWords(ready.by) })}</small></span>
+          </div>
+        )}
 
         {shop.delivery && shop.pickup && (
           <div className="shp-how" role="radiogroup" aria-label={tr('Delivery or pickup')}>
@@ -133,7 +190,7 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
         {how === 'delivery' && shop.deliveryNote && <p className="shp-hint">🚚 {shop.deliveryNote}</p>}
         <label className="shp-field"><span>{tr('Anything we should know? (optional)')}</span><input className="input" maxLength={500} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder={tr('e.g. sizes, colours, a time to call')} /></label>
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <button type="submit" className="shp-go is-big" disabled={busy || !lines.length}>{busy ? tr('One moment…') : tr('Place the order · {amount}', { amount: cedis(total) })}</button>
+        <button type="submit" className="shp-go is-big" disabled={busy || !lines.length}>{busy ? tr('One moment…') : tr('Place the order · {amount}', { amount: cedis(toPay) })}</button>
         <p className="shp-hint is-center">{shop.payOnline ? tr('Next: your invoice, to pay by card or Mobile Money.') : tr('Next: your invoice, with how to pay it.')}</p>
       </form>
     </div>
@@ -146,6 +203,7 @@ function Placed({ r, onShop }) {
       <span className="shp-done-art" aria-hidden="true">{['🎉', '🎋', '✨'].map((x, i) => <i key={i} style={{ '--i': i }}>{x}</i>)}</span>
       <h1>{tr('Thank you! Order {no} is in.', { no: r.orderNo })}</h1>
       <p>{tr('Its invoice {no} for {amount} is ready. We will call you to agree the delivery or pickup.', { no: r.invoiceNo, amount: cedis(r.total) })}</p>
+      {r.ready && <p className="shp-ready is-done"><span aria-hidden="true">🛠️</span>{tr('It is made to order for you: ready between {from} and {to}.', { from: dayWords(r.ready.from + 'T12:00:00'), to: dayWords(r.ready.by + 'T12:00:00') })}</p>}
       <a className="shp-go is-big" href={'/share/' + r.token}>{r.payOnline ? '💳 ' + tr('See the invoice and pay') : '🧾 ' + tr('See the invoice')}</a>
       <button type="button" className="shp-go is-ghost" onClick={onShop}>{tr('Back to the shop')}</button>
     </div>
@@ -216,6 +274,7 @@ export default function ShopPage() {
                 <span className="shp-card-body">
                   <strong>{it.name}</strong>
                   <small>{it.variations.length > 1 ? tr('{n} choices', { n: it.variations.length }) : it.category}</small>
+                  {made(it.makeDays) && <em className="shp-made">🛠️ {tr('Made to order · {days}', { days: daysText(it.makeDays) })}</em>}
                   <b>{it.variations.length > 1 ? tr('from {amount}', { amount: cedis(from) }) : cedis(from)}</b>
                 </span>
               </button>

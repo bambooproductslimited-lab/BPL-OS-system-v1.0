@@ -21,7 +21,7 @@ const MARKETING = pick(['mkcalendar', 'mkrequests', 'mkbrand']).map((item) => (i
 
 export const SALES_GROUPS = [
   { label: msg('My day'), items: pick(['crmboard', 'crminbox', 'crmroute', 'crmvisits', 'appointments']) },
-  { label: msg('Pipeline'), items: pick(['crmleads', 'crmcustomers', 'estimates', 'quotations', 'invoices', 'salesorders', 'shoporders']) },
+  { label: msg('Pipeline'), items: pick(['crmleads', 'crmcustomers', 'estimates', 'quotations', 'invoices', 'salesorders', 'shoporders', 'paymentlinks', 'contracts']) },
   { label: msg('Marketing'), items: MARKETING },
   { label: msg('Toolkit'), items: pick(['catalog', 'expensesheets', 'messages', 'assistant']) },
   { label: msg('Results'), items: pick(['crmcommissions', 'crm', 'crmhealth']) }

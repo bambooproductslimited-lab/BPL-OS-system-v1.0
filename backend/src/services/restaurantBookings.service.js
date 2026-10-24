@@ -70,6 +70,7 @@ async function tell(db, b, what, extra) {
   var co = (await db.query('SELECT name, code FROM companies WHERE id = $1', [b.company_id])).rows[0];
   var words = what === 'confirmed' ? co.name + ': your table for ' + b.party + ' on ' + whenText(b.at) + ' is booked.' + (b.token ? ' See or cancel it: ' + bookingLink(co.code, b.token) : ' See you then!')
     : what === 'received' ? co.name + ': we have your booking request for ' + b.party + ' on ' + whenText(b.at) + '. We will text you when it is confirmed.' + (b.token ? ' ' + bookingLink(co.code, b.token) : '')
+    : what === 'reminder' ? co.name + ': a reminder of your table for ' + b.party + ' on ' + whenText(b.at) + '.' + (b.token ? ' See or cancel it: ' + bookingLink(co.code, b.token) : ' See you then!')
     : what === 'declined' ? co.name + ': sorry, we cannot take your booking for ' + whenText(b.at) + '. ' + (extra || 'Please call us for another time.')
     : co.name + ': your table is ready! Please come to the front in the next 10 minutes.';
   var digits = internationalNumber(b.phone);
@@ -351,7 +352,32 @@ async function onlineCancel(token) {
   return bookingOut(Object.assign({}, r, { status: 'cancelled' }), await coOf(r));
 }
 
+// The reminder (jobs/reminders.js): for each restaurant that sends them, a
+// text remindHours before each booked table, once (claimed first, so two
+// servers send it once). Only by SMS: nobody is at the till to open a
+// WhatsApp link for a job. Not for one booked inside that time. Says how
+// many went.
+async function remindDue(now) {
+  now = now || new Date();
+  if (!sms().configured()) return 0;
+  var companies = (await pool.query("SELECT company_id FROM restaurant_till_settings WHERE (settings -> 'bookings' ->> 'remind') = 'true'")).rows;
+  var sent = 0;
+  for (var i = 0; i < companies.length; i++) {
+    var b = (await access.settingsOf(companies[i].company_id)).bookings;
+    if (!b.remind) continue;
+    var due = (await pool.query(
+      "SELECT * FROM restaurant_bookings WHERE company_id = $1 AND kind = 'booking' AND status = 'booked' AND reminded_at IS NULL AND phone <> '' " +
+      "AND at > $2 AND at <= $2::timestamptz + ($3 || ' hours')::interval AND created_at < at - ($3 || ' hours')::interval ORDER BY at",
+      [companies[i].company_id, now, String(b.remindHours)])).rows;
+    for (var j = 0; j < due.length; j++) {
+      if (!(await pool.query('UPDATE restaurant_bookings SET reminded_at = now() WHERE id = $1 AND reminded_at IS NULL RETURNING id', [due[j].id])).rows[0]) continue;
+      try { if ((await tell(pool, due[j], 'reminder')).sent) sent++; } catch (e) { console.error('Booking reminder not sent:', e.message); }
+    }
+  }
+  return sent;
+}
+
 module.exports = {
-  list: list, soon: soon, save: save, act: act, onlineOptions: onlineOptions, onlineBook: onlineBook, onlineMine: onlineMine, onlineCancel: onlineCancel,
+  list: list, soon: soon, remindDue: remindDue, save: save, act: act, onlineOptions: onlineOptions, onlineBook: onlineBook, onlineMine: onlineMine, onlineCancel: onlineCancel,
   STATUSES: STATUSES, QUOTES: QUOTES, _askedBy: askedBy, whenText: whenText
 };

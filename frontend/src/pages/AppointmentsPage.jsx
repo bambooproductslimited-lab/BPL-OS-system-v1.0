@@ -84,7 +84,14 @@ function SettingsDialog({ onClose, onSaved }) {
                 <label className="apt-field">{tr('At the same time')}<input className="input" type="number" min="1" max="10" value={s.perSlot} onChange={(e) => setS({ ...s, perSlot: Number(e.target.value) })} /></label>
                 <label className="apt-field">{tr('Days ahead')}<input className="input" type="number" min="1" max="90" value={s.daysAhead} onChange={(e) => setS({ ...s, daysAhead: Number(e.target.value) })} /></label>
                 <label className="apt-field">{tr('Notice (hours)')}<input className="input" type="number" min="0" max="72" value={s.noticeHours} onChange={(e) => setS({ ...s, noticeHours: Number(e.target.value) })} /></label>
+                <label className="apt-field">{tr('Reminder')}<select className="input" value={s.remindHours} onChange={(e) => setS({ ...s, remindHours: Number(e.target.value) })}>
+                  <option value={0}>{tr('No reminder')}</option>
+                  <option value={3}>{tr('3 hours before')}</option>
+                  <option value={24}>{tr('The day before')}</option>
+                  <option value={48}>{tr('Two days before')}</option>
+                </select></label>
               </div>
+              <small className="apt-hint">⏰ {tr('Confirmed bookings get a text and an email, with the fee if it is still to pay.')}</small>
             </fieldset>
             <label className="apt-field">{tr('New bookings go to')}
               <select className="input" value={s.assignTo || ''} onChange={(e) => setS({ ...s, assignTo: e.target.value || null })}>
@@ -180,6 +187,7 @@ export default function AppointmentsPage() {
                         💳 {a.fee.paid ? tr('Fee paid · {amount}', { amount: money(a.fee.amount) }) : a.fee.void ? tr('Fee cancelled') : tr('Fee due · {amount}', { amount: money(a.fee.due) })}
                       </Link>
                     )}
+                    {a.remindedAt && <span className="apt-reminded" title={new Date(a.remindedAt).toLocaleString(activeIntlLocale())}>⏰ {tr('Reminded')}</span>}
                   </span>
                 </span>
                 {can('crm.manage') && (

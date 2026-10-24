@@ -34,6 +34,9 @@ router.get('/map', h(function () { return delivery.mapConfig(); }));
 // ── the delivery screen ──
 router.get('/delivery/board', h(function (req) { return delivery.board(posToken(req)); }));
 router.post('/delivery/open', h(function (req) { return delivery.setOpen(posToken(req), body(req).open); }));
+// Busy mode for the website: website orders take longer, or are paused, for a while.
+router.get('/busy', h(function (req) { return delivery.busy(posToken(req)); }));
+router.post('/busy', h(function (req) { return delivery.setBusy(posToken(req), body(req)); }));
 router.post('/delivery/settings', h(function (req) { return delivery.settings(posToken(req), body(req), req.ip); }));
 router.post('/delivery/riders', h(function (req) { return delivery.riders(posToken(req), body(req)); }));
 // What the ordering website sells: dishes and sections switched on or off.

@@ -64,8 +64,11 @@
 .so-dish:active { transform: scale(.97); }
 .so-dish.is-in { box-shadow: 0 0 0 3px var(--so-a), 0 18px 36px -24px rgba(124, 45, 18, .6); }
 .so-dish.is-out { opacity: .5; cursor: not-allowed; }
-.so-dish-pic { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: linear-gradient(135deg, var(--c, #fed7aa), color-mix(in srgb, var(--c, #fed7aa) 50%, #fff)); }
-.so-dish-pic img { width: 100%; height: 100%; object-fit: cover; }
+/* The picture keeps its 4:3 frame whatever the photo's shape (a tall phone
+   photo filled the tile and pushed the name, price and + off it): the photo
+   is cropped to the frame, never sizes it. */
+.so-dish-pic { position: relative; display: grid; place-items: center; flex: none; aspect-ratio: 4 / 3; overflow: hidden; background: linear-gradient(135deg, var(--c, #fed7aa), color-mix(in srgb, var(--c, #fed7aa) 50%, #fff)); }
+.so-dish-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .so-dish-pic b { font-size: 54px; color: rgba(255, 255, 255, .92); }
 .so-dish-pic em { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; min-width: 34px; height: 34px; padding: 0 8px; border-radius: 999px; font-style: normal; font-weight: 900; color: #fff; background: var(--so-b); box-shadow: 0 8px 16px -8px var(--so-b); }
 .so-dish-text { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 16px; }

@@ -49,6 +49,7 @@ async function cleanup() {
     await pool.query('DELETE FROM customer_identities WHERE customer_id = ANY($1)', [custs]);
     await pool.query('DELETE FROM customers WHERE id = ANY($1)', [custs]);
   }
+  await pool.query("DELETE FROM shop_orders WHERE name LIKE 'Zqh %'");
   await pool.query("DELETE FROM catalog_item_variations WHERE item_id IN (SELECT id FROM catalog_items WHERE name LIKE 'Zqh %')");
   await pool.query("DELETE FROM catalog_items WHERE name LIKE 'Zqh %'");
   await pool.query("DELETE FROM catalog_categories WHERE name LIKE 'Zqh %'");
@@ -372,4 +373,130 @@ test('the customer website online.bplghana.com reaches the shop, the bookings an
   assert.equal(no.headers.get('access-control-allow-origin'), null);
   var listed = await shop.list(boss, {});
   assert.equal(listed.url, 'https://online.bplghana.com');
+});
+
+// The ninth batch's shop and booking changes (migrations 0189-0190), here
+// because this file owns the shop's and the booking page's settings while
+// it runs: days to make, discount codes, and the reminder before a booking.
+test('made to order: each item\'s days to make on the shop and at checkout, the order ready between those days', async function () {
+  var s = (await shop.getSettings(boss)).settings;
+  await shop.saveSettings(boss, Object.assign({}, s, { on: true, categories: [catA] }));
+  await assert.rejects(shop.saveMakeDays(boss, { items: [{ itemId: item, from: 7, to: 3 }] }), /e\.g\. 3 to 7/);
+  await assert.rejects(shop.saveMakeDays(boss, { items: [{ itemId: item, from: 3, to: 400 }] }), /from 0 to 180/);
+  var got = await shop.saveMakeDays(boss, { items: [{ itemId: item, from: 3, to: 7 }] });
+  assert.deepEqual(got.items.find(function (i) { return i.id === item; }).makeDays, { from: 3, to: 7 });
+  var page = await http('GET', '/api/shop');
+  assert.deepEqual(page.body.items.find(function (i) { return i.id === item; }).makeDays, { from: 3, to: 7 });
+
+  var r = await http('POST', '/api/shop/orders', { name: 'Zqh Make Days', phone: '024 400 0611', email: 'zqh.make@example.com', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] });
+  assert.equal(r.status, 201);
+  var ready = shop.readyOf([{ makeDays: { from: 3, to: 7 } }]);
+  assert.deepEqual(r.body.ready, ready);
+  assert.notEqual(new Date(ready.from + 'T00:00:00Z').getUTCDay(), 0, 'never a Sunday');
+  var o = (await pool.query('SELECT ready_from, ready_by, lines FROM shop_orders WHERE order_no = $1', [r.body.orderNo])).rows[0];
+  assert.deepEqual([o.ready_from, o.ready_by], [ready.from, ready.by]);
+  assert.deepEqual(o.lines[0].makeDays, { from: 3, to: 7 });
+  var inv = (await pool.query('SELECT notes FROM invoices WHERE invoice_no = $1', [r.body.invoiceNo])).rows[0];
+  assert.match(inv.notes, /Made to order: ready between /);
+  assert.ok(sent.some(function (m) { return m.to === 'zqh.make@example.com' && /made to order: it will be ready between/.test(m.text); }));
+  var listed = (await shop.list(boss, {})).orders.find(function (x) { return x.orderNo === r.body.orderNo; });
+  assert.equal(listed.readyBy, ready.by);
+
+  // Cleared: in stock, no days; an order of it is ready now (none kept).
+  await shop.saveMakeDays(boss, { items: [{ itemId: item, from: '', to: '' }] });
+  page = await http('GET', '/api/shop');
+  assert.equal(page.body.items.find(function (i) { return i.id === item; }).makeDays, null);
+  r = await http('POST', '/api/shop/orders', { name: 'Zqh Make Days', phone: '024 400 0611', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] });
+  assert.equal(r.body.ready, null);
+  // One of the two given: both that.
+  got = await shop.saveMakeDays(boss, { items: [{ itemId: item, from: 5 }] });
+  assert.deepEqual(got.items.find(function (i) { return i.id === item; }).makeDays, { from: 5, to: 5 });
+  await shop.saveMakeDays(boss, { items: [{ itemId: item, from: null, to: null }] });
+});
+
+test('shop discount codes: a percentage or an amount off, a least order, an end date, a number of uses; checked at checkout and taken off the invoice', async function () {
+  var s = (await shop.getSettings(boss)).settings;
+  await assert.rejects(shop.saveSettings(boss, Object.assign({}, s, { codes: [{ code: 'ZQH95', kind: 'percent', value: 95 }] })), /a percentage up to 90/);
+  await shop.saveSettings(boss, Object.assign({}, s, { on: true, categories: [catA], codes: [
+    { code: 'zqh10', kind: 'percent', value: 10 },
+    { code: 'ZQH-50', kind: 'amount', value: 50, minTotal: 500, maxUses: 1 },
+    { code: 'ZQHOLD', kind: 'amount', value: 20, endsOn: day(-1) },
+    { code: 'ZQHOFF', kind: 'amount', value: 20, on: false }
+  ] }));
+  var saved = (await shop.getSettings(boss)).settings.codes;
+  assert.deepEqual(saved.map(function (c) { return c.code; }), ['ZQH10', 'ZQH-50', 'ZQHOLD', 'ZQHOFF']);
+  assert.equal((await http('GET', '/api/shop')).body.shop.codes, true);
+
+  var check = function (code, subtotal) { return http('GET', '/api/shop/code?code=' + encodeURIComponent(code) + '&subtotal=' + subtotal); };
+  var c = await check('zqh10', 250);
+  assert.equal(c.status, 200);
+  assert.deepEqual([c.body.code, c.body.discount], ['ZQH10', 25]);
+  c = await check('ZQH-50', 250);
+  assert.match(c.body.error.message, /orders of GHS 500\.00 or more/);
+  c = await check('ZQHOLD', 250);
+  assert.match(c.body.error.message, /not right, or has ended/);
+  c = await check('ZQHOFF', 250);
+  assert.match(c.body.error.message, /not right, or has ended/);
+
+  var order = function (code, lines) { return http('POST', '/api/shop/orders', { name: 'Zqh Code Buyer', phone: '024 400 0612', fulfilment: 'pickup', code: code, lines: lines }); };
+  var r = await order('zqh10', [{ variationId: varM, qty: 2 }]);
+  assert.equal(r.status, 201);
+  assert.deepEqual([r.body.total, r.body.discount, r.body.code], [450, 50, 'ZQH10']);
+  var inv = (await pool.query('SELECT grand_total, discount_total, notes FROM invoices WHERE invoice_no = $1', [r.body.invoiceNo])).rows[0];
+  assert.deepEqual([Number(inv.grand_total), Number(inv.discount_total)], [450, 50]);
+  assert.match(inv.notes, /Code ZQH10: GHS 50\.00 off/);
+  var row = (await pool.query('SELECT promo_code, discount FROM shop_orders WHERE order_no = $1', [r.body.orderNo])).rows[0];
+  assert.deepEqual([row.promo_code, Number(row.discount)], ['ZQH10', 50]);
+
+  // An amount off, once: used up after.
+  r = await order('ZQH-50', [{ variationId: varL, qty: 2 }]);
+  assert.deepEqual([r.body.total, r.body.discount], [750, 50]);
+  r = await order('ZQH-50', [{ variationId: varL, qty: 2 }]);
+  assert.match(r.body.error.message, /used up/);
+  r = await order('NOPE', [{ variationId: varL, qty: 1 }]);
+  assert.match(r.body.error.message, /not right/);
+  var uses = (await shop.getSettings(boss)).codeUses;
+  assert.deepEqual(uses.ZQH10, { uses: 1, off: 50 });
+  // A cancelled order gives its use back.
+  var gone = (await shop.list(boss, {})).orders.find(function (x) { return x.promoCode === 'ZQH-50'; });
+  await shop.setStatus(boss, gone.id, { status: 'cancelled' });
+  c = await check('ZQH-50', 800);
+  assert.equal(c.body.discount, 50);
+});
+
+test('the reminder before a booking: confirmed ones, the day before, once, with the fee still to pay; none when set to none', async function () {
+  await bookings.saveSettings(boss, { on: true, services: [
+    { id: 'showroom', name: 'Showroom consultation', minutes: 60, fee: 100 },
+    { id: 'call', name: 'Phone call', minutes: 30, fee: 0 }
+  ], from: '08:00', to: '12:00', step: 60, perSlot: 3, daysAhead: 10, noticeHours: 0, days: [0, 1, 2, 3, 4, 5, 6], remindHours: 24 });
+  assert.equal((await bookings.settingsOf()).remindHours, 24);
+  var made = await bookings.book({ service: 'showroom', date: day(3), time: '09:00', name: 'Zqh Remind Me', phone: '0244000444', email: 'zqh.remind@example.com', location: 'Zqh: Labone' }, '10.7.3.1');
+  var asked = await bookings.book({ service: 'call', date: day(3), time: '10:00', name: 'Zqh Not Confirmed', phone: '0244000445', email: 'zqh.unconfirmed@example.com' }, '10.7.3.2');
+  var a = (await pool.query('SELECT * FROM appointments WHERE token = $1', [made.token])).rows[0];
+  await bookings.update(boss, a.id, { status: 'confirmed' });
+  var before = new Date(new Date(a.starts_at).getTime() - 20 * 3600000);
+  sent.length = 0;
+  // Too early: not yet.
+  assert.equal(await bookings.remindDue(new Date(new Date(a.starts_at).getTime() - 30 * 3600000)), 0);
+  assert.equal(await bookings.remindDue(before), 1);
+  var m = sent.find(function (x) { return x.to === 'zqh.remind@example.com'; });
+  assert.equal(m.subject, 'A reminder of your booking');
+  assert.match(m.text, /^Bamboo Products: a reminder of your showroom consultation on /);
+  assert.match(m.text, /The fee of GHS 100\.00 is still to pay: https:\/\/online\.bplghana\.com\/share\//);
+  assert.match(m.text, /See or cancel it: https:\/\/online\.bplghana\.com\/book\//);
+  assert.ok(!sent.some(function (x) { return x.to === 'zqh.unconfirmed@example.com'; }), 'only confirmed bookings');
+  assert.equal(await bookings.remindDue(before), 0, 'once');
+  var listed = (await bookings.list(boss, { from: day(2), to: day(4) })).appointments.find(function (x) { return x.id === a.id; });
+  assert.ok(listed.remindedAt);
+  // Paid: the reminder does not ask for it.
+  await pool.query('UPDATE appointments SET reminded_at = NULL WHERE id = $1', [a.id]);
+  await pool.query("UPDATE invoices SET status = 'paid', amount_paid = grand_total, balance_due = 0 WHERE id = $1", [a.fee_invoice_id]);
+  sent.length = 0;
+  await bookings.remindDue(before);
+  assert.doesNotMatch(sent[0].text, /still to pay/);
+  // None: nothing goes.
+  await pool.query("UPDATE settings SET booking = jsonb_set(booking, '{remindHours}', '0') WHERE id = 1");
+  await pool.query('UPDATE appointments SET reminded_at = NULL WHERE id = $1', [a.id]);
+  assert.equal(await bookings.remindDue(before), 0);
+  assert.ok(asked.token);
 });

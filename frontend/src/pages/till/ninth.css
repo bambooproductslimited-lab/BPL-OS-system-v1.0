@@ -1,0 +1,36 @@
+/* Busy mode on the till (till/BusyMode.jsx, bzy-). */
+.dialog.bzy-dlg { max-width: none; width: min(540px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.bzy-head { display: flex; align-items: center; gap: 14px; }
+.bzy-head h2 { margin: 0; font-size: 22px; }
+.bzy-head p { margin: 2px 0 0; }
+.bzy-flame { display: grid; place-items: center; flex: none; width: 58px; height: 58px; font-size: 30px; border-radius: 18px; background: linear-gradient(135deg, #ffd8a8, #ffa94d); box-shadow: 0 14px 26px -16px #e8590c; }
+.bzy-flame.is-busy { animation: bzy-flicker 1.2s ease-in-out infinite; }
+.bzy-flame.is-paused { background: linear-gradient(135deg, #d0ebff, #74c0fc); box-shadow: 0 14px 26px -16px #1c7ed6; }
+@keyframes bzy-flicker { 50% { transform: scale(1.06) rotate(-4deg); } }
+.bzy-now { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px; border-radius: 16px; background: color-mix(in srgb, #e8590c 10%, transparent); border: 1px solid color-mix(in srgb, #e8590c 35%, transparent); }
+.bzy-now.is-paused { background: color-mix(in srgb, #1c7ed6 10%, transparent); border-color: color-mix(in srgb, #1c7ed6 35%, transparent); }
+.bzy-now span { font-size: 13px; color: var(--color-text-muted); }
+.bzy-now .btn { margin-top: 6px; }
+.bzy-note { margin: 0; padding: 10px 12px; font-size: 13.5px; border-radius: 14px; background: var(--pos-soft, color-mix(in srgb, var(--color-text) 5%, transparent)); }
+.bzy-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bzy-modes button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px; font: inherit; text-align: left; color: var(--color-text); border-radius: 18px; border: 1px solid var(--pos-line, var(--color-border)); background: var(--pos-card, var(--color-surface)); cursor: pointer; }
+.bzy-modes button > span { font-size: 26px; }
+.bzy-modes button small { font-size: 12px; color: var(--color-text-muted); }
+.bzy-modes button.is-on { border-color: #e8590c; box-shadow: inset 0 0 0 1px #e8590c; background: color-mix(in srgb, #e8590c 8%, var(--pos-card, var(--color-surface))); }
+.bzy-field { display: flex; flex-direction: column; gap: 6px; }
+.bzy-field > span { font-size: 12.5px; font-weight: 800; color: var(--color-text-muted); }
+.bzy-field > small { font-size: 12.5px; color: var(--color-text-muted); }
+.bzy-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bzy-chips button { min-width: 54px; padding: 9px 12px; font: inherit; font-size: 14px; font-weight: 800; color: var(--color-text); border-radius: 12px; border: 1px solid var(--pos-line, var(--color-border)); background: var(--pos-soft, transparent); cursor: pointer; }
+.bzy-chips button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, #f76707, #e8590c); }
+.btn.bzy-go { color: #fff; border-color: transparent; background: linear-gradient(135deg, #f76707, #d9480f); }
+.btn.bzy-go.is-paused { background: linear-gradient(135deg, #339af0, #1c7ed6); }
+/* The pill at the top while it is on, and its line in More. */
+.pos-stat.bzy-pill { --st: #e8590c; border-color: color-mix(in srgb, #e8590c 55%, transparent); }
+.pos-stat.bzy-pill .pos-stat-ico { font-size: 18px; background: linear-gradient(135deg, #ffa94d, #e8590c); }
+.pos-stat.bzy-pill.is-paused { --st: #1c7ed6; border-color: color-mix(in srgb, #1c7ed6 55%, transparent); }
+.pos-stat.bzy-pill.is-paused .pos-stat-ico { background: linear-gradient(135deg, #74c0fc, #1c7ed6); }
+.pos-stat.bzy-pill.is-busy .pos-stat-ico { animation: bzy-flicker 1.2s ease-in-out infinite; }
+.tl-more-ico.is-busy { background: rgba(232, 89, 12, .14); }
+@media (max-width: 520px) { .bzy-modes { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .bzy-flame.is-busy, .pos-stat.bzy-pill.is-busy .pos-stat-ico { animation: none; } }

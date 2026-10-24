@@ -7,6 +7,7 @@ var { fail } = require('../utils/errors');
 var TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 var TIME_END = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/; // the hours texts may go out end at 24:00 at the latest
 var STEPS = [15, 30, 60];
+var REMIND_HOURS = [2, 4, 24];
 var READY_TEXT = 'Hi {name}, your order {number} at {restaurant} is ready. Come and pick it up at the counter.';
 // The automatic texts and emails (restaurantCampaigns): {name}, {restaurant}
 // and {points} are filled in; every one ends with the way to stop them.
@@ -21,8 +22,9 @@ var DEFAULTS = {
   // `step` minutes from `from` to `to` on the days (0 Sunday; none, every
   // day), up to `perSlot` a time and `maxParty` people, `daysAhead` days
   // ahead; confirmed by the till unless autoConfirm. A booking keeps its
-  // table `minutes`.
-  bookings: { online: false, autoConfirm: false, from: '12:00', to: '21:00', days: [], step: 30, perSlot: 4, maxParty: 10, daysAhead: 30, minutes: 90 },
+  // table `minutes`. remind: a text `remindHours` before each booking
+  // (jobs/reminders.js).
+  bookings: { online: false, autoConfirm: false, from: '12:00', to: '21:00', days: [], step: 30, perSlot: 4, maxParty: 10, daysAhead: 30, minutes: 90, remind: false, remindHours: 24 },
   // Tips on the pay screen and the customer's screen: the percentages to tap;
   // and how they are shared (restaurantTips): each to the person who served
   // the bill ('direct'), each sale's split among the tip-eligible staff
@@ -81,7 +83,8 @@ function days(list) { return Array.isArray(list) ? list.map(Number).filter(funct
 function merge(out, s) {
   var b = s.bookings;
   if (b && typeof b === 'object') {
-    ['online', 'autoConfirm'].forEach(function (k) { if (typeof b[k] === 'boolean') out.bookings[k] = b[k]; });
+    ['online', 'autoConfirm', 'remind'].forEach(function (k) { if (typeof b[k] === 'boolean') out.bookings[k] = b[k]; });
+    if (REMIND_HOURS.indexOf(Number(b.remindHours)) >= 0) out.bookings.remindHours = Number(b.remindHours);
     if (TIME.test(b.from || '') && TIME.test(b.to || '') && b.from < b.to) { out.bookings.from = b.from; out.bookings.to = b.to; }
     out.bookings.days = days(b.days);
     if (STEPS.indexOf(Number(b.step)) >= 0) out.bookings.step = Number(b.step);
@@ -160,7 +163,8 @@ function clean(out, p, text) {
     if (!(maxParty >= 1 && maxParty <= 100)) fail('invalid', 'Bookings: the biggest party on the website, from 1 to 100.');
     if (!(ahead >= 1 && ahead <= 180)) fail('invalid', 'Bookings: from 1 to 180 days ahead.');
     if (!(minutes >= 15 && minutes <= 600)) fail('invalid', 'Bookings: a table is kept from 15 to 600 minutes.');
-    out.bookings = { online: !!b.online, autoConfirm: !!b.autoConfirm, from: b.from, to: b.to, days: days(b.days), step: Number(b.step), perSlot: perSlot, maxParty: maxParty, daysAhead: ahead, minutes: minutes };
+    out.bookings = { online: !!b.online, autoConfirm: !!b.autoConfirm, from: b.from, to: b.to, days: days(b.days), step: Number(b.step), perSlot: perSlot, maxParty: maxParty, daysAhead: ahead, minutes: minutes,
+      remind: !!b.remind, remindHours: REMIND_HOURS.indexOf(Number(b.remindHours)) >= 0 ? Number(b.remindHours) : 24 };
   }
   if (p.tips) {
     var percents = Array.isArray(p.tips.percents) ? p.tips.percents.map(num).filter(function (x) { return x > 0; }) : [];

@@ -38,6 +38,7 @@ import TableInbox from './till/TableInbox';
 import TableBill from './till/TableBill';
 import OfflineQueue from './till/OfflineQueue';
 import Bookings from './till/Bookings';
+import BusyMode, { BusyPill } from './till/BusyMode';
 import GiftCards from './till/GiftCards';
 import CustomerScreen from './till/CustomerScreen';
 import Rewards from './till/Rewards';
@@ -383,6 +384,9 @@ export default function RestaurantPosPage() {
   const [taxesOpen, setTaxesOpen] = useState(false); // the taxes in the prices, one line or each
   const [rotaToday, setRotaToday] = useState(null); // who works today (till/Rota.jsx)
   const [rotaOpen, setRotaOpen] = useState(false);
+  // Busy mode for the website (till/BusyMode.jsx): on, its pill at the top.
+  const [busyMode, setBusyMode] = useState(null);
+  const [busyOpen, setBusyOpen] = useState(false);
   // Refunds, VIP money and IOUs (TillMoney.jsx)
   const [refundFor, setRefundFor] = useState(null); // 'find' | an order id | null
   const [vipOpen, setVipOpen] = useState(null); // { startGuest } | null
@@ -396,6 +400,16 @@ export default function RestaurantPosPage() {
   const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
   const [drawerLeftOpen, setDrawerLeftOpen] = useState(false); // signed out with a drawer open: it stays open
   const can = (k) => !!(tillAccess && tillAccess.can[k]);
+  // Busy mode's pill: whether the website is busy or paused, every half minute.
+  const canDelivery = can('delivery');
+  const sessionToken = session && session.token;
+  useEffect(() => {
+    if (!sessionToken || !canDelivery) { setBusyMode(null); return undefined; }
+    const load = () => posFetch('GET', '/pos/busy', sessionToken).then((b) => setBusyMode(b.takesOnline ? b.busy : null)).catch(() => {});
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [sessionToken, canDelivery]);
   // Money is taken, given back and receipts printed only on one's own open
   // drawer: the cashier on duty's (one cashier at a time), or a manager's.
   const onDuty = (k) => can(k) && !!drawer;
@@ -2188,6 +2202,7 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
+          <BusyPill busy={busyMode} onClick={() => setBusyOpen(true)} />
           {soon && soon.can && (soon.requested > 0 || soon.waiting > 0) && (
             <button type="button" className="pos-stat is-bookings is-asking" onClick={() => setBookingsOpen(true)}>
               <span className="pos-stat-ico" aria-hidden="true">📅</span>
@@ -2225,6 +2240,8 @@ export default function RestaurantPosPage() {
               tableBox && (tableBox.settings.on || tableBox.orders.length > 0) && { key: 'qr', group: 'orders', icon: <span className="tl-more-emo">📱</span>, tone: 'qr', label: tr('Orders from the tables'), note: tr('QR orders, calls, paid at the table'), badge: tableBox.orders.length + tableBox.calls.length || null, onClick: () => { loadTableBox(); setTableBoxOpen(true); } },
               can('charge') && (tillSettings.apps && tillSettings.apps.list || []).some((a) => a.on) && { key: 'app', group: 'orders', icon: <span className="tl-more-emo">🛵</span>, tone: 'app', label: tr('Delivery-app order'),
                 note: (tillSettings.apps.list || []).filter((a) => a.on).map((a) => a.name).join(', '), onClick: () => (currentTab ? setToast(tr('Put the open order aside first: an app\'s order is rung up on its own.')) : setAppPickOpen(true)) },
+              can('delivery') && { key: 'busy', group: 'orders', icon: <span className="tl-more-emo">{busyMode && busyMode.mode === 'paused' ? '⏸️' : '🔥'}</span>, tone: 'busy', label: tr('Busy mode'),
+                note: busyMode ? (busyMode.mode === 'paused' ? tr('Website orders paused') : tr('Website orders +{n} min', { n: busyMode.extraMinutes })) : tr('Website orders take longer, or pause'), badge: busyMode ? '!' : null, onClick: () => setBusyOpen(true) },
               can('delivery') && { key: 'delivery', group: 'orders', icon: 'send', tone: 'delivery', label: tr('Deliveries'), note: tr('Website orders, riders, the map'), href: DELIVERY_URL },
               { key: 'dispute', group: 'orders', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
               { key: 'screen', group: 'screens', icon: <span className="tl-more-emo">🖥️</span>, tone: 'screen', label: tr('Customer screen'), note: screen.displays.length ? tr('{n} showing this till', { n: screen.displays.length }) : tr('Pair a screen facing the customer'), onClick: () => setScreenOpen(true) },
@@ -2334,6 +2351,7 @@ export default function RestaurantPosPage() {
 
       {toast && <div className="toast" role="status">{toast}</div>}
 
+      {busyOpen && <BusyMode token={session.token} onClose={() => setBusyOpen(false)} onChanged={setBusyMode} onToast={setToast} />}
       {bookingsOpen && <Bookings token={session.token} tables={tables} onSeat={seatBooking} onToast={setToast} onClose={() => { setBookingsOpen(false); loadSoon(); }} />}
       {contactFor && <GuestContactDialog token={session.token} guest={contactFor} onClose={() => setContactFor(null)}
         onSaved={(g) => { setContactFor(null); if (selectedGuest && selectedGuest.id === g.id) setSelectedGuest(g); setToast(tr('Saved for {name}.', { name: g.name })); }} />}

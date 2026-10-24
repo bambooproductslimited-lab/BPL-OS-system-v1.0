@@ -145,7 +145,7 @@ async function shopOf(code) {
   var co = rows.filter(function (r) { return r.takes; }).sort(function (x, y) { return rank(x) - rank(y); })[0];
   if (!co) fail('notfound', 'This restaurant does not take orders online.');
   co = { id: co.id, code: co.code, name: co.name };
-  co.settings = await delivery.settingsOf(co.id);
+  co.settings = await delivery.liveSettingsOf(co.id);
   return co;
 }
 function shopOut(co) {
@@ -153,7 +153,7 @@ function shopOut(co) {
   return {
     code: co.code, name: co.name, open: s.open, delivery: s.delivery, pickup: s.pickup, phone: s.phone, note: s.note,
     location: s.location, fee: s.fee, maxKm: s.maxKm, minOrder: s.minOrder, readyMinutes: s.readyMinutes, payMethods: ['cash', 'mobile_money'],
-    later: laterOut(s, new Date())
+    later: laterOut(s, new Date()), busy: s.busy ? { mode: s.busy.mode, extraMinutes: s.busy.extraMinutes, until: s.busy.until } : null
   };
 }
 
@@ -281,6 +281,10 @@ async function place(code, p, ip, accountToken) {
   var later = p.scheduledFor != null && p.scheduledFor !== '';
   if (!s.open && !later) {
     fail('conflict', co.name + ' is not taking orders online right now.' + (laterOut(s, new Date()).on ? ' Order for later instead.' : s.phone ? ' Call ' + s.phone + '.' : ''));
+  }
+  // Paused while the kitchen is full: only orders for later.
+  if (s.busy && s.busy.mode === 'paused' && !later) {
+    fail('conflict', co.name + ' is very busy and is not taking orders for now: try again after ' + new Date(s.busy.until).toISOString().slice(11, 16) + (laterOut(s, new Date()).on ? ', or order for later.' : '.'));
   }
   var fulfillment = V.oneOf(p.fulfillment || 'delivery', ['delivery', 'pickup'], 'Delivery or pickup');
   if (!s[fulfillment]) fail('invalid', fulfillment === 'delivery' ? co.name + ' is not delivering right now: pick it up instead.' : co.name + ' only delivers.');
@@ -447,7 +451,7 @@ async function accept(token, id, p) {
   var session = await access.need(token, 'delivery');
   var company = session.posCompanyId;
   p = p || {};
-  var settings = await delivery.settingsOf(company);
+  var settings = await delivery.liveSettingsOf(company);
   var readyMinutes = Math.round(Math.min(240, Math.max(5, Number(p.readyMinutes) || settings.readyMinutes)));
   // Claimed first, so two people pressing Accept make one order.
   var o = (await pool.query("UPDATE restaurant_online_orders SET decided_by = $3, decided_at = now(), updated_at = now() WHERE id = $1 AND company_id = $2 AND status = 'pending' AND decided_at IS NULL RETURNING *",

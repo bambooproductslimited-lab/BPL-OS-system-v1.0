@@ -96,7 +96,8 @@ var posCors = cors({ origin: config.corsOrigin.concat(config.restaurantSiteOrigi
 // public pages only: the shop, the bookings and a shared document's page.
 var bplCors = cors({ origin: config.corsOrigin.concat(config.salesSiteOrigins, config.bplSiteOrigins), credentials: true });
 function bplPublic(path) {
-  return path === '/api/shop' || path.indexOf('/api/shop/') === 0 || path === '/api/book' || path.indexOf('/api/book/') === 0 || path.indexOf('/api/share/') === 0;
+  return path === '/api/shop' || path.indexOf('/api/shop/') === 0 || path === '/api/book' || path.indexOf('/api/book/') === 0 || path.indexOf('/api/share/') === 0 ||
+    path.indexOf('/api/pay/') === 0 || path.indexOf('/api/c/') === 0;
 }
 app.use(function (req, res, next) {
   if (req.path.indexOf('/api/feeds/attendance') === 0) return next();
@@ -219,6 +220,10 @@ app.use('/api', sharesRoutes);
 app.use('/api', require('./routes/shop.routes'));
 // Booking a consultation: the booking page public, the appointments for staff (bookings.routes.js).
 app.use('/api', require('./routes/bookings.routes'));
+// Payment links: a link's page and paying it public, the links for staff (paymentLinks.routes.js).
+app.use('/api', require('./routes/paymentLinks.routes'));
+// Contracts signed online: a contract's page public, the rest for staff (contracts.routes.js).
+app.use('/api', require('./routes/contracts.routes'));
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 // oauthRoutes and whatsappRoutes are mounted first and at a more specific

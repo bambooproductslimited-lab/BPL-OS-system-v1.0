@@ -19,6 +19,8 @@ import EstimatesPage from '../EstimatesPage';
 import CatalogPage from '../CatalogPage';
 import ShopOrdersPage from '../ShopOrdersPage';
 import AppointmentsPage from '../AppointmentsPage';
+import PaymentLinksPage from '../PaymentLinksPage';
+import ContractsPage from '../ContractsPage';
 import ExpenseSheetsPage from '../expenseSheets/ExpenseSheetsPage';
 import MessagesPage from '../MessagesPage';
 import AssistantPage from '../AssistantPage';
@@ -44,7 +46,7 @@ const PAGES = {
   crmvisits: CrmVisitsPage, crmhealth: CrmHealthPage, crmcommissions: CrmCommissionsPage,
   quotations: QuotationsPage, invoices: InvoicesPage, salesorders: SalesOrdersPage,
   mkcalendar: MkCalendarPage, mkrequests: MkRequestsPage, mkbrand: MkBrandPage, estimates: EstimatesPage,
-  catalog: CatalogPage, shoporders: ShopOrdersPage, appointments: AppointmentsPage, expensesheets: ExpenseSheetsPage, messages: MessagesPage, assistant: AssistantPage, crmroute: CrmRoutePage
+  catalog: CatalogPage, shoporders: ShopOrdersPage, paymentlinks: PaymentLinksPage, contracts: ContractsPage, appointments: AppointmentsPage, expensesheets: ExpenseSheetsPage, messages: MessagesPage, assistant: AssistantPage, crmroute: CrmRoutePage
 };
 const AREAS = [
   ['target', msg('Your sales board: who to call today')],

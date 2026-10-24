@@ -29,6 +29,9 @@ router.get('/shop/photos/:id', async function (req, res, next) {
     await fileStore.send(res, key, 'photo.jpg', true);
   } catch (e) { next(e); }
 });
+router.get('/shop/code', async function (req, res, next) {
+  try { res.json(await shop.checkCode(req.query, req.ip)); } catch (e) { next(e); }
+});
 router.post('/shop/orders', orderLimiter, async function (req, res, next) {
   try { res.status(201).json(await shop.place(req.body, req.ip)); } catch (e) { next(e); }
 });
@@ -38,6 +41,9 @@ router.get('/shop/settings', requireAuth, async function (req, res, next) {
 });
 router.put('/shop/settings', requireAuth, async function (req, res, next) {
   try { res.json(await shop.saveSettings(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.put('/shop/make-days', requireAuth, async function (req, res, next) {
+  try { res.json(await shop.saveMakeDays(req.ctx, req.body)); } catch (e) { next(e); }
 });
 router.get('/shop-orders', requireAuth, async function (req, res, next) {
   try { res.json(await shop.list(req.ctx, req.query)); } catch (e) { next(e); }

@@ -39,8 +39,10 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
   box-shadow: 0 1px 2px rgba(31, 42, 28, .06), 0 16px 34px -26px rgba(31, 42, 28, .55); transition: transform .18s ease, box-shadow .18s ease; animation: shp-in .5s calc(var(--i) * 50ms) cubic-bezier(.2, 1.1, .4, 1) both; }
 .shp-card:hover { transform: translateY(-3px); box-shadow: 0 1px 2px rgba(31, 42, 28, .06), 0 24px 40px -26px rgba(31, 42, 28, .7); }
 @keyframes shp-in { from { opacity: 0; transform: translateY(14px); } }
-.shp-card-pic { position: relative; display: grid; place-items: center; aspect-ratio: 1; font-size: 54px; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
-.shp-card-pic img { width: 100%; height: 100%; object-fit: cover; }
+.shp-card-pic { position: relative; display: grid; place-items: center; flex: none; aspect-ratio: 1; overflow: hidden; font-size: 54px; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
+/* Photos are cropped to their frame and never size it (a tall phone photo
+   would fill the card). */
+.shp-card-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .shp-in { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; min-width: 28px; height: 28px; padding: 0 8px; font-style: normal; font-weight: 800; color: #fff; border-radius: 999px; background: var(--shp-g); box-shadow: 0 6px 14px -6px var(--shp-gd); }
 .shp-card-body { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px 14px; }
 .shp-card-body strong { font-size: 15.5px; line-height: 1.25; }
@@ -58,8 +60,8 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
 .shp-sheet { position: relative; width: min(600px, 100%); max-height: 94dvh; overflow-y: auto; color: var(--shp-ink); background: #fff; border-radius: 26px 26px 0 0; box-shadow: 0 -20px 50px -30px rgba(0, 0, 0, .8); animation: shp-rise .3s cubic-bezier(.2, .9, .3, 1.1); font-family: var(--font-body, 'Archivo', system-ui, sans-serif); }
 @keyframes shp-rise { from { transform: translateY(40px); opacity: 0; } }
 .shp-sheet.is-checkout { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 22px; }
-.shp-pics { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
-.shp-pics img { width: 100%; height: 100%; object-fit: cover; }
+.shp-pics { position: relative; display: grid; place-items: center; flex: none; aspect-ratio: 4 / 3; overflow: hidden; background: linear-gradient(140deg, #eef5e6, #f8f4e8); }
+.shp-pics img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .shp-noimg { font-size: 80px; }
 .shp-x { position: absolute; right: 12px; top: 12px; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; font: inherit; color: #111; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .92); cursor: pointer; }
 .shp-x.is-plain { position: static; flex: none; background: #f1f3ee; font-size: 20px; }
@@ -112,6 +114,32 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
 .shp-done-art { display: flex; gap: 12px; font-size: 40px; }
 .shp-done-art i { font-style: normal; animation: shp-pop2 .7s cubic-bezier(.2, 1.4, .4, 1) both; animation-delay: calc(var(--i) * 110ms); }
 @keyframes shp-pop2 { from { opacity: 0; transform: translateY(16px) scale(.4) rotate(-20deg); } }
+/* Made to order: the days an item takes, on its card, in its sheet and in
+   the basket; the days the order will be ready between, at checkout. */
+.shp-made { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px; padding: 2px 8px; font-size: 11.5px; font-weight: 800; font-style: normal;
+  color: #8a4b08; border-radius: 999px; background: linear-gradient(135deg, #fff1d6, #ffe4b5); }
+.shp-made.is-line { margin-top: 3px; font-size: 11px; }
+.shp-made-note { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 700; color: #7a4206; border-radius: 14px; background: #fff4df; border: 1px solid #fde1ad; }
+.shp-made-note span { font-size: 20px; }
+.shp-ready { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; color: #3d2a05;
+  background: linear-gradient(120deg, #fff6e2, #fdebc8); border: 1px solid #f6d79a; box-shadow: 0 10px 22px -18px rgba(138, 75, 8, .7); }
+.shp-ready-ico { display: grid; place-items: center; flex: none; width: 42px; height: 42px; font-size: 22px; border-radius: 14px; background: #fff; box-shadow: 0 4px 10px -6px rgba(138, 75, 8, .6); }
+.shp-ready > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.shp-ready strong { font-size: 14.5px; }
+.shp-ready small { font-size: 12.5px; color: #7a5a22; }
+.shp-ready.is-done { justify-content: center; margin: 0; font-weight: 700; font-size: 14px; color: #7a4206; }
+/* A discount code at checkout. */
+.shp-code { display: flex; flex-direction: column; gap: 4px; }
+.shp-code-row { display: flex; gap: 8px; }
+.shp-code-row .input { flex: 1; min-width: 0; letter-spacing: .08em; font-weight: 800; text-transform: uppercase; }
+.shp-code-row .shp-go { flex: none; padding: 0 18px; }
+.shp-code-on { display: flex; align-items: center; gap: 8px; margin: 0; padding: 9px 12px; font-size: 13.5px; border-radius: 14px; color: var(--shp-gd); background: #eef6e8; border: 1px dashed var(--shp-g); }
+.shp-code-on b { letter-spacing: .08em; }
+.shp-code-on .shp-link { margin-left: auto; }
+.shp-code-err { font-size: 12.5px; font-weight: 700; color: #b42318; }
+.shp-link { padding: 0; font: inherit; font-size: 13px; font-weight: 700; color: var(--shp-g); text-decoration: underline; background: none; border: 0; cursor: pointer; }
+.shp-total.is-off { padding-top: 0; border-top: 0; }
+.shp-total.is-off strong { font-size: 16px; color: #b45309; }
 .shp-foot { margin-top: 30px; text-align: center; font-size: 12.5px; color: var(--shp-muted); }
 @media (min-width: 700px) {
   .shp-back { align-items: center; padding: 20px; }

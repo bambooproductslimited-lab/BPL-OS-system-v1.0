@@ -73,3 +73,38 @@
 .sho-pay.is-on { background: color-mix(in srgb, #2f9e44 10%, transparent); }
 @media (max-width: 520px) { .sho-list { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .sho-hero-art, .sho-order { animation: none; } }
+
+/* Made to order and discount codes on an order. */
+.sho-o-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sho-ready, .sho-promo { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font-size: 12.5px; font-weight: 800; border-radius: 999px; }
+.sho-ready { color: #8a4b08; background: color-mix(in srgb, #f59f00 16%, transparent); }
+.sho-promo { color: #6b21a8; background: color-mix(in srgb, #a855f7 14%, transparent); letter-spacing: .02em; }
+:root[data-theme='dark'] .sho-ready { color: #fcc419; }
+:root[data-theme='dark'] .sho-promo { color: #d8b4fe; }
+/* The codes editor. */
+.sho-code { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) repeat(3, minmax(0, 1fr)) auto auto; align-items: end; gap: 6px 8px; padding: 8px 0; border-bottom: 1px dashed var(--color-border); }
+.sho-code.is-off { opacity: .6; }
+.sho-code .input { min-width: 0; padding: 6px 8px; font-size: 13px; }
+.sho-code-name { font-weight: 800; letter-spacing: .06em; }
+.sho-code-val { display: flex; gap: 4px; }
+.sho-code-val .input:first-child { width: 0; flex: 1; }
+.sho-code-val select { flex: none; width: 66px; }
+.sho-code-f { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 700; color: var(--color-text-muted); }
+.sho-code-on { display: inline-flex; align-items: center; gap: 4px; padding-bottom: 6px; font-size: 12.5px; font-weight: 700; }
+.sho-code-x { width: 30px; height: 30px; padding: 0; font-size: 13px; color: var(--color-text-muted); border-radius: 50%; border: 1px solid var(--color-border); background: transparent; cursor: pointer; }
+.sho-code-used { grid-column: 1 / -1; font-size: 11.5px; color: var(--color-text-muted); }
+.sho-code-add { align-self: flex-start; margin-top: 8px; }
+@media (max-width: 640px) {
+  .sho-code { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .sho-code-f { grid-column: span 1; }
+}
+/* Days to make. */
+.sho-mk-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.sho-mk { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--color-border); }
+.sho-mk.is-made { border-color: color-mix(in srgb, #f59f00 45%, transparent); background: color-mix(in srgb, #f59f00 7%, transparent); }
+.sho-mk-name { display: flex; flex-direction: column; min-width: 0; }
+.sho-mk-name strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sho-mk-name small { font-size: 12px; color: var(--color-text-muted); }
+.sho-mk-days { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.sho-mk-days .input { width: 62px; padding: 6px 8px; text-align: center; }
+.sho-mk-days small { font-size: 12px; color: var(--color-text-muted); }

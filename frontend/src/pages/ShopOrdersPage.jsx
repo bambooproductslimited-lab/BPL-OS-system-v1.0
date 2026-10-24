@@ -12,12 +12,98 @@ import './ShopOrdersPage.css';
 // with its invoice and whether it is paid; marked ready (the customer is
 // texted when texts are set up), done, or cancelled. The shop's own
 // settings: open or closed, its words, which categories are on it, delivery
-// and pickup.
+// and pickup, and its discount codes; and the days each item takes to make
+// (made to order), which the customer sees before ordering.
 
 const STATUS = {
   new: ['🆕', () => tr('New')], ready: ['📦', () => tr('Ready')], done: ['✅', () => tr('Done')], cancelled: ['✕', () => tr('Cancelled')]
 };
 const FILTERS = [['', () => tr('All')], ['new', () => tr('New')], ['ready', () => tr('Ready')], ['done', () => tr('Done')], ['cancelled', () => tr('Cancelled')]];
+function dayWords(day) { return new Date(day + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }); }
+const NEW_CODE = { code: '', kind: 'percent', value: 10, minTotal: 0, endsOn: null, maxUses: 0, on: true };
+
+// The discount codes: what each takes off, from what order, until when, how
+// many times; and how often each was used.
+function CodesEditor({ codes, uses, onChange }) {
+  const set = (i, patch) => onChange(codes.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  return (
+    <fieldset className="sho-fs">
+      <legend>🏷️ {tr('Discount codes')}</legend>
+      <p className="muted">{tr('Customers type one at checkout; it comes off their invoice.')}</p>
+      {codes.map((c, i) => {
+        const u = uses[c.code];
+        return (
+          <div key={i} className={'sho-code' + (c.on ? '' : ' is-off')}>
+            <input className="input sho-code-name" maxLength={24} value={c.code} onChange={(e) => set(i, { code: e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '') })} placeholder="BAMBOO10" aria-label={tr('Code')} />
+            <span className="sho-code-val">
+              <input className="input" type="number" min="1" max={c.kind === 'percent' ? 90 : 1000000} step="any" value={c.value} onChange={(e) => set(i, { value: e.target.value })} aria-label={tr('How much off')} />
+              <select className="input" value={c.kind} onChange={(e) => set(i, { kind: e.target.value })} aria-label={tr('Percentage or amount')}>
+                <option value="percent">%</option><option value="amount">GHS</option>
+              </select>
+            </span>
+            <label className="sho-code-f">{tr('From an order of')}<input className="input" type="number" min="0" step="any" value={c.minTotal || 0} onChange={(e) => set(i, { minTotal: e.target.value })} /></label>
+            <label className="sho-code-f">{tr('Last day')}<input className="input" type="date" value={c.endsOn || ''} onChange={(e) => set(i, { endsOn: e.target.value || null })} /></label>
+            <label className="sho-code-f">{tr('Times (0: no limit)')}<input className="input" type="number" min="0" value={c.maxUses || 0} onChange={(e) => set(i, { maxUses: e.target.value })} /></label>
+            <label className="sho-code-on"><input type="checkbox" checked={c.on} onChange={(e) => set(i, { on: e.target.checked })} />{c.on ? tr('On') : tr('Off')}</label>
+            <small className="sho-code-used">{u ? tr('Used {n}× · {amount} off', { n: u.uses, amount: money(u.off) }) : tr('Not used yet')}</small>
+            <button type="button" className="sho-code-x" onClick={() => onChange(codes.filter((_, j) => j !== i))} aria-label={tr('Remove')}>✕</button>
+          </div>
+        );
+      })}
+      <button type="button" className="btn btn-secondary sho-code-add" onClick={() => onChange(codes.concat([{ ...NEW_CODE }]))}>＋ {tr('Add a code')}</button>
+    </fieldset>
+  );
+}
+
+// Days to make: each item on the shop, from and to (empty: in stock).
+function MakeDaysDialog({ onClose, onSaved }) {
+  const [items, setItems] = useState(null);
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => { api.get('/shop/settings').then((r) => setItems(r.items.map((i) => ({ ...i, from: i.makeDays ? i.makeDays.from : '', to: i.makeDays ? i.makeDays.to : '', was: i.makeDays })))).catch((e) => setError(e.message)); }, []);
+  const set = (id, patch) => setItems(items.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  const changed = (items || []).filter((i) => String(i.was ? i.was.from : '') !== String(i.from) || String(i.was ? i.was.to : '') !== String(i.to));
+  async function save(e) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try { await api.put('/shop/make-days', { items: changed.map((i) => ({ itemId: i.id, from: i.from, to: i.to })) }); onSaved(changed.length); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  const shown = (items || []).filter((i) => !q.trim() || (i.name + ' ' + i.category).toLowerCase().includes(q.trim().toLowerCase()));
+  return createPortal(
+    <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
+      <form className="dialog sho-dlg" onClick={(e) => e.stopPropagation()} onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="sho-mk-title">
+        <h2 id="sho-mk-title">🛠️ {tr('Days to make')}</h2>
+        <p className="muted">{tr('For items made to order: how many days they take, e.g. 3 to 7. Customers see it on the item and at checkout, with the days their order will be ready between. Leave empty for items in stock.')}</p>
+        {!items ? <p className="muted">{error || tr('Loading…')}</p> : (
+          <>
+            <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find an item')} aria-label={tr('Find an item')} />
+            <div className="sho-mk-list">
+              {shown.map((i) => (
+                <div key={i.id} className={'sho-mk' + (i.to !== '' && Number(i.to) > 0 ? ' is-made' : '')}>
+                  <span className="sho-mk-name"><strong>{i.name}</strong><small>{i.category}</small></span>
+                  <span className="sho-mk-days">
+                    <input className="input" type="number" min="0" max="180" value={i.from} onChange={(e) => set(i.id, { from: e.target.value })} aria-label={tr('From (days)')} placeholder="–" />
+                    <span aria-hidden="true">→</span>
+                    <input className="input" type="number" min="0" max="180" value={i.to} onChange={(e) => set(i.id, { to: e.target.value })} aria-label={tr('To (days)')} placeholder="–" />
+                    <small>{tr('days')}</small>
+                  </span>
+                </div>
+              ))}
+              {!shown.length && <p className="muted">{tr('No items on the shop match.')}</p>}
+            </div>
+            {error && <div className="error-banner" role="alert">{error}</div>}
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>{tr('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy || !changed.length}>{busy ? tr('Saving…') : changed.length ? tr('Save {n} changes', { n: changed.length }) : tr('Save')}</button>
+            </div>
+          </>
+        )}
+      </form>
+    </div>, document.body
+  );
+}
+
 function when(d) { return new Date(d).toLocaleString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 
 function SettingsDialog({ onClose, onSaved }) {
@@ -59,6 +145,7 @@ function SettingsDialog({ onClose, onSaved }) {
             </div>
             {s.pickup && <label className="sho-field">{tr('Where to pick up')}<input className="input" maxLength={200} value={s.pickupAddress} onChange={(e) => setS({ ...s, pickupAddress: e.target.value })} placeholder={tr('e.g. our showroom')} /></label>}
             {s.delivery && <label className="sho-field">{tr('About delivery')}<input className="input" maxLength={300} value={s.deliveryNote} onChange={(e) => setS({ ...s, deliveryNote: e.target.value })} placeholder={tr('e.g. Delivery fee agreed on the phone; 2–5 days.')} /></label>}
+            <CodesEditor codes={s.codes || []} uses={d.codeUses || {}} onChange={(codes) => setS({ ...s, codes })} />
             <p className={'sho-pay' + (d.payOnline ? ' is-on' : '')}>{d.payOnline ? '💳 ' + tr('Customers pay their invoice online by card or Mobile Money.') : '🏦 ' + tr('Online payments are not set up (PAYSTACK_BPL_SECRET_KEY on the server): customers pay by the bank details on the invoice.')}</p>
             {error && <div className="error-banner" role="alert">{error}</div>}
             <div className="dialog-actions">
@@ -81,6 +168,7 @@ export default function ShopOrdersPage() {
   const [busy, setBusy] = useState(null);
   const [toast, setToast] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [makeOpen, setMakeOpen] = useState(false);
   const openId = params.get('open');
   const load = useCallback(() => api.get('/shop-orders' + (filter ? '?status=' + filter : '')).then(setData).catch((e) => setError(e.message)), [filter]);
   useEffect(() => { load(); }, [load]);
@@ -115,6 +203,7 @@ export default function ShopOrdersPage() {
         </div>
         <div className="sho-hero-acts">
           <a className="btn btn-secondary" href={data.url} target="_blank" rel="noreferrer">↗ {tr('Open the shop')}</a>
+          {can('catalog.manage') && <button type="button" className="btn btn-secondary" onClick={() => setMakeOpen(true)}>🛠️ {tr('Days to make')}</button>}
           {can('catalog.manage') && <button type="button" className="btn btn-primary" onClick={() => setSettingsOpen(true)}>⚙️ {tr('Shop settings')}</button>}
         </div>
       </section>
@@ -154,6 +243,12 @@ export default function ShopOrdersPage() {
                 <ul className="sho-o-lines">
                   {o.lines.map((l) => <li key={l.variationId}><b>{l.qty}×</b> {l.description}<span>{money(l.unitPrice * l.qty)}</span></li>)}
                 </ul>
+                {(o.readyBy || o.promoCode) && (
+                  <div className="sho-o-chips">
+                    {o.readyBy && <span className="sho-ready">🛠️ {o.readyFrom && o.readyFrom !== o.readyBy ? tr('Made to order: ready {from} – {to}', { from: dayWords(o.readyFrom), to: dayWords(o.readyBy) }) : tr('Made to order: ready by {day}', { day: dayWords(o.readyBy) })}</span>}
+                    {o.promoCode && <span className="sho-promo">🏷️ {o.promoCode} · −{money(o.discount)}</span>}
+                  </div>
+                )}
                 {o.note && <p className="sho-o-note">“{o.note}”</p>}
                 <div className="sho-o-foot">
                   {o.invoice && (
@@ -175,6 +270,7 @@ export default function ShopOrdersPage() {
         </ul>
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onSaved={() => { setSettingsOpen(false); setToast(tr('Shop settings saved.')); load(); }} />}
+      {makeOpen && <MakeDaysDialog onClose={() => setMakeOpen(false)} onSaved={(n) => { setMakeOpen(false); setToast(tr('Days to make saved for {n} items.', { n })); }} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

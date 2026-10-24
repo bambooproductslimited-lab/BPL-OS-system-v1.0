@@ -43,6 +43,13 @@
 .on-facts span { padding: 6px 11px; font-size: 12.5px; border-radius: 999px; background: rgba(255, 255, 255, .17); backdrop-filter: blur(4px); }
 .on-facts span.is-later { background: rgba(49, 46, 129, .32); box-shadow: inset 0 0 0 1px rgba(199, 210, 254, .45); }
 .on-note { position: relative; margin: 10px 0 0; font-size: 13px; opacity: .92; }
+.on-busy { position: relative; display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding: 10px 12px; font-size: 13.5px; line-height: 1.4; border-radius: 16px;
+  background: rgba(0, 0, 0, .22); box-shadow: inset 0 0 0 1px rgba(255, 192, 120, .55); backdrop-filter: blur(6px); animation: on-busy-in .5s cubic-bezier(.2, 1.2, .4, 1) both; }
+.on-busy > span:first-child { display: grid; place-items: center; flex: none; width: 34px; height: 34px; font-size: 18px; border-radius: 12px; background: linear-gradient(135deg, #ffa94d, #e8590c); }
+.on-busy.is-paused { box-shadow: inset 0 0 0 1px rgba(165, 216, 255, .6); }
+.on-busy.is-paused > span:first-child { background: linear-gradient(135deg, #74c0fc, #1c7ed6); }
+@keyframes on-busy-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .on-busy { animation: none; } }
 .on-mine { display: flex; align-items: center; gap: 12px; width: calc(100% - 28px); margin: 12px 14px 0; padding: 12px 14px; font: inherit; text-align: left; color: var(--on-ink); border-radius: 18px; border: 1px solid rgba(22, 163, 74, .35); background: var(--on-card); box-shadow: 0 12px 26px -20px rgba(22, 163, 74, .8); cursor: pointer; }
 .on-mine > span:first-child { font-size: 26px; }
 .on-mine > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
@@ -68,8 +75,10 @@
 .on-dish:hover { transform: translateY(-2px); box-shadow: 0 18px 30px -22px rgba(239, 68, 68, .55); }
 .on-dish.is-in { border-color: rgba(22, 163, 74, .55); }
 .on-dish.is-out { opacity: .6; cursor: not-allowed; }
-.on-dish-pic { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; background: linear-gradient(135deg, var(--c), rgba(255, 255, 255, .15)); }
-.on-dish-pic img { width: 100%; height: 100%; object-fit: cover; }
+/* The picture keeps its frame whatever the photo's shape: cropped to it,
+   it never sizes it (a tall phone photo filled the card and the sheet). */
+.on-dish-pic { position: relative; display: grid; place-items: center; flex: none; aspect-ratio: 4 / 3; overflow: hidden; background: linear-gradient(135deg, var(--c), rgba(255, 255, 255, .15)); }
+.on-dish-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .on-dish-pic b { font-family: var(--font-heading); font-size: 42px; color: rgba(255, 255, 255, .92); text-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
 .on-dish-pic em { position: absolute; left: 8px; top: 8px; min-width: 24px; padding: 2px 7px; font-style: normal; font-size: 12px; font-weight: 800; color: #fff; text-align: center; border-radius: 999px; background: var(--on-go); }
 .on-sold { position: absolute; inset: auto 8px 8px; padding: 3px 8px; font-size: 11.5px; font-weight: 800; color: #fff; text-align: center; border-radius: 999px; background: rgba(15, 23, 42, .78); }
@@ -118,8 +127,8 @@
 /* ── sheets ── */
 .on-sheet-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: rgba(15, 23, 42, .55); animation: on-fade .2s ease; }
 .on-sheet { width: min(560px, 100%); max-height: 94dvh; overflow-y: auto; color: var(--on-ink); background: var(--on-card); border-radius: 26px 26px 0 0; box-shadow: 0 -20px 50px -30px rgba(0, 0, 0, .8); animation: on-rise .3s cubic-bezier(.2, .9, .3, 1.1); }
-.on-sheet-pic { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 10; background: linear-gradient(135deg, var(--c, var(--on-b)), rgba(255, 255, 255, .2)); }
-.on-sheet-pic img { width: 100%; height: 100%; object-fit: cover; }
+.on-sheet-pic { position: relative; display: grid; place-items: center; flex: none; aspect-ratio: 16 / 10; overflow: hidden; background: linear-gradient(135deg, var(--c, var(--on-b)), rgba(255, 255, 255, .2)); }
+.on-sheet-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .on-sheet-pic b { font-family: var(--font-heading); font-size: 72px; color: rgba(255, 255, 255, .9); }
 .on-x { position: absolute; right: 12px; top: 12px; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; font: inherit; font-size: 16px; color: #0f172a; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .92); cursor: pointer; }
 .on-x.is-plain { position: static; flex: none; color: var(--on-ink); background: var(--on-soft); font-size: 20px; }

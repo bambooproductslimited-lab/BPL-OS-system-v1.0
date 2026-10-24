@@ -98,6 +98,8 @@ export const NAV_GROUPS = [
     { key: 'receipts', label: msg('Receipts'), perm: 'invoice.read', icon: 'receipt' },
     { key: 'catalog', label: msg('Products & Services'), perm: 'catalog.read', icon: 'box' },
     { key: 'shoporders', label: msg('Online shop'), perm: 'invoice.read', icon: 'cart' },
+    { key: 'paymentlinks', label: msg('Payment links'), perm: 'invoice.read', icon: 'link' },
+    { key: 'contracts', label: msg('Contracts'), perm: 'quotation.read', icon: 'pen' },
     { key: 'billingsettings', label: msg('Settings'), perm: 'settings.manage', icon: 'gear' }
   ] },
   { label: msg('Finance'), items: [
