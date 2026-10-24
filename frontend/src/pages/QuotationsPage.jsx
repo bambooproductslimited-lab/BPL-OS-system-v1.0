@@ -16,6 +16,7 @@ import { money, moneyBreakdown } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import { tr, msg, docTr } from '../lib/i18n.jsx';
+import ClientAnswers, { AnswerTag } from '../components/ClientAnswers';
 import { formatDocDate } from '../lib/dates';
 import { codeLabel } from '../lib/codeLabels.js';
 import './EmployeesPage.css';
@@ -371,7 +372,7 @@ export default function QuotationsPage() {
                   </button>
                   <span className="tl-menu"><RowMenu disabled={busyId === q.id} actions={actionsFor(q)} /></span>
                   <p className="dk-muted tl-small es-items">{whatFor(q)}</p>
-                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status></div>
+                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status><AnswerTag doc={q} /></div>
                   <div className="tl-foot">
                     <span className="es-total">{money(q.grandTotal, q.currency)}</span>
                     <ContactButtons name={q.customerName} phone={q.customerPhone} email={q.customerEmail} />
@@ -423,7 +424,7 @@ export default function QuotationsPage() {
               <div>
                 <span className="dk-muted tl-small">{cur.quoteNo}{cur.title ? ' · ' + cur.title : ''}</span>
                 <h2>{cur.customerName}</h2>
-                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status></div>
+                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status><AnswerTag doc={cur} /></div>
               </div>
               <button type="button" className="tl-close" onClick={closeDetail} aria-label={tr('Close')}>×</button>
             </div>
@@ -442,6 +443,7 @@ export default function QuotationsPage() {
               {cur.estimateNo && <div><dt>{tr('From estimate')}</dt><dd><Link to="/estimates">{cur.estimateNo}</Link></dd></div>}
               {cur.invoice && <div><dt>{tr('Invoice')}</dt><dd><Link to={'/invoices?open=' + cur.invoice.id}>{cur.invoice.invoiceNo}</Link> · {codeLabel(cur.invoice.status)}{curInv && curInv.balanceDue > 0 ? ' · ' + tr('{amount} still to pay', { amount: money(curInv.balanceDue, cur.currency) }) : ''}</dd></div>}
             </dl>
+            <ClientAnswers type="quotation" id={cur.id} refreshKey={cur.clientAnsweredAt} />
             <div className="tl-holder is-inline">
               <div className="tl-holder-head">
                 <span className="tl-holder-name"><strong>{cur.customerName}</strong><span className="dk-muted tl-small">{[cur.customerPhone, cur.customerEmail].filter(Boolean).join(' · ') || tr('no phone or email')}</span></span>

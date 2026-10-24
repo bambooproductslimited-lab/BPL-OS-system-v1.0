@@ -6,7 +6,8 @@ import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import AddOnGroups from './AddOnGroups';
 import ComboEditor from './Combos';
 import { comboBodyOf, comboDraftOf } from './comboDraft';
-import { ALLERGENS, allergenIcon } from './tillService';
+import { ALLERGENS, allergenIcon, allergenWords } from './tillService';
+import LabelSheet from '../../components/LabelSheet';
 import { saveFile } from '../../lib/saveFile';
 
 // The menu and the stock, kept from the till (restaurantTillMenu.service.js):
@@ -29,6 +30,7 @@ export function MenuTab({ token, pin, onFail }) {
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState(null);
   const [view, setView] = useState('dishes'); // 'dishes' | 'addons' (till/AddOnGroups.jsx)
+  const [labels, setLabels] = useState(false); // price labels with allergens (components/LabelSheet.jsx)
   const call = useCallback((body) => posFetch('POST', '/pos/settings/menu', token, { managerPin: pin || undefined, ...body }), [token, pin]);
   useEffect(() => { call({ action: 'list' }).then(setData).catch(onFail); }, [call, onFail]);
   const shown = useMemo(() => {
@@ -170,8 +172,18 @@ export function MenuTab({ token, pin, onFail }) {
       <div className="ts-mn-tools">
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find a dish…')} aria-label={tr('Find a dish…')} />
         <button type="button" className="btn btn-secondary" disabled={busy} onClick={downloadLibrary} title={tr('The same sheets and columns as Square\'s item library')}>⬇ {tr('Item library (Square format)')}</button>
+        <button type="button" className="btn btn-secondary" disabled={!shown.length} onClick={() => setLabels(true)} title={tr('Price labels with allergens, for the dishes shown')}>🏷️ {tr('Labels')}</button>
         <button type="button" className="btn btn-primary" onClick={() => open(null)}><Icon name="spark" /> {tr('Add a dish')}</button>
       </div>
+      {labels && (
+        <LabelSheet title={cat ? tr('Labels: {category}', { category: cat }) : tr('Labels for the menu')} allergens onClose={() => setLabels(false)}
+          labels={shown.filter((i) => i.active).flatMap((i) => {
+            const alg = (i.allergens || []).map((k) => allergenWords(k, tr));
+            return i.variations.length
+              ? i.variations.map((v, k) => ({ key: i.id + ':' + k, name: i.name, sub: v.name, price: v.price, code: v.sku || i.sku || '', allergens: alg, qty: 1 }))
+              : [{ key: i.id, name: i.name, price: i.price, code: i.sku || '', allergens: alg, qty: 1 }];
+          })} />
+      )}
       <div className="ts-chips ts-mn-cats" role="radiogroup" aria-label={tr('Category')}>
         <button type="button" role="radio" aria-checked={!cat} className={!cat ? 'is-on' : ''} onClick={() => setCat('')}>{tr('Everything')} {data.items.length}</button>
         {cats.map((c) => <button key={c} type="button" role="radio" aria-checked={cat === c} className={cat === c ? 'is-on' : ''} onClick={() => setCat(c)}>{c}</button>)}

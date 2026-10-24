@@ -1,0 +1,72 @@
+/* A calmer till (RestaurantPosPage.jsx): a slim top bar of pills, More as
+   a panel in groups, a lighter bill. */
+
+/* ── the top bar: pills, one line each ── */
+.pos-top-stats { flex-wrap: nowrap; justify-content: safe center; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
+.pos-top-stats::-webkit-scrollbar { display: none; }
+.pos-top .pos-stat { flex: none; gap: 9px; padding: 5px 14px 5px 5px; border-radius: 999px; }
+.pos-top .pos-stat-ico { width: 34px; height: 34px; border-radius: 50%; }
+.pos-top .pos-stat-ico .dk-icon { width: 17px; height: 17px; }
+.pos-top .pos-stat-text { display: flex; flex-direction: column; gap: 0; }
+.pos-top .pos-stat small { font-size: 9.5px; letter-spacing: .07em; line-height: 1.3; }
+.pos-top .pos-stat strong { font-size: 15.5px; line-height: 1.2; }
+.pos-top .pos-stat:hover { transform: translateY(-1px); }
+.pos-stat.is-asking { border-color: color-mix(in srgb, var(--st) 55%, var(--pos-line)); }
+.pos-stat.is-asking .pos-stat-ico { animation: pos-pulse 2s ease-in-out infinite; }
+.pos-stat.is-qr { --st: #0ea5e9; }
+.pos-stat.is-bookings { --st: #8b5cf6; }
+@media (prefers-reduced-motion: reduce) { .pos-stat.is-asking .pos-stat-ico { animation: none; } }
+
+/* ── More: a panel in groups ── */
+.tl-more-layer { position: relative; z-index: 300; font-family: var(--font-body); font-size: 14px; color: var(--color-text);
+  --pos-card: var(--color-bg); --pos-soft: #f5f5f3; --pos-line: rgba(32, 30, 29, .14); --color-text-muted: rgba(32, 30, 29, .62); }
+:root[data-theme='dark'] .tl-more-layer { --pos-card: #151d2f; --pos-soft: #1b2437; --pos-line: rgba(255, 255, 255, .11); --color-text-muted: rgba(242, 245, 251, .62); }
+.tl-more-scrim { position: fixed; inset: 0; z-index: 300; background: rgba(15, 23, 42, .16); animation: pos-fade .16s ease both; }
+.tl-more-menu.is-grouped { z-index: 301; position: fixed; top: 76px; right: 14px; width: min(1120px, calc(100vw - 28px)); max-height: calc(100dvh - 92px); padding: 14px; gap: 12px; border-radius: 22px; }
+.tl-more-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; align-items: start; }
+.tl-more-group { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px 8px; border-radius: 16px; background: color-mix(in srgb, var(--g, #64748b) 6%, transparent); border: 1px solid color-mix(in srgb, var(--g, #64748b) 14%, transparent); }
+.tl-more-group.is-money { --g: #f59e0b; }
+.tl-more-group.is-orders { --g: #0ea5e9; }
+.tl-more-group.is-screens { --g: #8b5cf6; }
+.tl-more-group.is-manage { --g: #10b981; }
+.tl-more-head { display: flex; align-items: center; gap: 8px; margin: 0 4px 6px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.tl-more-head span { font-size: 15px; letter-spacing: 0; }
+.tl-more-list { display: flex; flex-direction: column; gap: 2px; }
+.tl-more-group .tl-more-item { padding: 8px; border-radius: 12px; }
+.tl-more-group .tl-more-item:hover:not(:disabled) { background: color-mix(in srgb, var(--g, #64748b) 10%, var(--pos-card, transparent)); }
+.tl-more-out { margin-left: auto; font-size: 12px; color: var(--color-text-muted); }
+.tl-more-ico.is-drawer { color: #2563eb; background: rgba(59, 130, 246, .13); }
+.tl-more-ico.is-qr, .tl-more-ico.is-delivery { color: #0284c7; background: rgba(14, 165, 233, .13); }
+.tl-more-ico.is-kitchen, .tl-more-ico.is-printer { color: #7c3aed; background: rgba(139, 92, 246, .12); }
+.tl-more-ico.is-stock { color: #059669; background: rgba(16, 185, 129, .13); }
+.tl-more-menu.is-grouped .tl-more-extra { margin-top: 0; padding: 10px 4px 0; }
+.tl-more-menu.is-grouped .tl-more-look { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.tl-more-menu.is-grouped .tl-more-lang select { width: auto; min-width: 160px; }
+:root[data-theme='glass'] .tl-more-group { background: rgba(255, 255, 255, .45); border-color: rgba(255, 255, 255, .7); }
+:root[data-theme='glass'] .tl-more-scrim { background: rgba(60, 64, 90, .18); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+:root[data-theme='dark'] .tl-more-scrim { background: rgba(0, 0, 0, .4); }
+@media (max-width: 760px) {
+  .tl-more-menu.is-grouped { top: auto; bottom: 0; right: 0; left: 0; width: 100%; max-height: 82dvh; border-radius: 22px 22px 0 0; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .tl-more-groups { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── the bill: one row of chips, the taxes folded, quiet icons ── */
+.pos-service-end { display: inline-flex; gap: 6px; margin-left: auto; }
+.pos-service-end .pos-allergy-add { margin-left: 0; }
+.pos-service.is-chips { padding-top: 0; }
+.pos-chip-add { padding: 5px 11px; font: inherit; font-size: 12px; font-weight: 800; color: var(--color-text-muted); border: 1px dashed var(--pos-line); border-radius: 999px; background: transparent; cursor: pointer; }
+.pos-chip-add:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+.pos-knote { margin-top: 0; margin-bottom: 8px; }
+.pos-bill .pos-incl-toggle { display: flex; justify-content: space-between; gap: 10px; width: 100%; padding: 0; font: inherit; text-align: left; color: var(--color-text-muted); background: none; border: 0; cursor: pointer; }
+.pos-bill .pos-incl-toggle small { margin-left: 4px; opacity: .75; }
+.pos-bill .is-incl.is-sub { padding-left: 14px; }
+.pos-line-note.is-icon, .pos-line-off.is-icon { display: inline-grid; place-items: center; width: 26px; height: 22px; padding: 0; font-size: 12.5px; border-radius: 8px; border: 1px solid var(--pos-line); }
+.pos-line-note.is-icon:hover, .pos-line-off.is-icon:hover { background: var(--pos-soft); }
+@keyframes pos-fade { from { opacity: 0; } }
+
+/* A tablet: the logo and the clock say enough; the pills get the room. */
+@media (min-width: 1101px) and (max-width: 1320px) {
+  .pos-top-company, .pos-top-hello { display: none; }
+  .pos-top { gap: 12px; }
+}
+.tl-more-ico.is-rota { background: rgba(28, 126, 214, .13); }

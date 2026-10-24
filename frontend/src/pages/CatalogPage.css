@@ -83,3 +83,10 @@
   .ct-vars .ct-var { flex-direction: column; align-items: flex-start; }
   .ct-vars .rs-row-side { max-width: none; align-items: flex-start; flex-direction: row; flex-wrap: wrap; gap: 6px; }
 }
+
+/* Options (components/CatalogTools.jsx) */
+.ct-var-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ct-opt-btn.btn { padding: 6px 12px; font-size: 13px; }
+.ct-opts { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 8px; }
+.ct-opt { padding: 4px 10px; font-size: 12.5px; border-radius: 999px; background: color-mix(in srgb, #f59f00 12%, transparent); }
+.ct-opt b { margin-right: 4px; }

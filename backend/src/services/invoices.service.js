@@ -36,6 +36,7 @@ async function rowToInvoice(db, r, extra) {
     grandTotal: Number(r.grand_total), amount: Number(r.grand_total), amountPaid: Number(r.amount_paid), balanceDue: Number(r.balance_due),
     creditTotal: Number(r.credit_total || 0),
     poReference: r.po_reference, bankInstructions: r.bank_instructions, status: r.status, issuedAt: r.issued_at, dueDate: r.due_date, paidAt: r.paid_at,
+    viewedAt: r.viewed_at || null, seriesId: r.series_id || null, seriesPeriod: r.series_period || null,
     notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || [],
     payments: payments
   }, extra || {});
@@ -167,7 +168,11 @@ async function createFromQuotation(ctx, quotationId, poReference) {
 }
 
 // kernel.js: handlers['invoices.createManual']
-async function createManual(ctx, p) {
+// opts (from the server only): { seriesId, seriesPeriod } for one raised by
+// a repeating invoice (invoiceSeries.service.js): issued on its period's
+// day, and once only (ux_invoices_series_period).
+async function createManual(ctx, p, opts) {
+  opts = opts || {};
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
   var custRes = await pool.query('SELECT * FROM customers WHERE id = $1', [p.customerId]);
   if (!custRes.rows[0]) fail('invalid', 'Choose a customer.');
@@ -184,9 +189,10 @@ async function createManual(ctx, p) {
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
-      [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions, currency, (p.notes || '').trim(), (p.terms || '').trim(), docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule)]
+      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule, series_id, series_period) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *",
+      [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, opts.seriesPeriod || todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions, currency, (p.notes || '').trim(), (p.terms || '').trim(), docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule),
+        opts.seriesId || null, opts.seriesPeriod || null]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
@@ -201,7 +207,10 @@ async function createManual(ctx, p) {
 }
 
 // kernel.js: handlers['invoices.recordPayment']
-async function recordPayment(ctx, invoiceId, p) {
+// opts (from the server only, never a request's body): { source: 'online' }
+// for a payment made from the invoice's link (invoicePay.service.js).
+async function recordPayment(ctx, invoiceId, p, opts) {
+  opts = opts || {};
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
   var amount = Math.round((Number(p.amount) || 0) * 100) / 100;
   if (amount <= 0) fail('invalid', 'Enter a payment amount greater than zero.');
@@ -217,8 +226,8 @@ async function recordPayment(ctx, invoiceId, p) {
     if (amount > Number(i.balance_due) + 0.01) fail('invalid', 'That exceeds the outstanding balance of ' + i.currency + ' ' + Number(i.balance_due).toLocaleString() + '.');
 
     var payRes = await client.query(
-      'INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, reference, received_by, notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
-      [i.id, i.customer_id, date, amount, i.currency, method, (p.reference || '').trim(), ctx.employee.id, (p.notes || '').trim()]
+      'INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, reference, received_by, notes, source) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *',
+      [i.id, i.customer_id, date, amount, i.currency, method, (p.reference || '').trim(), ctx.employee.id, (p.notes || '').trim(), opts.source === 'online' ? 'online' : 'manual']
     );
     var pay = payRes.rows[0];
 

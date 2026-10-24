@@ -269,6 +269,22 @@ module.exports = {
       get configured() { return !!this.secretKey; }
     };
   }()),
+  // Bamboo Products' own invoices paid online from their link
+  // (invoicePay.service.js), by card or Mobile Money, through BPL's own
+  // Paystack account — not the restaurants' (PAYSTACK_SECRET_KEY), so the
+  // money lands in the right company's account. PAYSTACK_BPL_SECRET_KEY from
+  // that account's Settings → API Keys & Webhooks; PAYSTACK_BPL_EMAIL the
+  // email Paystack asks for when the customer has none. Its webhook URL is
+  // <the API>/api/share/paystack/webhook.
+  paystackBpl: (function () {
+    var secretKey = (process.env.PAYSTACK_BPL_SECRET_KEY || '').trim();
+    return {
+      secretKey: secretKey,
+      email: (process.env.PAYSTACK_BPL_EMAIL || '').trim(),
+      baseUrl: (process.env.PAYSTACK_BASE_URL || 'https://api.paystack.co').replace(/\/+$/, ''),
+      get configured() { return !!this.secretKey; }
+    };
+  }()),
   // Voice and video calls (services/calls.service.js) go through LiveKit, a
   // calling service: LiveKit Cloud (livekit.io, a free tier) or a LiveKit
   // server of our own. From the project's Settings → Keys: the WebSocket URL

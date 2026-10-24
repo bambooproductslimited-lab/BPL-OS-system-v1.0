@@ -1,0 +1,169 @@
+/* The customer's actions above a shared document (ShareActions.jsx): a
+   card in the page's own light, paper-like look, with a bit of colour. */
+.share-col {
+  width: 100%;
+  max-width: 700px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.share-col .doc-preview { margin: 0; }
+.sa-card {
+  position: relative;
+  background: #fff;
+  color: #1d1d1b;
+  border-radius: 18px;
+  padding: 20px 22px;
+  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.06), 0 10px 30px -12px rgba(20, 20, 20, 0.18);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  overflow: hidden;
+}
+.sa-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, #2f9e44, #74b816, #fab005);
+}
+.sa-card.sa-pay::before { background: linear-gradient(90deg, #0b7285, #1c7ed6, #7048e8); }
+.sa-card.sa-no::before { background: #c92a2a; }
+.sa-card.sa-off::before { background: #adb5bd; }
+.sa-card h2 { margin: 0 0 4px; font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+.sa-card p { margin: 0; font-size: 14px; line-height: 1.45; }
+.sa-muted { color: #6b6966; font-size: 13px; }
+.sa-head { display: flex; gap: 14px; align-items: flex-start; }
+.sa-emoji {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: linear-gradient(135deg, #ebfbee, #fff9db);
+}
+.sa-pay .sa-emoji { background: linear-gradient(135deg, #e7f5ff, #f3f0ff); }
+.sa-done { display: flex; gap: 14px; align-items: flex-start; }
+.sa-badge {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 18px;
+  color: #fff;
+  background: #2f9e44;
+  box-shadow: 0 6px 16px -6px rgba(47, 158, 68, 0.7);
+}
+.sa-no .sa-badge { background: #c92a2a; box-shadow: none; }
+.sa-off .sa-badge { background: #868e96; box-shadow: none; font-size: 16px; }
+.sa-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sa-sig { margin-top: 6px; max-width: 220px; border-bottom: 1px solid #ddd; }
+.sa-changes {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff9db;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.sa-buttons { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+.sa-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 18px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  min-height: 44px;
+}
+.sa-btn:active:not(:disabled) { transform: scale(0.97); }
+.sa-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.sa-btn-go { background: #1d1d1b; color: #fff; box-shadow: 0 8px 18px -10px rgba(0, 0, 0, 0.6); }
+.sa-btn-go:hover:not(:disabled) { background: #000; }
+.sa-pay .sa-btn-go { background: linear-gradient(135deg, #1c7ed6, #7048e8); }
+.sa-btn-big { padding: 13px 26px; font-size: 16px; }
+.sa-btn-soft { background: #f1f3f5; color: #1d1d1b; }
+.sa-btn-soft:hover { background: #e9ecef; }
+.sa-btn-ghost { background: transparent; color: #495057; }
+.sa-btn-ghost:hover { background: #f8f9fa; }
+.sa-btn-stop { background: #c92a2a; color: #fff; }
+.sa-form { display: flex; flex-direction: column; gap: 10px; }
+.sa-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: #495057; }
+.sa-input {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  color: #1d1d1b;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1.5px solid #dee2e6;
+  background: #fff;
+  outline: none;
+}
+.sa-input:focus { border-color: #1d1d1b; box-shadow: 0 0 0 3px rgba(29, 29, 27, 0.08); }
+.sa-text { resize: vertical; min-height: 80px; }
+.sa-row { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.sa-link { border: 0; background: none; padding: 0; font: inherit; font-size: 13px; font-weight: 600; color: #1c7ed6; cursor: pointer; }
+.sa-link:disabled { color: #adb5bd; cursor: default; }
+.sa-error { color: #c92a2a; font-size: 14px; }
+.sa-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 16px; }
+.sa-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  font: inherit;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1.5px solid #dee2e6;
+  background: #fff;
+  cursor: pointer;
+  color: #1d1d1b;
+}
+.sa-option.on { border-color: #1c7ed6; background: #f4f9ff; box-shadow: 0 0 0 3px rgba(28, 126, 214, 0.12); }
+.sa-option-label { font-size: 13px; color: #495057; font-weight: 600; }
+.sa-option-amount { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sa-methods { display: inline-flex; gap: 6px; }
+.sa-methods span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #f1f3f5;
+  color: #495057;
+}
+.sa-paidlist { margin-top: 12px; display: flex; flex-direction: column; gap: 2px; }
+.sa-check {
+  border-radius: 14px;
+  padding: 12px 16px;
+  font: 600 14px/1.45 Inter, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: #e7f5ff;
+  color: #0b4f8a;
+}
+.sa-check-paid { background: #ebfbee; color: #1b5e20; }
+.sa-check-failed, .sa-check-error { background: #fff5f5; color: #a61e1e; }
+.sa-check-waiting { background: #fff9db; color: #7a5b00; }
+.sa-spin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2.5px solid currentColor;
+  border-right-color: transparent;
+  animation: sa-spin 0.8s linear infinite;
+}
+@keyframes sa-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sa-spin { animation: none; } .sa-btn { transition: none; } }
+@media (max-width: 520px) {
+  .sa-card { padding: 18px 16px; border-radius: 16px; }
+  .sa-buttons .sa-btn { flex: 1 1 auto; }
+}
+@media print { .share-col { display: block; max-width: none; } }

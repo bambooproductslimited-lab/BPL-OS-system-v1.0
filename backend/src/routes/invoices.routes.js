@@ -34,6 +34,18 @@ router.post('/cleanup', async function (req, res, next) {
 });
 
 // kernel.js: handlers['invoices.update'] -> PATCH /api/invoices/:id
+// Repeating invoices (invoiceSeries.service.js).
+var invoiceSeries = require('../services/invoiceSeries.service');
+router.get('/series', async function (req, res, next) {
+  try { res.json(await invoiceSeries.list(req.ctx)); } catch (e) { next(e); }
+});
+router.patch('/series/:id', async function (req, res, next) {
+  try { res.json(await invoiceSeries.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/:id/repeat', async function (req, res, next) {
+  try { res.status(201).json(await invoiceSeries.create(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
 router.patch('/:id', async function (req, res, next) {
   try { res.json(await invoicesService.update(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });

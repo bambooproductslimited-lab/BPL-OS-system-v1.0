@@ -16,6 +16,8 @@ import { money, moneyBreakdown } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import { tr, msg, docTr } from '../lib/i18n.jsx';
+import ClientAnswers, { AnswerTag } from '../components/ClientAnswers';
+import SquareEstimatesDialog from '../components/SquareEstimatesDialog';
 import { formatDocDate } from '../lib/dates';
 import { codeLabel } from '../lib/codeLabels.js';
 import './EmployeesPage.css';
@@ -100,6 +102,7 @@ export default function EstimatesPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [previewEs, setPreviewEs] = useState(null);
+  const [squareOpen, setSquareOpen] = useState(false); // estimates brought over from Square's PDFs
   const [search, setSearch] = useState('');
   const [chip, setChip] = useState('open');
   const [step, setStep] = useState('');
@@ -298,6 +301,7 @@ export default function EstimatesPage() {
         actions={(
           <>
             {canOpenNew && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New estimate')}</button>}
+            {canOpenNew && <button type="button" className="btn btn-secondary" onClick={() => setSquareOpen(true)}>◼︎ {tr('From Square')}</button>}
             <Link className="btn btn-secondary" to="/quotations">{tr('Quotations')}</Link>
           </>
         )}
@@ -355,7 +359,7 @@ export default function EstimatesPage() {
                   </button>
                   <span className="tl-menu"><RowMenu disabled={busyId === es.id} actions={actionsFor(es)} /></span>
                   <p className="dk-muted tl-small es-items">{itemsLine(es) || '—'}</p>
-                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status></div>
+                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status><AnswerTag doc={es} />{es.source === 'square' && <Status tone="muted">◼︎ {tr('From Square')}</Status>}</div>
                   <div className="tl-foot">
                     <span className="es-total">{money(es.grandTotal, es.currency)}</span>
                     <ContactButtons name={es.customerName} phone={es.customerPhone} email={es.customerEmail} />
@@ -406,7 +410,7 @@ export default function EstimatesPage() {
               <div>
                 <span className="dk-muted tl-small">{cur.estimateNo} · {statusLabel(cur.status)}</span>
                 <h2>{cur.customerName}</h2>
-                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status></div>
+                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status><AnswerTag doc={cur} />{cur.source === 'square' && <Status tone="muted">◼︎ {tr('From Square')}</Status>}</div>
               </div>
               <button type="button" className="tl-close" onClick={() => setDetail(null)} aria-label={tr('Close')}>×</button>
             </div>
@@ -427,6 +431,7 @@ export default function EstimatesPage() {
               <div><dt>{tr('Currency')}</dt><dd>{cur.currency}</dd></div>
               {cur.quotation && <div><dt>{tr('Quotation')}</dt><dd><Link to={'/quotations?open=' + cur.quotation.id}>{cur.quotation.quoteNo}</Link> · {codeLabel(cur.quotation.status)}</dd></div>}
             </dl>
+            <ClientAnswers type="estimate" id={cur.id} refreshKey={cur.clientAnsweredAt} />
             <div className="tl-holder is-inline">
               <div className="tl-holder-head">
                 <span className="tl-holder-name"><strong>{cur.customerName}</strong><span className="dk-muted tl-small">{[cur.customerPhone, cur.customerEmail].filter(Boolean).join(' · ') || tr('no phone or email')}</span></span>
@@ -531,6 +536,16 @@ export default function EstimatesPage() {
         />
       )}
 
+      {squareOpen && (
+        <SquareEstimatesDialog customers={customers} onClose={() => setSquareOpen(false)}
+          onDone={(r) => {
+            setSquareOpen(false);
+            setToast([r.created.length === 1 ? tr('1 estimate brought over from Square.') : tr('{n} estimates brought over from Square.', { n: r.created.length }),
+              r.skipped.length === 1 ? tr('1 was here already.') : r.skipped.length ? tr('{n} were here already.', { n: r.skipped.length }) : '',
+              r.customersAdded === 1 ? tr('1 new customer added.') : r.customersAdded ? tr('{n} new customers added.', { n: r.customersAdded }) : ''].filter(Boolean).join(' '));
+            load();
+          }} />
+      )}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

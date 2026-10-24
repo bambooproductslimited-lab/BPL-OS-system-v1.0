@@ -68,6 +68,8 @@ async function getSharedDocument(token) {
   // What the emailed PDF also needs (documentPdf.service.js) but the page
   // behind the link has never shown.
   delete view.companyId; delete view.bankInstructions; delete view.documentId;
+  // Opened: the document says it was seen (a quotation sent becomes viewed).
+  await require('./documentAnswers.service').seen(share.document_type, share.document_id);
   return view;
 }
 
@@ -108,6 +110,18 @@ async function documentView(documentType, documentId) {
 
   var notes = share.document_type === 'estimate' ? d.client_notes : d.notes;
 
+  // The customer's answer to an estimate or a quotation (approved with their
+  // signature, declined, changes asked for), and whether they may still
+  // answer; on an invoice, paying it online (documentAnswers / invoicePay).
+  var answer = null, answerState = null, pay = null;
+  if (share.document_type !== 'invoice') {
+    var answers = require('./documentAnswers.service');
+    answer = await answers.latest(share.document_type, d.id);
+    answerState = answers.openFor(share.document_type, d, answer);
+  } else {
+    pay = await require('./invoicePay.service').viewFor(d);
+  }
+
   // A Poki letting offer names the unit on offer.
   var unit = null;
   if (d.poki_unit_id) {
@@ -144,7 +158,7 @@ async function documentView(documentType, documentId) {
     creditTotal: Number(d.credit_total || 0),
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,
     notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || [],
-    payments: payments
+    payments: payments, answer: answer, answerState: answerState, pay: pay
   };
 }
 

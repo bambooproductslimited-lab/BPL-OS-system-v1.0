@@ -1,0 +1,40 @@
+.dialog.rpt { max-width: none; width: min(560px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 14px; max-height: calc(100dvh - 40px); overflow-y: auto; }
+.dialog.rpt-list { max-width: none; width: min(680px, calc(100vw - 24px)); }
+.rpt-head { display: flex; gap: 12px; align-items: flex-start; }
+.rpt-head h2 { margin: 0 0 4px; font-size: 19px; }
+.rpt-head p { margin: 0; font-size: 13.5px; line-height: 1.45; }
+.rpt-ico { flex: none; display: grid; place-items: center; width: 42px; height: 42px; font-size: 21px; border-radius: 13px; background: linear-gradient(135deg, color-mix(in srgb, #7048e8 18%, transparent), color-mix(in srgb, #1c7ed6 16%, transparent)); }
+.rpt-every { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 4px; border-radius: 14px; background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.rpt-every button { padding: 9px 6px; font: inherit; font-size: 13px; font-weight: 700; color: var(--color-text-muted); background: none; border: 0; border-radius: 10px; cursor: pointer; }
+.rpt-every button.is-on { color: var(--color-text); background: var(--color-bg); box-shadow: 0 2px 8px -4px rgba(0, 0, 0, .35); }
+.rpt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.rpt-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
+.rpt-ends { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 14px; }
+.rpt-ends label { display: inline-flex; align-items: center; gap: 6px; }
+.rpt-label { width: 100%; font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
+.rpt-n.input { width: 70px; height: 34px; }
+.rpt-date.input { width: 150px; height: 34px; }
+.rpt-mail { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--color-border); cursor: pointer; }
+.rpt-mail span { display: flex; flex-direction: column; gap: 2px; }
+.rpt-mail.is-off { opacity: .6; cursor: default; }
+.rpt-days { display: flex; gap: 8px; flex-wrap: wrap; }
+.rpt-day { display: flex; flex-direction: column; align-items: center; min-width: 64px; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.rpt-day b { font-size: 14px; }
+.rpt-day small { font-size: 11px; color: var(--color-text-muted); }
+.rpt-day.is-first { color: #fff; background: linear-gradient(135deg, #7048e8, #1c7ed6); }
+.rpt-day.is-first small { color: rgba(255, 255, 255, .8); }
+.rpt-day.is-more { justify-content: center; min-width: 32px; }
+.rpt-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rpt-card { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--color-border); background: var(--color-bg); }
+.rpt-card.is-ended { opacity: .6; }
+.rpt-card-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rpt-card-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rpt-last { font-size: 12.5px; font-weight: 700; }
+.rpt-err { font-size: 12.5px; color: #c92a2a; }
+.rpt-card-acts { display: flex; gap: 6px; flex: none; }
+.rpt-empty { text-align: center; padding: 18px 0; }
+@media (max-width: 560px) {
+  .rpt-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .rpt-every { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rpt-card { flex-direction: column; align-items: stretch; }
+}

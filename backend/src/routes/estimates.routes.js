@@ -8,6 +8,10 @@ router.use(requireAuth);
 router.get('/', async function (req, res, next) {
   try { res.json(await estimatesService.list(req.ctx)); } catch (e) { next(e); }
 });
+// Estimates made in Square, read from its PDFs on the page (squareEstimates.service.js).
+router.post('/import-square', async function (req, res, next) {
+  try { res.status(201).json(await require('../services/squareEstimates.service').importParsed(req.ctx, req.body.estimates)); } catch (e) { next(e); }
+});
 router.post('/', async function (req, res, next) {
   try { res.status(201).json(await estimatesService.create(req.ctx, req.body)); } catch (e) { next(e); }
 });

@@ -20,6 +20,7 @@ async function rowToQuotation(db, r, extra) {
     grandTotal: Number(r.grand_total), total: Number(r.grand_total), status: r.status, createdBy: r.created_by,
     createdAt: r.created_at, validUntil: r.valid_until, notes: r.notes, terms: r.terms, fromEstimateId: r.from_estimate_id,
     sentAt: r.sent_at || null, answeredAt: r.answered_at || null,
+    clientAnswer: r.client_answer || null, clientAnsweredAt: r.client_answered_at || null, viewedAt: r.viewed_at || null,
     discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || []
   }, extra || {});
 }

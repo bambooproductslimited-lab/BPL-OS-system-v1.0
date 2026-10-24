@@ -6,6 +6,8 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
 import { CameraIcon, CatalogImage, ItemGallery } from '../components/CatalogPhotos';
 import LostPhotosDialog from '../components/LostPhotosDialog';
+import { BulkEditDialog, OptionsDialog } from '../components/CatalogTools';
+import LabelSheet from '../components/LabelSheet';
 import { Glossary, Hero, Insights, RankList, Section, Status, avatarColor, fmtDate, jump } from '../components/DashKit';
 import { money, moneyBreakdown } from '../lib/currency';
 import { tr } from '../lib/i18n.jsx';
@@ -119,6 +121,9 @@ export default function CatalogPage() {
   const [stockDialogError, setStockDialogError] = useState(null);
   const [lostPhotos, setLostPhotos] = useState([]); // photos the old Square import cut off (LostPhotosDialog)
   const [lostOpen, setLostOpen] = useState(false);
+  const [optionsFor, setOptionsFor] = useState(null); // an item's options (components/CatalogTools.jsx)
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [labelsFor, setLabelsFor] = useState(null); // { title, items } (components/LabelSheet.jsx)
   const [savingStock, setSavingStock] = useState(false);
 
   const load = useCallback(async () => {
@@ -402,6 +407,8 @@ export default function CatalogPage() {
         actions={(
           <>
             {canManage && <button type="button" className="btn btn-primary" onClick={openNewItem}>{tr('Add item')}</button>}
+            {canManage && items.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => setBulkOpen(true)}>🧮 {tr('Edit many')}</button>}
+            {items.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => setLabelsFor({ title: tr('Price labels'), items: items.filter((it) => it.active) })}>🏷️ {tr('Labels')}</button>}
             <Link className="btn btn-secondary" to="/quotations">{tr('Quotations')}</Link>
           </>
         )}
@@ -528,7 +535,15 @@ export default function CatalogPage() {
             {cur.description && <p className="tl-notes">{cur.description}</p>}
             <h3 className="tl-h3">{tr('Photos')}</h3>
             <ItemGallery key={cur.id} item={cur} canManage={canManage} onPhotos={(photos) => setPhotos(cur.id, photos)} />
-            <h3 className="tl-h3">{tr('Variations')}</h3>
+            <div className="ct-var-head">
+              <h3 className="tl-h3">{tr('Variations')}</h3>
+              {canManage && <button type="button" className="btn btn-secondary ct-opt-btn" onClick={() => setOptionsFor(cur)}>🎛️ {(cur.options || []).length ? tr('Options') : tr('Add options')}</button>}
+            </div>
+            {(cur.options || []).length > 0 && (
+              <div className="ct-opts">
+                {cur.options.map((o) => <span key={o.name} className="ct-opt"><b>{o.name}</b> {o.choices.join(' · ')}</span>)}
+              </div>
+            )}
             <ul className="rs-list ct-vars">
               {cur.variations.map((v) => {
                 const m = margin(v);
@@ -563,11 +578,19 @@ export default function CatalogPage() {
               {canManage && <button type="button" className="btn btn-secondary" onClick={() => { setDetail(null); setDeleteItemTarget(cur); }}>{tr('Delete')}</button>}
               {canManage && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => toggleItemActive(cur)}>{cur.active ? tr('Archive') : tr('Unarchive')}</button>}
               {canManage && <button type="button" className="btn btn-secondary" onClick={() => { setDetail(null); openEditItem(cur); }}>{tr('Edit')}</button>}
+              <button type="button" className="btn btn-secondary" onClick={() => setLabelsFor({ title: tr('Labels for {item}', { item: cur.name }), items: [cur] })}>🏷️ {tr('Labels')}</button>
               {canManage && <button type="button" className="btn btn-primary" onClick={() => openNewVariation(cur.id)}>{tr('+ Add variation')}</button>}
             </div>
           </div>
         </div>
       )}
+
+      {optionsFor && <OptionsDialog item={optionsFor} onClose={() => setOptionsFor(null)}
+        onDone={(r) => { setOptionsFor(null); setToast(tr('Options saved: {added} added, {kept} kept, {away} put away.', { added: r.added, kept: r.kept, away: r.putAway })); load(); }} />}
+      {labelsFor && <LabelSheet title={labelsFor.title} onClose={() => setLabelsFor(null)}
+        labels={labelsFor.items.flatMap((it) => it.variations.filter((v) => v.active).map((v) => ({ key: v.id, name: it.name, sub: v.name !== 'Regular' ? v.name : '', price: v.unitPrice, code: v.code, qty: 1 })))} />}
+      {bulkOpen && <BulkEditDialog items={items} categories={categories} onClose={() => setBulkOpen(false)}
+        onDone={(r) => { setBulkOpen(false); setToast(r.changed === 1 ? tr('1 variation changed.') : tr('{n} variations changed.', { n: r.changed })); load(); }} />}
 
       {itemDialogOpen && (
         <div className="dialog-backdrop" onClick={() => setItemDialogOpen(false)}>

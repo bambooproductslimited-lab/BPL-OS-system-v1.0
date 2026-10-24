@@ -11,6 +11,8 @@ async function rowToEstimate(db, r, extra) {
     subtotal: Number(r.subtotal), discountTotal: Number(r.discount_total), taxTotal: Number(r.tax_total), grandTotal: Number(r.grand_total),
     status: r.status, createdBy: r.created_by, createdAt: r.created_at, validUntil: r.valid_until,
     internalNotes: r.internal_notes, clientNotes: r.client_notes, terms: r.terms,
+    clientAnswer: r.client_answer || null, clientAnsweredAt: r.client_answered_at || null, viewedAt: r.viewed_at || null,
+    source: r.source || 'manual', squareNo: r.external_id && r.external_id.indexOf('square-estimate:') === 0 ? r.external_id.slice(16) : null,
     discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || []
   }, extra || {});
 }

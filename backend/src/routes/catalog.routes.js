@@ -42,6 +42,18 @@ router.post('/items/:id/variations', async function (req, res, next) {
   try { res.status(201).json(await catalogService.addVariation(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
 
+// Options that make an item's variations, and many variations changed at
+// once (catalogOptions.service.js).
+var catalogOptions = require('../services/catalogOptions.service');
+router.get('/items/:id/options', async function (req, res, next) {
+  try { res.json(await catalogOptions.get(req.ctx, req.params.id)); } catch (e) { next(e); }
+});
+router.put('/items/:id/options', async function (req, res, next) {
+  try { res.json(await catalogOptions.set(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/bulk', async function (req, res, next) {
+  try { res.json(await catalogOptions.bulk(req.ctx, req.body)); } catch (e) { next(e); }
+});
 router.put('/variations/:id', async function (req, res, next) {
   try { res.json(await catalogService.updateVariation(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });

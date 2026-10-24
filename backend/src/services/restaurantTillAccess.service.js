@@ -682,6 +682,18 @@ async function closeDay(token, p, ip) {
   return require('./restaurantCloseDay.service').tab(m.session.posCompanyId, m.manager, p);
 }
 
+// The rota (restaurantRota.service.js), planned by a manager; and who is
+// on today, for anyone signed in at the till.
+async function rota(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  return require('./restaurantRota.service').tab(m.session.posCompanyId, m.manager, p);
+}
+async function rotaToday(token) {
+  var session = posSession(token);
+  return { shifts: await require('./restaurantRota.service').onToday(session.posCompanyId) };
+}
+
 // What customers owe and paid back, and VIP money (restaurantTillAccounts.service.js).
 async function accounts(token, p, ip) {
   p = p || {};
@@ -724,5 +736,5 @@ module.exports = {
   settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
   settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, monthlyReport: monthlyReport, kitchenScreens: kitchenScreens,
-  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, purchasing: purchasing, closeDay: closeDay, staffOf: staffOf
+  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, purchasing: purchasing, closeDay: closeDay, rota: rota, rotaToday: rotaToday, staffOf: staffOf
 };

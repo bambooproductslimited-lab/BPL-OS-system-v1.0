@@ -23,3 +23,6 @@
   text-align: center;
 }
 .share-page-error { color: #b42318; }
+
+.share-approved .sigview { max-width: 200px; margin-top: 4px; border-bottom: 1px solid #ccc; }
+.share-approved-by { font-size: 12px; color: #4a4a4a; margin-top: 4px; }

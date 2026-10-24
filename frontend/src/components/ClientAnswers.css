@@ -1,0 +1,34 @@
+.ca-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ca-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-success, #2f9e44) 8%, transparent);
+}
+.ca-item.is-declined { background: color-mix(in srgb, var(--color-danger, #c92a2a) 8%, transparent); }
+.ca-item.is-changes { background: color-mix(in srgb, var(--color-warning, #f08c00) 10%, transparent); }
+.ca-dot {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 13px;
+  color: #fff;
+  background: var(--color-success, #2f9e44);
+}
+.is-declined .ca-dot { background: var(--color-danger, #c92a2a); }
+.is-changes .ca-dot { background: var(--color-warning, #f08c00); }
+.ca-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ca-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.ca-note { margin: 0; font-size: 14px; line-height: 1.45; }
+.ca-sig {
+  max-width: 200px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #fffdf8;
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}

@@ -6,6 +6,8 @@ import { groupPackageItems } from '../lib/packages';
 import { adjustmentRows, creditRows, paymentsForDocument } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
 import { docTr, DOCUMENT_INTL_LOCALE } from '../lib/i18n.jsx';
+import { AnswerPanel, PayPanel } from './ShareActions';
+import { SignatureView } from '../components/SignaturePad';
 import '../components/DocPreview.css';
 import './SharePage.css';
 
@@ -38,11 +40,13 @@ export default function SharePage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.get('/share/' + token)
+  function load() {
+    return api.get('/share/' + token)
       .then(setDoc)
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+  }
+  useEffect(() => { load(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   if (loading) return <div className="share-page-status">{docTr('Loading…')}</div>;
@@ -65,6 +69,8 @@ export default function SharePage() {
 
   return (
     <div className="share-page">
+      <div className="share-col">
+      {isInvoice ? <PayPanel doc={doc} token={token} onPaid={load} /> : <AnswerPanel doc={doc} token={token} onAnswered={load} />}
       <div className="doc-preview">
         <div className="doc-preview-head">
           {/* The issuing company's letterhead: a sister company (Poki
@@ -222,9 +228,17 @@ export default function SharePage() {
             <p className="doc-preview-terms-body">{doc.terms}</p>
           </div>
         )}
+        {doc.answer && doc.answer.action === 'approved' && (
+          <div className="doc-preview-notes share-approved">
+            <div className="doc-preview-notes-label">{docTr('Approved online')}</div>
+            <SignatureView strokes={doc.answer.signature} />
+            <div className="share-approved-by">{doc.answer.name} · {fmtDate(doc.answer.at)}</div>
+          </div>
+        )}
         <div className="doc-preview-actions no-print">
           <button type="button" className="btn btn-secondary" onClick={() => window.print()}>{docTr('Print')}</button>
         </div>
+      </div>
       </div>
     </div>
   );

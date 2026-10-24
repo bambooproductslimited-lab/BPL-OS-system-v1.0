@@ -17,6 +17,7 @@ import TillSettings from './TillSettings';
 import PayDialog from './till/PayDialog';
 import HandInDialog from './till/HandInDialog';
 import MoreMenu from './till/MoreMenu';
+import { OnToday } from './till/Rota';
 import { TableMapPicker } from './till/TableMap';
 import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
@@ -60,6 +61,7 @@ import ThemeSwitch, { ThemeChoice } from '../components/ThemeSwitch';
 import '../components/DashKit.css';
 import './ToolRoomPage.css';
 import './RestaurantPosPage.css';
+import './till/calm.css';
 
 // The send dialog brings the map with it: loaded when it is first opened.
 const SendDialog = lazy(() => import('./delivery/DlDialogs').then((m) => ({ default: m.SendDialog })));
@@ -375,6 +377,9 @@ export default function RestaurantPosPage() {
   const askedMoney = useRef(new Set()); // deliveries whose money was asked about already
   const [kitchenNote, setKitchenNote] = useState('');
   const [noteOpen, setNoteOpen] = useState(false);
+  const [taxesOpen, setTaxesOpen] = useState(false); // the taxes in the prices, one line or each
+  const [rotaToday, setRotaToday] = useState(null); // who works today (till/Rota.jsx)
+  const [rotaOpen, setRotaOpen] = useState(false);
   // Refunds, VIP money and IOUs (TillMoney.jsx)
   const [refundFor, setRefundFor] = useState(null); // 'find' | an order id | null
   const [vipOpen, setVipOpen] = useState(null); // { startGuest } | null
@@ -456,6 +461,7 @@ export default function RestaurantPosPage() {
     if (!session || !session.token) return undefined;
     tableSeen.current = null;
     loadTableBox(session.token);
+    loadRota(session.token);
     const t = setInterval(() => loadTableBox(session.token), 5000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -684,6 +690,10 @@ export default function RestaurantPosPage() {
     setSelectedGuest(d.selectedGuest || null); setDelivery(d.delivery || { name: '', phone: '', address: '' }); setKitchenNote(d.kitchenNote || '');
     setCurrentTab(d.currentTab || null); setSentLines(d.sentLines || []);
     setToast(tr('The order you were taking is back on the till.'));
+  }
+  // Who works today, from the rota (backend restaurantRota.service.js).
+  async function loadRota(token) {
+    try { setRotaToday((await posFetch('GET', '/pos/rota/today', token || session.token)).shifts); } catch { /* the rota is a nicety */ }
   }
   async function loadTableBox(token) {
     let b;
@@ -1946,20 +1956,28 @@ export default function RestaurantPosPage() {
               ))}
             </div>
           )}
-          {!allergy && <button type="button" className="pos-allergy-add" onClick={() => setAllergyOpen(true)}>⚠ {tr('Allergy')}</button>}
+          <span className="pos-service-end">
+            {kitchen && kitchen.inUse && !noteOpen && !kitchenNote && <button type="button" className="pos-chip-add" onClick={() => setNoteOpen(true)} title={tr('Add a note for the whole order')}>✎ {tr('Note')}</button>}
+            {!allergy && <button type="button" className="pos-allergy-add" onClick={() => setAllergyOpen(true)}>⚠ {tr('Allergy')}</button>}
+          </span>
         </div>
       )}
-      {fulfillment !== 'dine_in' && !allergy && <button type="button" className="pos-allergy-add is-alone" onClick={() => setAllergyOpen(true)}>⚠ {tr('Allergy alert')}</button>}
+      {fulfillment !== 'dine_in' && !appOrder && ((kitchen && kitchen.inUse && !noteOpen && !kitchenNote) || !allergy) && (
+        <div className="pos-service is-chips">
+          <span className="pos-service-end">
+            {kitchen && kitchen.inUse && !noteOpen && !kitchenNote && <button type="button" className="pos-chip-add" onClick={() => setNoteOpen(true)} title={tr('Add a note for the whole order')}>✎ {tr('Note')}</button>}
+            {!allergy && <button type="button" className="pos-allergy-add" onClick={() => setAllergyOpen(true)}>⚠ {tr('Allergy alert')}</button>}
+          </span>
+        </div>
+      )}
       <AllergyStrip allergy={allergy} onClick={() => setAllergyOpen(true)} />
-      {kitchen && kitchen.inUse && (noteOpen || kitchenNote ? (
+      {kitchen && kitchen.inUse && (noteOpen || kitchenNote) && (
         <div className="pos-knote">
           <input className="input" value={kitchenNote} maxLength={300} autoFocus={noteOpen && !kitchenNote} onChange={(e) => setKitchenNote(e.target.value)}
             placeholder={tr('Note for the whole order, e.g. bring the drinks first')} aria-label={tr('Note for the kitchen')} />
           <button type="button" className="pos-link" onClick={() => { setKitchenNote(''); setNoteOpen(false); }}>{tr('Remove')}</button>
         </div>
-      ) : (
-        <button type="button" className="pos-knote-add" onClick={() => setNoteOpen(true)}>✎ {tr('Add a note for the whole order')}</button>
-      ))}
+      )}
       <div className="pos-lines">
         {!cart.length && (
           <div className="pos-lines-empty">
@@ -2009,12 +2027,13 @@ export default function RestaurantPosPage() {
                   )}
                   {l.custom && <em className="tl-badge">{tr('not on the menu')}</em>}
                   {hasAddOns && !(l.modifiers || []).length && <button type="button" className="pos-line-note" onClick={() => editAddOns(l)}>✚ {tr('Add-ons')}</button>}
-                  <button type="button" className={'pos-line-note' + (l.note ? ' is-set' : '')} onClick={() => setNoteFor(l)}>
-                    ✎ {l.note || tr('Add a note')}
+                  {/* Unused, a note and a discount are small icons; set, they say what they are. */}
+                  <button type="button" className={'pos-line-note' + (l.note ? ' is-set' : ' is-icon')} onClick={() => setNoteFor(l)} title={tr('Add a note')} aria-label={l.note ? undefined : tr('Add a note')}>
+                    ✎{l.note ? ' ' + l.note : ''}
                   </button>
                   {!l.fee && !(l.custom && l.custom.fee) && (
-                    <button type="button" className={'pos-line-off' + (off ? ' is-set' : '')} onClick={() => setOffFor(l)} title={l.comp ? l.comp.reason : l.discountSpec ? l.discountSpec.name : tr('A discount, or on the house')}>
-                      % {off || tr('Discount')}
+                    <button type="button" className={'pos-line-off' + (off ? ' is-set' : ' is-icon')} onClick={() => setOffFor(l)} title={l.comp ? l.comp.reason : l.discountSpec ? l.discountSpec.name : tr('A discount, or on the house')} aria-label={off ? undefined : tr('Discount')}>
+                      %{off ? ' ' + off : ''}
                     </button>
                   )}
                 </span>
@@ -2049,7 +2068,14 @@ export default function RestaurantPosPage() {
               </div>
             )}
             {bill.taxes.filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
-            {bill.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
+            {/* Taxes already in the prices: one line, opened to see each. */}
+            {bill.taxes.some((t) => t.included) && (
+              <button type="button" className="is-incl pos-incl-toggle" aria-expanded={taxesOpen} onClick={() => setTaxesOpen(!taxesOpen)}>
+                <span>{taxesOpen ? '▾' : '▸'} {tr('incl. taxes')} <small>{bill.taxes.filter((t) => t.included).map((t) => t.name).join(', ')}</small></span>
+                <b>{money(bill.taxes.filter((t) => t.included).reduce((a, t) => a + t.amount, 0))}</b>
+              </button>
+            )}
+            {taxesOpen && bill.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl is-sub"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
           </div>
         )}
         <div className="pos-total">
@@ -2096,45 +2122,40 @@ export default function RestaurantPosPage() {
           {restaurantLogoUrl(session.companyCode) && <span className="pos-top-logo-wrap"><img className="pos-top-logo" src={restaurantLogoUrl(session.companyCode)} alt="" /></span>}
           <div className="pos-top-names">
             <div className="pos-top-company">{session.companyName}</div>
-            <div className="dk-muted" title={session.employeeName}>{greeting} · <b className="pos-top-clock">{clock}</b></div>
+            <div className="dk-muted" title={session.employeeName}><span className="pos-top-hello">{greeting} · </span><b className="pos-top-clock">{clock}</b></div>
           </div>
         </div>
+        {/* Only what is used all the time, and what is asking: the shift
+            (its drawer behind it), the kitchen, orders from the tables and
+            bookings while someone waits for an answer, the open orders. The
+            rest is under More, in groups. */}
         <div className="pos-top-stats">
-          {can('charge') && drawer && (<>
-          <button type="button" className="pos-stat is-sales" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
-            <span className="pos-stat-ico" aria-hidden="true"><Icon name="up" /></span>
-            <span className="pos-stat-text">
-              <small>{tr('Your shift')}</small>
-              <strong>{money(animatedShiftSales)}</strong>
-              <span>{shift && shift.orders === 1 ? tr('1 order') : tr('{n} orders', { n: shift ? shift.orders : 0 })}</span>
-            </span>
-          </button>
-          <button type="button" className="pos-stat is-drawer" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}>
-            <span className="pos-stat-ico" aria-hidden="true"><Icon name="drawer" /></span>
-            <span className="pos-stat-text">
-              <small>{tr('In the drawer')}</small>
-              <strong>{money(drawer.expected)}</strong>
-              <span>{tr('expected')}</span>
-            </span>
-          </button>
-          </>)}
+          {can('charge') && drawer && (
+            <button type="button" className="pos-stat is-sales" onClick={() => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); }}
+              title={tr('{n} orders', { n: shift ? shift.orders : 0 }) + ' · ' + tr('In the drawer') + ' ' + money(drawer.expected)}>
+              <span className="pos-stat-ico" aria-hidden="true"><Icon name="up" /></span>
+              <span className="pos-stat-text">
+                <small>{tr('Your shift')}</small>
+                <strong>{money(animatedShiftSales)}</strong>
+              </span>
+            </button>
+          )}
           {can('charge') && !drawer && (
-            <button type="button" className="pos-stat is-duty" onClick={checkDuty}>
+            <button type="button" className="pos-stat is-duty" onClick={checkDuty}
+              title={isManager ? tr('open your own drawer') : otherOnDuty ? tr('you take orders') : tr('open your drawer')}>
               <span className="pos-stat-ico" aria-hidden="true"><Icon name="drawer" /></span>
               <span className="pos-stat-text">
                 <small>{tr('Cashier on duty')}</small>
                 <strong>{otherOnDuty ? otherOnDuty.name : tr('Nobody')}</strong>
-                <span>{isManager ? tr('open your own drawer') : otherOnDuty ? tr('you take orders') : tr('open your drawer')}</span>
               </span>
             </button>
           )}
           {!can('charge') && (
-            <span className={'pos-stat is-role is-' + tillAccess.role}>
+            <span className={'pos-stat is-role is-' + tillAccess.role} title={tr('takes orders')}>
               <span className="pos-stat-ico" aria-hidden="true"><Icon name="people" /></span>
               <span className="pos-stat-text">
                 <small>{tr('Signed in as')}</small>
                 <strong>{ROLE_NAME[tillAccess.role] ? ROLE_NAME[tillAccess.role]() : tillAccess.role}</strong>
-                <span>{tr('takes orders')}</span>
               </span>
             </span>
           )}
@@ -2143,67 +2164,74 @@ export default function RestaurantPosPage() {
               <span className="pos-stat-ico" aria-hidden="true"><Icon name="bag" /></span>
               <span className="pos-stat-text">
                 <small>{tr('Kitchen')}</small>
-                <strong>{kitchen.ready.length}</strong>
-                <span>{kitchen.ready.length ? tr('ready to serve') : kitchen.cooking === 1 ? tr('1 cooking') : tr('{n} cooking', { n: kitchen.cooking })}</span>
+                <strong>{kitchen.ready.length ? tr('{n} ready', { n: kitchen.ready.length }) : kitchen.cooking === 1 ? tr('1 cooking') : tr('{n} cooking', { n: kitchen.cooking })}</strong>
               </span>
             </button>
           )}
-          {tableBox && (tableBox.settings.on || tableBox.orders.length > 0 || tableBox.calls.length > 0 || (tableBox.paidAtTable || []).length > 0) && (
-            <button type="button" className={'pos-stat is-qr' + (tableBox.orders.length || tableBox.calls.length || (tableBox.paidAtTable || []).length ? ' is-asking' : '')} onClick={() => { loadTableBox(); setTableBoxOpen(true); }}>
+          {tableBox && (tableBox.orders.length > 0 || tableBox.calls.length > 0 || (tableBox.paidAtTable || []).length > 0) && (
+            <button type="button" className="pos-stat is-qr is-asking" onClick={() => { loadTableBox(); setTableBoxOpen(true); }}>
               <span className="pos-stat-ico" aria-hidden="true">📱</span>
               <span className="pos-stat-text">
                 <small>{tr('From the tables')}</small>
-                <strong>{tableBox.orders.length + tableBox.calls.length + (tableBox.paidAtTable || []).length}</strong>
-                <span>{tableBox.orders.length ? (tableBox.orders.length === 1 ? tr('1 order to accept') : tr('{n} orders to accept', { n: tableBox.orders.length }))
+                <strong>{tableBox.orders.length ? tr('{n} to accept', { n: tableBox.orders.length })
                   : tableBox.calls.length ? (tableBox.calls.length === 1 ? tr('1 call') : tr('{n} calls', { n: tableBox.calls.length }))
-                    : (tableBox.paidAtTable || []).length ? tr('Paid at the table') : tr('QR orders')}</span>
+                    : tr('Paid at the table')}</strong>
               </span>
             </button>
           )}
-          {soon && (soon.can || soon.today > 0 || soon.waiting > 0 || soon.requested > 0) && (
-            <button type="button" className={'pos-stat is-bookings' + (soon.requested || soon.waiting ? ' is-asking' : '')} disabled={!soon.can} onClick={() => setBookingsOpen(true)}>
+          {soon && soon.can && (soon.requested > 0 || soon.waiting > 0) && (
+            <button type="button" className="pos-stat is-bookings is-asking" onClick={() => setBookingsOpen(true)}>
               <span className="pos-stat-ico" aria-hidden="true">📅</span>
               <span className="pos-stat-text">
                 <small>{tr('Bookings')}</small>
-                <strong>{soon.today}</strong>
-                <span>{soon.requested ? tr('{n} to answer', { n: soon.requested }) : soon.waiting ? (soon.waiting === 1 ? tr('1 waiting') : tr('{n} waiting', { n: soon.waiting }))
-                  : soon.next.length ? tr('next {time} · {name}', { time: new Date(soon.next[0].at).toISOString().slice(11, 16), name: soon.next[0].name }) : tr('today')}</span>
+                <strong>{soon.requested ? tr('{n} to answer', { n: soon.requested }) : soon.waiting === 1 ? tr('1 waiting') : tr('{n} waiting', { n: soon.waiting })}</strong>
               </span>
             </button>
           )}
-          <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}>
+          <button type="button" className={'pos-stat is-tables' + (tabs.length ? ' is-warn' : '')} onClick={() => { loadTabs(); setTabsOpen(true); }}
+            title={tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}>
             <span className="pos-stat-ico" aria-hidden="true"><Icon name="clock" /></span>
             <span className="pos-stat-text">
               <small>{tr('Open orders')}</small>
               <strong>{tabs.length}</strong>
-              <span>{tabs.length ? money(tabs.reduce((s2, t) => s2 + t.total, 0)) : tr('none waiting')}</span>
             </span>
           </button>
         </div>
         <div className="pos-top-tools">
           {/* What is used now and then waits behind More (till/MoreMenu.jsx). */}
           <MoreMenu
+            groups={[
+              { key: 'money', emoji: '💰', label: tr('Money and accounts') },
+              { key: 'orders', emoji: '🧾', label: tr('Orders and guests') },
+              { key: 'screens', emoji: '🖥️', label: tr('Screens and devices') },
+              { key: 'manage', emoji: '🗂️', label: tr('Manage') },
+            ]}
             items={[
-              onDuty('vipTopUp') && { key: 'vip', icon: 'spark', tone: 'vip', label: tr('VIP customers'), note: tr('Money put down, balances'), onClick: () => setVipOpen({}) },
-              onDuty('iouPaid') && { key: 'iou', icon: 'owed', tone: 'iou', label: tr('IOUs'), note: shift && shift.iousOpen ? tr('{n} owed · {amount}', { n: shift.iousOpen, amount: money(shift.iousOwed) }) : tr('Nothing owed'), badge: shift && shift.iousOpen ? shift.iousOpen : 0, onClick: () => setIouOpen(true) },
-              onDuty('refund') && { key: 'refund', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
-              can('stock') && { key: 'stock', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
-              can('bookings') && { key: 'bookings', icon: <span className="tl-more-emo">📅</span>, tone: 'book', label: tr('Bookings and waitlist'), note: soon && soon.waiting ? tr('{n} waiting', { n: soon.waiting }) : tr('Tables booked, walk-ins waiting'), badge: soon && soon.requested ? soon.requested : null, onClick: () => setBookingsOpen(true) },
-              tillSettings.giftCards && tillSettings.giftCards.on && { key: 'gift', icon: <span className="tl-more-emo">🎁</span>, tone: 'gift', label: tr('Gift cards'), note: tr('Sell one, or look one up'), onClick: () => setGiftOpen(true) },
-              { key: 'screen', icon: <span className="tl-more-emo">🖥️</span>, tone: 'screen', label: tr('Customer screen'), note: screen.displays.length ? tr('{n} showing this till', { n: screen.displays.length }) : tr('Pair a screen facing the customer'), onClick: () => setScreenOpen(true) },
-              can('charge') && (tillSettings.apps && tillSettings.apps.list || []).some((a) => a.on) && { key: 'app', icon: <span className="tl-more-emo">🛵</span>, tone: 'app', label: tr('Delivery-app order'),
+              onDuty('vipTopUp') && { key: 'vip', group: 'money', icon: 'spark', tone: 'vip', label: tr('VIP customers'), note: tr('Money put down, balances'), onClick: () => setVipOpen({}) },
+              onDuty('iouPaid') && { key: 'iou', group: 'money', icon: 'owed', tone: 'iou', label: tr('IOUs'), note: shift && shift.iousOpen ? tr('{n} owed · {amount}', { n: shift.iousOpen, amount: money(shift.iousOwed) }) : tr('Nothing owed'), badge: shift && shift.iousOpen ? shift.iousOpen : 0, onClick: () => setIouOpen(true) },
+              onDuty('refund') && { key: 'refund', group: 'money', icon: 'void', tone: 'refund', label: tr('Refund a sale'), note: tr('A manager approves it'), onClick: () => setRefundFor('find') },
+              tillSettings.giftCards && tillSettings.giftCards.on && { key: 'gift', group: 'money', icon: <span className="tl-more-emo">🎁</span>, tone: 'gift', label: tr('Gift cards'), note: tr('Sell one, or look one up'), onClick: () => setGiftOpen(true) },
+              can('charge') && drawer && { key: 'drawer', group: 'money', icon: 'drawer', tone: 'drawer', label: tr('Your drawer'), note: tr('{amount} expected', { amount: money(drawer.expected) }), onClick: () => { loadShift(); refreshDrawer(); setDrawerPanelOpen(true); } },
+              can('bookings') && { key: 'bookings', group: 'orders', icon: <span className="tl-more-emo">📅</span>, tone: 'book', label: tr('Bookings and waitlist'), note: soon && soon.waiting ? tr('{n} waiting', { n: soon.waiting }) : tr('Tables booked, walk-ins waiting'), badge: soon && soon.requested ? soon.requested : null, onClick: () => setBookingsOpen(true) },
+              tableBox && (tableBox.settings.on || tableBox.orders.length > 0) && { key: 'qr', group: 'orders', icon: <span className="tl-more-emo">📱</span>, tone: 'qr', label: tr('Orders from the tables'), note: tr('QR orders, calls, paid at the table'), badge: tableBox.orders.length + tableBox.calls.length || null, onClick: () => { loadTableBox(); setTableBoxOpen(true); } },
+              can('charge') && (tillSettings.apps && tillSettings.apps.list || []).some((a) => a.on) && { key: 'app', group: 'orders', icon: <span className="tl-more-emo">🛵</span>, tone: 'app', label: tr('Delivery-app order'),
                 note: (tillSettings.apps.list || []).filter((a) => a.on).map((a) => a.name).join(', '), onClick: () => (currentTab ? setToast(tr('Put the open order aside first: an app\'s order is rung up on its own.')) : setAppPickOpen(true)) },
-              { key: 'kiosk', icon: <span className="tl-more-emo">🧾</span>, tone: 'kiosk', label: tr('Self-order kiosk'), note: tillSettings.kiosk && tillSettings.kiosk.on ? tr('Taking orders') : tr('Pair a tablet for customers to order'), onClick: () => setKiosksOpen(true) },
-              { key: 'board', icon: <span className="tl-more-emo">📺</span>, tone: 'kiosk', label: tr('Ready board'), note: tr('A TV for customers: preparing and ready orders'), onClick: () => setBoardsOpen(true) },
-              { key: 'dispute', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
-              { key: 'downloads', icon: <span className="tl-more-emo">⬇️</span>, tone: 'downloads', label: tr('Downloads (Square format)'), note: tr('Item library and item sales'), onClick: () => setDownloadsOpen(true) },
-              isManager ? { key: 'office', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
-                : { key: 'settings', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
-              kitchen && kitchen.inUse && { key: 'kds', icon: 'bag', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
-              can('delivery') && { key: 'delivery', icon: 'send', label: tr('Deliveries'), note: tr('Website orders, riders, the map'), href: DELIVERY_URL },
-              printer ? { key: 'printer', icon: 'receipt', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
-                : usbSupported() && { key: 'usb', icon: 'receipt', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
-              !printer && bluetoothSupported() && { key: 'bt', icon: 'receipt', label: pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect a Bluetooth printer'), disabled: !!pairingKind, onClick: pairBluetooth },
+              can('delivery') && { key: 'delivery', group: 'orders', icon: 'send', tone: 'delivery', label: tr('Deliveries'), note: tr('Website orders, riders, the map'), href: DELIVERY_URL },
+              { key: 'dispute', group: 'orders', icon: 'warn', tone: 'dispute', label: tr('Report a problem'), note: tr('A complaint or a wrong charge'), onClick: () => setDisputeFor({}) },
+              { key: 'screen', group: 'screens', icon: <span className="tl-more-emo">🖥️</span>, tone: 'screen', label: tr('Customer screen'), note: screen.displays.length ? tr('{n} showing this till', { n: screen.displays.length }) : tr('Pair a screen facing the customer'), onClick: () => setScreenOpen(true) },
+              { key: 'kiosk', group: 'screens', icon: <span className="tl-more-emo">🧾</span>, tone: 'kiosk', label: tr('Self-order kiosk'), note: tillSettings.kiosk && tillSettings.kiosk.on ? tr('Taking orders') : tr('Pair a tablet for customers to order'), onClick: () => setKiosksOpen(true) },
+              { key: 'board', group: 'screens', icon: <span className="tl-more-emo">📺</span>, tone: 'kiosk', label: tr('Ready board'), note: tr('A TV for customers: preparing and ready orders'), onClick: () => setBoardsOpen(true) },
+              kitchen && kitchen.inUse && { key: 'kds', group: 'screens', icon: 'bag', tone: 'kitchen', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
+              printer ? { key: 'printer', group: 'screens', icon: 'receipt', tone: 'printer', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
+                : usbSupported() && { key: 'usb', group: 'screens', icon: 'receipt', tone: 'printer', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
+              !printer && bluetoothSupported() && { key: 'bt', group: 'screens', icon: 'receipt', tone: 'printer', label: pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect a Bluetooth printer'), disabled: !!pairingKind, onClick: pairBluetooth },
+              { key: 'rota', group: 'manage', icon: <span className="tl-more-emo">🗓️</span>, tone: 'rota', label: tr('Who is on today'),
+                note: rotaToday ? (rotaToday.length ? rotaToday.map((x) => x.name.split(' ')[0]).slice(0, 4).join(', ') + (rotaToday.length > 4 ? ' +' + (rotaToday.length - 4) : '') : tr('Nobody on the rota')) : tr('The rota'),
+                onClick: () => { loadRota(); setRotaOpen(true); } },
+              isManager ? { key: 'office', group: 'manage', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
+                : { key: 'settings', group: 'manage', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
+              can('stock') && { key: 'stock', group: 'manage', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
+              { key: 'downloads', group: 'manage', icon: <span className="tl-more-emo">⬇️</span>, tone: 'downloads', label: tr('Downloads (Square format)'), note: tr('Item library and item sales'), onClick: () => setDownloadsOpen(true) },
             ]}
             extra={<div className="tl-more-look"><ThemeChoice theme={theme} onChange={setTheme} compact /><DeviceLanguage className="pos-lang tl-more-lang" /></div>}
           />
@@ -2302,6 +2330,15 @@ export default function RestaurantPosPage() {
         onSaved={(g) => { setContactFor(null); if (selectedGuest && selectedGuest.id === g.id) setSelectedGuest(g); setToast(tr('Saved for {name}.', { name: g.name })); }} />}
       {downloadsOpen && <Downloads token={session.token} isManager={isManager} companyName={session.companyName} onToast={setToast} onClose={() => setDownloadsOpen(false)} />}
       {kiosksOpen && <Kiosks token={session.token} onToast={setToast} onClose={() => setKiosksOpen(false)} />}
+      {rotaOpen && (
+        <div className="dialog-backdrop" onClick={() => setRotaOpen(false)}>
+          <div className="dialog ro-dlg" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="ro-today-title">
+            <h3 id="ro-today-title">🗓️ {tr('Who is on today')}</h3>
+            {rotaToday ? <OnToday shifts={rotaToday} /> : <p className="dk-muted">{tr('Loading…')}</p>}
+            <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={() => setRotaOpen(false)}>{tr('Close')}</button></div>
+          </div>
+        </div>
+      )}
       {boardsOpen && <ReadyBoards token={session.token} onToast={setToast} onClose={() => setBoardsOpen(false)} />}
       {appPickOpen && <AppPicker apps={(tillSettings.apps && tillSettings.apps.list) || []} current={appOrder} onClose={() => setAppPickOpen(false)}
         onPick={(a) => { setAppOrder(a); setAppPickOpen(false); setCurrentTab(null); }} />}

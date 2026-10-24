@@ -16,6 +16,8 @@ function rowToVariation(r) {
     id: r.id, itemId: r.item_id, name: r.name, code: r.code, unit: r.unit,
     defaultQty: Number(r.default_qty), unitPrice: Number(r.unit_price), costPrice: Number(r.cost_price),
     stockQty: Number(r.stock_qty), active: r.active,
+    // Its option values, when its item has options ({ Size: 'Large' }).
+    optionValues: r.option_values || {},
     // The stock product (Products & inventory) it takes from when invoiced.
     productId: r.product_id || null
   };
@@ -54,7 +56,7 @@ async function list(ctx) {
     'SELECT v.*, i.name AS item_name, i.description AS item_description, ' +
     // The variation's own photo, else the item's cover.
     '(SELECT p.id FROM catalog_item_photos p WHERE p.item_id = v.item_id ORDER BY (p.variation_id = v.id) IS TRUE DESC, p.position LIMIT 1) AS photo_id ' +
-    'FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.name'
+    'FROM catalog_item_variations v JOIN catalog_items i ON i.id = v.item_id ORDER BY i.name, v.position, v.name'
   );
   var products = await stockProducts(res.rows.map(function (r) { return r.product_id; }));
   return res.rows.map(function (r) {
@@ -70,8 +72,9 @@ async function listItems(ctx) {
   if (!ctx.can('catalog.read')) fail('forbidden', 'Your role does not allow this action (catalog.read).');
   var res = await pool.query(
     'SELECT i.*, c.name AS category_name, ' +
-    "coalesce((SELECT json_agg(v.* ORDER BY v.name) FROM catalog_item_variations v WHERE v.item_id = i.id), '[]') AS variations, " +
-    "coalesce((SELECT json_agg(p.* ORDER BY p.position, p.created_at) FROM catalog_item_photos p WHERE p.item_id = i.id), '[]') AS photos " +
+    "coalesce((SELECT json_agg(v.* ORDER BY v.position, v.name) FROM catalog_item_variations v WHERE v.item_id = i.id), '[]') AS variations, " +
+    "coalesce((SELECT json_agg(p.* ORDER BY p.position, p.created_at) FROM catalog_item_photos p WHERE p.item_id = i.id), '[]') AS photos, " +
+    "coalesce((SELECT json_agg(json_build_object('name', o.name, 'choices', o.choices) ORDER BY o.sort_order) FROM catalog_item_options o WHERE o.item_id = i.id), '[]') AS options " +
     'FROM catalog_items i LEFT JOIN catalog_categories c ON c.id = i.category_id ORDER BY i.name'
   );
   var sales = await salesByVariation(res.rows);
@@ -80,6 +83,7 @@ async function listItems(ctx) {
     return {
       id: r.id, name: r.name, description: r.description, categoryId: r.category_id, categoryName: r.category_name || '—',
       taxRateId: r.tax_rate_id, active: r.active,
+      options: r.options || [],
       photos: r.photos.map(rowToPhoto),
       variations: r.variations.map(function (v) {
         return Object.assign(rowToVariation(v), {

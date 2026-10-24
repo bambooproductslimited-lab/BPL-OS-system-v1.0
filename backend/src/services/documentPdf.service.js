@@ -245,6 +245,27 @@ function section(doc, label, body) {
   doc.font('Helvetica').fontSize(9.5).fillColor(MUTED).text(clean(body), left(doc), doc.y + 4, { width: width(doc), lineGap: 1.5 });
 }
 
+// The customer's answer on the link (documentAnswers.service.js): who
+// approved it and when, with the signature they drew; or who declined it.
+function answered(doc, a) {
+  if (!a || a.action === 'changes') return;
+  var when = docDate(a.at);
+  if (a.action === 'declined') { section(doc, 'Declined', 'Declined by ' + (a.name || 'the customer') + ' on ' + when + (a.note ? ': ' + a.note : '.')); return; }
+  var boxW = 180, boxH = 60, k = boxW / 600;
+  room(doc, boxH + 56);
+  doc.y += 12;
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text('Approved online', left(doc), doc.y);
+  var top = doc.y + 6, x0 = left(doc);
+  doc.save().lineWidth(1.2).strokeColor(INK).lineCap('round').lineJoin('round');
+  (a.signature || []).forEach(function (stroke) {
+    stroke.forEach(function (p, i) { if (i === 0) doc.moveTo(x0 + p[0] * k, top + p[1] * k); else doc.lineTo(x0 + p[0] * k, top + p[1] * k); });
+    doc.stroke();
+  });
+  doc.restore();
+  doc.moveTo(x0, top + boxH + 2).lineTo(x0 + boxW, top + boxH + 2).lineWidth(0.5).strokeColor(RULE).stroke();
+  doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(clean(a.name) + ' · ' + when, x0, top + boxH + 6, { width: width(doc) });
+}
+
 function footer(doc, text) {
   var range = doc.bufferedPageRange();
   for (var i = range.start; i < range.start + range.count; i++) {
@@ -320,6 +341,7 @@ async function documentPdf(documentType, documentId) {
   if (isInvoice) section(doc, 'Payment instructions', v.bankInstructions);
   section(doc, 'Notes', v.notes);
   section(doc, 'Terms', v.terms);
+  answered(doc, v.answer);
   footer(doc, lh.name + ' · ' + docLabel);
   doc.end();
   return {

@@ -91,6 +91,13 @@ router.post('/settings/purchasing', posAuth, async function (req, res, next) {
 router.post('/settings/closeday', posAuth, async function (req, res, next) {
   try { res.json(await access.closeDay(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// The rota, by a manager; who is on today, for the till.
+router.post('/settings/rota', posAuth, async function (req, res, next) {
+  try { res.json(await access.rota(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/rota/today', posAuth, async function (req, res, next) {
+  try { res.json(await access.rotaToday(req.posToken)); } catch (e) { next(e); }
+});
 // A complaint or a wrong charge raised on the till.
 router.post('/disputes', posAuth, async function (req, res, next) {
   try { res.status(201).json(await restaurantPosService.raiseDispute(req.posToken, req.body)); } catch (e) { next(e); }

@@ -13,6 +13,7 @@ import RowMenu from '../components/RowMenu';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { adjustmentRows, creditRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
 import CreditNoteDialog from '../components/CreditNoteDialog';
+import { RepeatDialog, SeriesDialog } from '../components/RepeatInvoice';
 import InvoiceCleanupDialog from '../components/InvoiceCleanupDialog';
 import { money, moneyBreakdown } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
@@ -119,6 +120,8 @@ export default function InvoicesPage() {
 
   const [payTarget, setPayTarget] = useState(null);
   const [creditTarget, setCreditTarget] = useState(null);
+  const [repeatTarget, setRepeatTarget] = useState(null); // an invoice to repeat (components/RepeatInvoice.jsx)
+  const [seriesOpen, setSeriesOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const [payForm, setPayForm] = useState(null);
   const [payError, setPayError] = useState(null);
@@ -404,6 +407,7 @@ export default function InvoicesPage() {
           <>
             {canOpenManual && <button type="button" className="btn btn-primary" onClick={openNew}>{tr('New invoice')}</button>}
             {canManage && canSeeSalesOrders && orderChoices.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => setOrderOpen(true)}>{tr('From a sales order')}</button>}
+            {invoices.some((inv) => inv.seriesId) && <button type="button" className="btn btn-secondary" onClick={() => setSeriesOpen(true)}>🔁 {tr('Repeating')}</button>}
             <Link className="btn btn-secondary" to="/reminders">{tr('Payment reminders')}</Link>
             {canManage && overdue.some((inv) => daysLate(inv) > 90) && <button type="button" className="btn btn-secondary" onClick={() => setCleanupOpen(true)}>{tr('Clean up old invoices')}</button>}
           </>
@@ -461,7 +465,7 @@ export default function InvoicesPage() {
                   </button>
                   <span className="tl-menu"><RowMenu disabled={busyId === inv.id} actions={actionsFor(inv)} /></span>
                   <p className="dk-muted tl-small es-items">{itemsLine(inv) || '—'}</p>
-                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status>{inv.reminders > 0 && isOwing(inv) && <Status tone="muted">{tr('Reminded {n}×', { n: inv.reminders })}</Status>}</div>
+                  <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status>{inv.reminders > 0 && isOwing(inv) && <Status tone="muted">{tr('Reminded {n}×', { n: inv.reminders })}</Status>}{inv.viewedAt && isOwing(inv) && <Status tone="info">👀 {tr('Opened')}</Status>}{inv.seriesId && <Status tone="muted">🔁 {tr('Repeats')}</Status>}</div>
                   <PaidBar inv={inv} />
                   <div className="tl-foot">
                     <span className="iv-owe">
@@ -516,7 +520,7 @@ export default function InvoicesPage() {
               <div>
                 <span className="dk-muted tl-small">{cur.invoiceNo} · {tr('Issued {date}', { date: fmtDate(cur.issuedAt) })}</span>
                 <h2>{cur.customerName}</h2>
-                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status></div>
+                <div className="tl-tags"><Status tone={stateOf(cur).tone}>{stateOf(cur).text}</Status>{cur.viewedAt && <Status tone="info">👀 {tr('Opened')}</Status>}{cur.seriesId && <Status tone="muted">🔁 {tr('Repeats')}</Status>}</div>
               </div>
               <button type="button" className="tl-close" onClick={closeDetail} aria-label={tr('Close')}>×</button>
             </div>
@@ -581,6 +585,8 @@ export default function InvoicesPage() {
               {canManage && cur.status === 'unpaid' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => voidInvoice(cur)}>{tr('Void')}</button>}
               {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Change due date or PO')}</button>}
               {canCredit(cur) && <button type="button" className="btn btn-secondary" onClick={() => setCreditTarget(cur)}>{tr('Credit note')}</button>}
+              {canManage && cur.status !== 'void' && !cur.seriesId && <button type="button" className="btn btn-secondary" onClick={() => setRepeatTarget(cur)}>🔁 {tr('Repeat')}</button>}
+              {cur.seriesId && <button type="button" className="btn btn-secondary" onClick={() => setSeriesOpen(true)}>🔁 {tr('Repeating')}</button>}
               <button type="button" className="btn btn-secondary" onClick={() => openPreview(cur)}>{tr('Preview')}</button>
               {canManage && isOwing(cur) && cur.customerPhone && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => remind(cur)}>{tr('Remind on WhatsApp')}</button>}
               {canManage && isOwing(cur) && <button type="button" className="btn btn-primary" onClick={() => openPay(cur)}>{tr('Record payment')}</button>}
@@ -756,6 +762,8 @@ export default function InvoicesPage() {
       )}
 
       {cleanupOpen && <InvoiceCleanupDialog invoices={invoices} onClose={() => setCleanupOpen(false)} onDone={() => load()} />}
+      {repeatTarget && <RepeatDialog invoice={repeatTarget} onClose={() => setRepeatTarget(null)} onDone={() => { setRepeatTarget(null); setToast(tr('{invoice} will repeat. See it under Repeating.', { invoice: repeatTarget.invoiceNo })); load(); }} />}
+      {seriesOpen && <SeriesDialog canManage={canManage} onClose={() => setSeriesOpen(false)} onChanged={load} />}
       {creditTarget && <CreditNoteDialog invoice={creditTarget} apiBase="/invoices" onClose={() => setCreditTarget(null)} onDone={() => load()} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}

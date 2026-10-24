@@ -276,6 +276,24 @@ async function afterPayment(receiptId) {
   }
 }
 
+// ---- repeating invoices -------------------------------------------------------------
+
+// A repeating invoice just raised (invoiceSeries.service.js), emailed to the
+// customer as staff would send it. Never throws: the invoice stands either way.
+async function autoInvoice(invoiceId) {
+  try {
+    if (!mail.configured() || !config.appUrl) return false;
+    var t = await target('invoice', invoiceId);
+    if (!mail.isEmail(t.email)) return false;
+    var lh = await pdf.letterheadFor(t.companyId), c = compose(t, lh);
+    await deliver(t, { to: t.email, subject: c.subject, message: c.message, kind: 'document', automatic: true });
+    return true;
+  } catch (e) {
+    console.error('Repeating invoice email not sent:', e.message);
+    return false;
+  }
+}
+
 // ---- payment reminders --------------------------------------------------------------
 
 // One reminder email for one bill; the words are the text message's
@@ -374,6 +392,6 @@ async function claim(refId, refDate, passed) {
 
 module.exports = {
   settings: settings, saveSettings: saveSettings, status: status,
-  draft: draft, send: send, afterPayment: afterPayment, reminderEmail: reminderEmail, autoReminders: autoReminders,
+  draft: draft, send: send, afterPayment: afterPayment, autoInvoice: autoInvoice, reminderEmail: reminderEmail, autoReminders: autoReminders,
   shareBase: shareBase, AUTO_DAILY_LIMIT: AUTO_DAILY_LIMIT
 };

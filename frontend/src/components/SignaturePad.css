@@ -1,0 +1,43 @@
+.sigpad {
+  position: relative;
+  border-radius: 14px;
+  background: repeating-linear-gradient(135deg, rgba(29, 29, 27, 0.025) 0 10px, transparent 10px 20px), #fffdf8;
+  border: 1.5px dashed #c9c2b4;
+  color: #1d1d1b;
+  touch-action: none;
+}
+.sigpad-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 1;
+  cursor: crosshair;
+  touch-action: none;
+  color: #14213d;
+}
+.sigpad-line {
+  position: absolute;
+  left: 7%;
+  right: 7%;
+  bottom: 24%;
+  border-bottom: 1.5px solid rgba(29, 29, 27, 0.25);
+  pointer-events: none;
+}
+.sigpad-line::before {
+  content: '\2715';
+  position: absolute;
+  left: -20px;
+  bottom: -2px;
+  font-size: 13px;
+  color: rgba(29, 29, 27, 0.4);
+}
+.sigview {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  fill: none;
+  stroke: #14213d;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
