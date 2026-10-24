@@ -15,6 +15,7 @@ dist-delivery
 dist-online
 dist-bamboogarden-*
 dist-sales
+dist-bpl
 dist-ssr
 *.local
 

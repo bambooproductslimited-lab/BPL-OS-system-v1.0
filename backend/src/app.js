@@ -92,8 +92,15 @@ app.use('/api/feeds/attendance', attendanceFeedsRoutes.browsers);
 var appCors = cors({ origin: config.corsOrigin.concat(config.salesSiteOrigins), credentials: true });
 // The till and the kitchen screen on their own websites reach their API only.
 var posCors = cors({ origin: config.corsOrigin.concat(config.restaurantSiteOrigins), credentials: true });
+// Bamboo Products' customer website (config.bplSiteOrigins) reaches its
+// public pages only: the shop, the bookings and a shared document's page.
+var bplCors = cors({ origin: config.corsOrigin.concat(config.salesSiteOrigins, config.bplSiteOrigins), credentials: true });
+function bplPublic(path) {
+  return path === '/api/shop' || path.indexOf('/api/shop/') === 0 || path === '/api/book' || path.indexOf('/api/book/') === 0 || path.indexOf('/api/share/') === 0;
+}
 app.use(function (req, res, next) {
   if (req.path.indexOf('/api/feeds/attendance') === 0) return next();
+  if (bplPublic(req.path)) return bplCors(req, res, next);
   return (req.path === '/api/pos' || req.path.indexOf('/api/pos/') === 0 ? posCors : appCors)(req, res, next);
 });
 // verify captures the raw request bytes onto req.rawBody before JSON

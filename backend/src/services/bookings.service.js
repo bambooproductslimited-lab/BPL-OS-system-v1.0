@@ -13,14 +13,21 @@ var config = require('../config');
 // in the CRM (and, for a visit to the customer, a site visit on the rep's
 // map); the customer gets its own page to see or cancel it; staff confirm,
 // reassign and close them on the Appointments page. Ghana keeps UTC all
-// year, so times are kept and shown as they are.
+// year, so times are kept and shown as they are. A booking can carry a fee
+// (migration 0188): each service's own (a consultation, a call, a site
+// measurement), or for a visit to the customer the fee of the area they
+// pick; it is invoiced to them at once and paid on the invoice's page
+// (invoicePay), on the customer website like the booking itself.
 
 var DEFAULT_SERVICES = [
   { id: 'showroom', name: 'Showroom visit', minutes: 60, visit: false, note: 'See and touch our bamboo products, with someone to answer your questions.' },
   { id: 'measure', name: 'Site measurement', minutes: 90, visit: true, note: 'We come to your home or site to measure for blinds, furniture or a fit-out.' },
   { id: 'call', name: 'Phone or video call', minutes: 30, visit: false, note: 'Talk your project through with us.' }
 ];
-var DEFAULTS = { on: false, intro: '', services: DEFAULT_SERVICES, days: [1, 2, 3, 4, 5, 6], from: '08:00', to: '17:00', step: 30, perSlot: 1, daysAhead: 30, noticeHours: 12, assignTo: null };
+var DEFAULTS = { on: false, intro: '', services: DEFAULT_SERVICES, days: [1, 2, 3, 4, 5, 6], from: '08:00', to: '17:00', step: 30, perSlot: 1, daysAhead: 30, noticeHours: 12, assignTo: null, areas: [], feeNote: '' };
+var ctxBooking = { can: function () { return true; }, user: { id: null }, employee: { id: null, first_name: 'Online booking', last_name: '' } };
+function round2(n) { return Math.round(Number(n) * 100) / 100; }
+function feeOf(v) { var n = round2(v); return n > 0 && n <= 100000 ? n : 0; }
 var STATUSES = ['requested', 'confirmed', 'cancelled', 'done'];
 var PER_IP_HOUR = 5;
 
@@ -45,7 +52,17 @@ function cleanServices(list) {
     var name = text(s.name, 60);
     var minutes = Math.round(Number(s.minutes));
     if (id.length < 2 || name.length < 2 || !(minutes >= 15 && minutes <= 480) || out.some(function (o) { return o.id === id; })) return;
-    out.push({ id: id, name: name, minutes: minutes, visit: !!s.visit, note: text(s.note, 200) });
+    out.push({ id: id, name: name, minutes: minutes, visit: !!s.visit, note: text(s.note, 200), fee: feeOf(s.fee) });
+  });
+  return out;
+}
+// The areas a visit is priced by (Accra, Tema, further…), each with its fee.
+function cleanAreas(list) {
+  var out = [];
+  (Array.isArray(list) ? list : []).forEach(function (a) {
+    var name = text(a && a.name, 60);
+    if (name.length < 2 || out.length >= 20 || out.some(function (o) { return o.name.toLowerCase() === name.toLowerCase(); })) return;
+    out.push({ name: name, fee: feeOf(a.fee) });
   });
   return out;
 }
@@ -60,8 +77,18 @@ async function settingsOf(db) {
     perSlot: Number(s.perSlot) >= 1 && Number(s.perSlot) <= 10 ? Math.round(Number(s.perSlot)) : DEFAULTS.perSlot,
     daysAhead: Number(s.daysAhead) >= 1 && Number(s.daysAhead) <= 90 ? Math.round(Number(s.daysAhead)) : DEFAULTS.daysAhead,
     noticeHours: Number(s.noticeHours) >= 0 && Number(s.noticeHours) <= 72 ? Math.round(Number(s.noticeHours)) : DEFAULTS.noticeHours,
-    assignTo: /^[0-9a-f-]{36}$/i.test(String(s.assignTo || '')) ? s.assignTo : null
+    assignTo: /^[0-9a-f-]{36}$/i.test(String(s.assignTo || '')) ? s.assignTo : null,
+    areas: cleanAreas(s.areas), feeNote: text(s.feeNote, 200)
   };
+}
+// What a booking costs: a visit's area's fee (when areas are set), else the service's.
+function feeFor(s, service, areaName) {
+  if (service.visit && s.areas.length) {
+    var area = s.areas.find(function (a) { return a.name.toLowerCase() === String(areaName || '').trim().toLowerCase(); });
+    if (!area) fail('invalid', 'Choose your area.');
+    return { area: area.name, fee: area.fee };
+  }
+  return { area: '', fee: service.fee || 0 };
 }
 
 // The days open for booking, from today (with the notice asked) on.
@@ -102,7 +129,7 @@ async function options(q) {
   var service = s.services.find(function (x) { return x.id === q.service; }) || s.services[0];
   var date = isDay(q.date) && days.indexOf(q.date) >= 0 ? q.date : days[0] || null;
   return {
-    on: true, intro: s.intro, services: s.services, days: days, service: service.id, date: date,
+    on: true, intro: s.intro, services: s.services, areas: s.areas, feeNote: s.feeNote, payOnline: require('./invoicePay.service').configured(), days: days, service: service.id, date: date,
     slots: date ? await slotsOf(s, service, date, now) : []
   };
 }
@@ -117,12 +144,46 @@ function throttle(ip) {
   if (bookedBy.size > 5000) bookedBy.clear();
 }
 
+// The booking's fee, from its row with its invoice (FEE_JOIN): how much,
+// whether paid, and the invoice's page to pay it on.
+function feeOut(r) {
+  if (!(Number(r.fee) > 0)) return null;
+  return { amount: round2(r.fee), area: r.area || '', paid: r.fee_status === 'paid', void: r.fee_status === 'void', due: r.fee_balance != null ? round2(r.fee_balance) : round2(r.fee),
+    token: r.fee_token || null, invoiceId: r.fee_invoice_id || null, invoiceNo: r.fee_invoice_no || null };
+}
+var FEE_JOIN = 'LEFT JOIN invoices fi ON fi.id = a.fee_invoice_id LEFT JOIN document_shares fs ON fs.id = a.fee_share_id ';
+var FEE_COLS = 'fi.status AS fee_status, fi.balance_due AS fee_balance, fi.invoice_no AS fee_invoice_no, fs.token AS fee_token';
 function viewOf(r) {
   var future = new Date(r.starts_at) > new Date();
   return {
-    service: r.service, serviceName: r.service_name, startsAt: r.starts_at, endsAt: r.ends_at, name: r.name, location: r.location, note: r.note, status: r.status,
-    canCancel: future && (r.status === 'requested' || r.status === 'confirmed')
+    service: r.service, serviceName: r.service_name, startsAt: r.starts_at, endsAt: r.ends_at, name: r.name, location: r.location, area: r.area || '', note: r.note, status: r.status,
+    canCancel: future && (r.status === 'requested' || r.status === 'confirmed'), fee: feeOut(r)
   };
+}
+
+// A booking with a fee: the customer (found by phone or email, else added,
+// as the shop does), an invoice for the fee due on the day, and its link.
+async function raiseFee(r, service) {
+  var customerId = await withTransaction(function (client) { return require('./shop.service').customerFor(client, { name: r.name, phone: r.phone, email: r.email, address: r.location }); });
+  var inv = await require('./invoices.service').createManual(ctxBooking, {
+    customerId: customerId, currency: 'GHS', dueDate: String(r.starts_at instanceof Date ? r.starts_at.toISOString() : r.starts_at).slice(0, 10),
+    items: [{ description: (service.name + ' fee' + (r.area ? ' (' + r.area + ')' : '')).slice(0, 160), qty: 1, unitPrice: round2(r.fee) }],
+    notes: 'Booked on the website: ' + service.name.toLowerCase() + ' on ' + whenText(r.starts_at) + '.'
+  });
+  var link = await require('./shares.service').issueLink('invoice', inv.id, 30, null);
+  await pool.query('UPDATE appointments SET customer_id = $2, fee_invoice_id = $3, fee_share_id = (SELECT id FROM document_shares WHERE token = $4) WHERE id = $1', [r.id, customerId, inv.id, link.token]);
+  if (r.lead_id) await pool.query('UPDATE crm_leads SET customer_id = coalesce(customer_id, $2) WHERE id = $1', [r.lead_id, customerId]);
+  return { token: link.token, invoiceNo: inv.invoiceNo };
+}
+// A booking cancelled: its fee's invoice voided when nothing was paid on it;
+// paid, it stays for staff to refund. Says which.
+async function dropFee(r) {
+  if (!r.fee_invoice_id) return null;
+  var inv = (await pool.query('SELECT status, amount_paid FROM invoices WHERE id = $1', [r.fee_invoice_id])).rows[0];
+  if (!inv || inv.status === 'void') return null;
+  if (Number(inv.amount_paid) > 0) return 'paid';
+  try { await require('./invoices.service').voidInvoice(ctxBooking, r.fee_invoice_id, 'Booking cancelled.'); } catch (e) { return null; }
+  return 'voided';
 }
 
 // POST /api/book { service, date, time, name, phone, email, location, note,
@@ -146,6 +207,7 @@ async function book(p, ip) {
   var location = text(p.location, 300);
   if (service.visit && location.length < 5) fail('invalid', 'Where should we come? Type the address or a landmark.');
   var note = text(p.note, 500);
+  var priced = feeFor(s, service, p.area);
   throttle(ip);
 
   var startsAt = at(p.date, p.time), endsAt = new Date(startsAt.getTime() + service.minutes * 60000);
@@ -165,18 +227,26 @@ async function book(p, ip) {
         [lead.id, name, location, p.date, s.assignTo ? [s.assignTo] : [], 'Booked on the website for ' + p.time + ' (' + service.name + ').'])).rows[0];
     }
     var row = (await client.query(
-      'INSERT INTO appointments (service, service_name, starts_at, ends_at, name, phone, email, location, note, lead_id, site_visit_id, assigned_to, token, ip) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *',
+      'INSERT INTO appointments (service, service_name, starts_at, ends_at, name, phone, email, location, note, lead_id, site_visit_id, assigned_to, token, ip, area, fee) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *',
       [service.id, service.name, startsAt, endsAt, name, '+' + internationalNumber(phone), email, location, note, lead.id, visit ? visit.id : null, s.assignTo,
-        crypto.randomBytes(18).toString('base64url'), String(ip || '').slice(0, 60)])).rows[0];
+        crypto.randomBytes(18).toString('base64url'), String(ip || '').slice(0, 60), priced.area, priced.fee])).rows[0];
     return { row: row, lead: lead };
   });
   var r = made.row;
+  var pay = null;
+  if (priced.fee > 0) {
+    try { pay = await raiseFee(r, service); } catch (e) { console.error('Booking fee not invoiced:', e.message); }
+  }
   await audit(pool, { user: { id: null }, employee: { first_name: 'Website', last_name: 'booking' } }, 'booking.create', 'appointment', r.id, name + ' booked a ' + service.name.toLowerCase() + ' for ' + whenText(startsAt) + ' (' + made.lead.ref + ').');
   var to = s.assignTo ? [s.assignTo] : (await require('./staffAlerts.service').holdersOf(['crm.manage'])).map(function (h) { return h.employee_id; });
-  for (var i = 0; i < to.length; i++) await notify(pool, to[i], '📅 New booking: ' + service.name, name + ' · ' + whenText(startsAt) + (location ? ' · ' + location : ''), '/appointments?open=' + r.id);
-  var link = config.appUrl + '/book/' + r.token;
-  if (email) await tell(r, 'Your booking with Bamboo Products', 'Thank you, ' + name.split(' ')[0] + '! We have your request for a ' + service.name.toLowerCase() + ' on ' + whenText(startsAt) + '. We will confirm it shortly. See or cancel it: ' + link);
-  return { token: r.token, booking: viewOf(r) };
+  for (var i = 0; i < to.length; i++) await notify(pool, to[i], '📅 New booking: ' + service.name, name + ' · ' + whenText(startsAt) + (location ? ' · ' + location : '') + (priced.fee ? ' · fee GHS ' + priced.fee.toFixed(2) : ''), '/appointments?open=' + r.id);
+  var link = config.bplSiteUrl + '/book/' + r.token;
+  if (email) {
+    await tell(r, 'Your booking with Bamboo Products', 'Thank you, ' + name.split(' ')[0] + '! We have your request for a ' + service.name.toLowerCase() + ' on ' + whenText(startsAt) + '.' +
+      (pay ? ' Its fee of GHS ' + priced.fee.toFixed(2) + ' is on invoice ' + pay.invoiceNo + ', to pay on its page: ' + config.bplSiteUrl + '/share/' + pay.token + '.' : '') +
+      ' We will confirm it shortly. See or cancel it: ' + link);
+  }
+  return { token: r.token, booking: await view(r.token) };
 }
 
 // An email to the customer, when they gave one and email is set up.
@@ -192,7 +262,7 @@ async function tell(r, subject, words) {
 
 async function byToken(token, lock, client) {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(String(token || ''))) fail('notfound', 'We cannot find that booking.');
-  var r = (await (client || pool).query('SELECT * FROM appointments WHERE token = $1' + (lock ? ' FOR UPDATE' : ''), [token])).rows[0];
+  var r = (await (client || pool).query(lock ? 'SELECT * FROM appointments WHERE token = $1 FOR UPDATE' : 'SELECT a.*, ' + FEE_COLS + ' FROM appointments a ' + FEE_JOIN + 'WHERE a.token = $1', [token])).rows[0];
   if (!r) fail('notfound', 'We cannot find that booking.');
   return r;
 }
@@ -207,9 +277,12 @@ async function cancel(token) {
     if (row.site_visit_id) await client.query("UPDATE crm_site_visits SET status = 'cancelled', updated_at = now() WHERE id = $1 AND status = 'scheduled'", [row.site_visit_id]);
     return row;
   });
+  var fee = await dropFee(r);
   var to = r.assigned_to ? [r.assigned_to] : (await require('./staffAlerts.service').holdersOf(['crm.manage'])).map(function (h) { return h.employee_id; });
-  for (var i = 0; i < to.length; i++) await notify(pool, to[i], '✕ Booking cancelled: ' + r.service_name, r.name + ' cancelled ' + whenText(r.starts_at) + '.', '/appointments?open=' + r.id);
-  return viewOf(r);
+  for (var i = 0; i < to.length; i++) {
+    await notify(pool, to[i], '✕ Booking cancelled: ' + r.service_name, r.name + ' cancelled ' + whenText(r.starts_at) + '.' + (fee === 'paid' ? ' The fee was paid: refund it from its invoice.' : ''), '/appointments?open=' + r.id);
+  }
+  return view(token);
 }
 
 // ── for staff ──
@@ -217,10 +290,10 @@ function staffOut(r) {
   return {
     id: r.id, service: r.service, serviceName: r.service_name, startsAt: r.starts_at, endsAt: r.ends_at, name: r.name, phone: r.phone, email: r.email, location: r.location, note: r.note,
     status: r.status, createdAt: r.created_at, leadId: r.lead_id, leadRef: r.lead_ref || null, siteVisitId: r.site_visit_id,
-    assignedTo: r.assigned_to ? { id: r.assigned_to, name: r.a_first + ' ' + r.a_last } : null
+    assignedTo: r.assigned_to ? { id: r.assigned_to, name: r.a_first + ' ' + r.a_last } : null, area: r.area || '', fee: feeOut(r)
   };
 }
-var STAFF_SELECT = 'SELECT a.*, l.ref AS lead_ref, e.first_name AS a_first, e.last_name AS a_last FROM appointments a LEFT JOIN crm_leads l ON l.id = a.lead_id LEFT JOIN employees e ON e.id = a.assigned_to ';
+var STAFF_SELECT = 'SELECT a.*, l.ref AS lead_ref, e.first_name AS a_first, e.last_name AS a_last, ' + FEE_COLS + ' FROM appointments a LEFT JOIN crm_leads l ON l.id = a.lead_id LEFT JOIN employees e ON e.id = a.assigned_to ' + FEE_JOIN;
 async function people() {
   return (await pool.query(
     "SELECT DISTINCT e.id, e.first_name, e.last_name FROM employees e JOIN users u ON u.employee_id = e.id JOIN user_roles ur ON ur.user_id = u.id JOIN role_permissions rp ON rp.role_id = ur.role_id " +
@@ -239,7 +312,7 @@ async function list(ctx, q) {
     "SELECT count(*) FILTER (WHERE status = 'requested' AND starts_at > now()) AS waiting, count(*) FILTER (WHERE status IN ('requested', 'confirmed') AND starts_at::date = current_date) AS today, " +
     "count(*) FILTER (WHERE status IN ('requested', 'confirmed') AND starts_at > now() AND starts_at < now() + interval '7 days') AS week, count(*) FILTER (WHERE created_at > now() - interval '30 days') AS month FROM appointments")).rows[0];
   return {
-    from: from, to: to, appointments: rows.map(staffOut), settings: await settingsOf(), people: await people(), url: config.appUrl + '/book',
+    from: from, to: to, appointments: rows.map(staffOut), settings: await settingsOf(), people: await people(), url: config.bplSiteUrl + '/book',
     totals: { waiting: Number(counts.waiting), today: Number(counts.today), week: Number(counts.week), month: Number(counts.month) }
   };
 }
@@ -266,12 +339,14 @@ async function update(ctx, id, p) {
     if (STATUSES.indexOf(p.status) < 0 || p.status === 'requested') fail('invalid', 'Confirmed, done or cancelled?');
     if (r.status === 'cancelled') fail('conflict', 'That booking was cancelled.');
     await pool.query('UPDATE appointments SET status = $2, cancelled_at = CASE WHEN $2 = \'cancelled\' THEN now() ELSE cancelled_at END WHERE id = $1', [id, p.status]);
+    var feeSaid = p.status === 'cancelled' ? await dropFee(r) : null;
+    if (feeSaid) said.push(feeSaid === 'paid' ? 'the fee was paid: to refund' : 'its fee invoice voided');
     if (r.site_visit_id) {
       if (p.status === 'cancelled') await pool.query("UPDATE crm_site_visits SET status = 'cancelled', updated_at = now() WHERE id = $1 AND status = 'scheduled'", [r.site_visit_id]);
       if (p.status === 'done') await pool.query("UPDATE crm_site_visits SET status = 'visited', updated_at = now() WHERE id = $1 AND status = 'scheduled'", [r.site_visit_id]);
     }
     if (r.lead_id && p.status === 'confirmed') await pool.query("UPDATE crm_leads SET stage = CASE WHEN stage = 'new' THEN 'contacted' ELSE stage END, stage_changed_at = CASE WHEN stage = 'new' THEN now() ELSE stage_changed_at END, updated_at = now() WHERE id = $1", [r.lead_id]);
-    var link = config.appUrl + '/book/' + r.token;
+    var link = config.bplSiteUrl + '/book/' + r.token;
     if (p.status === 'confirmed' || p.status === 'cancelled') {
       var words = p.status === 'confirmed'
         ? 'Bamboo Products: your ' + r.service_name.toLowerCase() + ' on ' + whenText(r.starts_at) + ' is confirmed. See you then! ' + link
@@ -290,7 +365,7 @@ async function update(ctx, id, p) {
 // words, what can be booked, the days and hours, how many at once.
 async function getSettings(ctx) {
   if (!ctx.can('crm.read')) fail('forbidden', 'Your role does not allow this action (crm.read).');
-  return { settings: await settingsOf(), people: await people(), url: config.appUrl + '/book' };
+  return { settings: await settingsOf(), people: await people(), url: config.bplSiteUrl + '/book' };
 }
 async function saveSettings(ctx, p) {
   if (!ctx.can('crm.manage')) fail('forbidden', 'Your role does not allow this action (crm.manage).');
@@ -305,7 +380,8 @@ async function saveSettings(ctx, p) {
     step: [15, 30, 60].indexOf(Number(p.step)) >= 0 ? Number(p.step) : 30,
     perSlot: Math.max(1, Math.min(10, Math.round(Number(p.perSlot) || 1))), daysAhead: Math.max(1, Math.min(90, Math.round(Number(p.daysAhead) || 30))),
     noticeHours: Math.max(0, Math.min(72, Math.round(Number(p.noticeHours) || 0))),
-    assignTo: p.assignTo && (await pool.query("SELECT 1 FROM employees WHERE id = $1 AND status = 'active'", [p.assignTo])).rows[0] ? p.assignTo : null
+    assignTo: p.assignTo && (await pool.query("SELECT 1 FROM employees WHERE id = $1 AND status = 'active'", [p.assignTo])).rows[0] ? p.assignTo : null,
+    areas: cleanAreas(p.areas), feeNote: text(p.feeNote, 200)
   };
   await pool.query('UPDATE settings SET booking = $1 WHERE id = 1', [JSON.stringify(s)]);
   await audit(pool, ctx, 'settings.booking', 'settings', 'booking', 'Booking page ' + (s.on ? 'open' : 'closed') + ': ' + s.services.map(function (x) { return x.name; }).join(', ') + '.');

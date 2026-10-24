@@ -99,11 +99,12 @@ function emailFor(cust) {
   try { host = new URL(config.appUrl).hostname.replace(/^(www|app)\./, ''); } catch (e2) { host = ''; }
   return 'payments@' + (host || 'bambooproducts.com');
 }
-// Back to the invoice's page after paying: one of the OS's own addresses only.
+// Back to the invoice's page after paying: one of the OS's own addresses, or
+// Bamboo Products' customer website (where the shop's invoices are paid).
 function backTo(back, token) {
   var u = null;
   try { u = new URL(String(back || '')); } catch (e) { u = null; }
-  var origin = u && config.corsOrigin.indexOf(u.origin) >= 0 ? u.origin : config.appUrl;
+  var origin = u && config.corsOrigin.concat(config.bplSiteOrigins).indexOf(u.origin) >= 0 ? u.origin : config.appUrl;
   return origin + '/share/' + encodeURIComponent(token);
 }
 

@@ -88,6 +88,14 @@ module.exports = {
   // SALES_SITE_URL replaces the address (a comma list for more than one).
   salesSiteOrigins: (process.env.SALES_SITE_URL || 'https://sales.oseitutu.com')
     .split(',').map(function (s) { return s.trim().replace(/\/+$/, ''); }).filter(Boolean),
+  // Bamboo Products' own customer website (frontend: npm run build:bpl):
+  // the online shop, booking a consultation or a site visit, a booking's
+  // own page and an invoice's page to pay it. Links sent to customers from
+  // the shop and the bookings point there; that address may call those
+  // public pages' API and nothing else. BPL_SITE_URL replaces it.
+  bplSiteUrl: (process.env.BPL_SITE_URL || 'https://online.bplghana.com').split(',')[0].trim().replace(/\/+$/, ''),
+  bplSiteOrigins: (process.env.BPL_SITE_URL || 'https://online.bplghana.com')
+    .split(',').map(function (s) { return s.trim().replace(/\/+$/, ''); }).filter(Boolean),
   // The delivery screen (riders' links point there) and the website
   // customers order on (restaurantDelivery / restaurantOnline services).
   deliverySiteUrl: (process.env.DELIVERY_SITE_URL || 'https://delivery.starbartema.com').replace(/\/+$/, ''),

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
+import { money } from '../lib/currency';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import './ShopOrdersPage.css';
 import './AppointmentsPage.css';
@@ -12,7 +13,9 @@ import './AppointmentsPage.css';
 // each a lead in the CRM, and a site visit when we go to them. Confirmed
 // (the customer is texted and emailed), given to someone, done or
 // cancelled. The booking page's own settings: open or closed, what can be
-// booked and for how long, the days and hours, how many at once.
+// booked, for how long and its fee, the visit fees by area, the days and
+// hours, how many at once. A booking's fee is invoiced to the customer at
+// once; its chip says whether it is paid.
 
 const STATUS = {
   requested: ['⏳', () => tr('To confirm')], confirmed: ['✅', () => tr('Confirmed')], done: ['🏁', () => tr('Done')], cancelled: ['✕', () => tr('Cancelled')]
@@ -48,12 +51,26 @@ function SettingsDialog({ onClose, onSaved }) {
                 <div key={i} className="apt-svc-row">
                   <input className="input" value={x.name} maxLength={60} onChange={(e) => setSvc(i, { name: e.target.value, id: x.id || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30) })} aria-label={tr('Name')} />
                   <input className="input apt-num" type="number" min="15" max="480" step="15" value={x.minutes} onChange={(e) => setSvc(i, { minutes: Number(e.target.value) })} aria-label={tr('Minutes')} />
+                  <label className="apt-fee-in" title={tr('Fee (GHS), 0 for free')}>GHS<input className="input" type="number" min="0" max="100000" step="1" value={x.fee || 0} onChange={(e) => setSvc(i, { fee: Number(e.target.value) })} aria-label={tr('Fee (GHS), 0 for free')} /></label>
                   <label className="apt-check"><input type="checkbox" checked={x.visit} onChange={(e) => setSvc(i, { visit: e.target.checked })} />{tr('We go to them')}</label>
                   <button type="button" className="apt-x" onClick={() => setS({ ...s, services: s.services.filter((_, j) => j !== i) })} aria-label={tr('Remove')}>×</button>
                   <input className="input apt-note" value={x.note} maxLength={200} onChange={(e) => setSvc(i, { note: e.target.value })} placeholder={tr('A line about it for the customer')} />
                 </div>
               ))}
-              <button type="button" className="btn btn-secondary" disabled={s.services.length >= 8} onClick={() => setS({ ...s, services: s.services.concat([{ id: 'service-' + (s.services.length + 1), name: '', minutes: 60, visit: false, note: '' }]) })}>+ {tr('Something to book')}</button>
+              <button type="button" className="btn btn-secondary" disabled={s.services.length >= 8} onClick={() => setS({ ...s, services: s.services.concat([{ id: 'service-' + (s.services.length + 1), name: '', minutes: 60, visit: false, note: '', fee: 0 }]) })}>+ {tr('Something to book')}</button>
+            </fieldset>
+            <fieldset className="apt-fs">
+              <legend>{tr('Visit fees by area')}</legend>
+              <p className="muted apt-help">{tr('For what we go to them for: each area with its fee, in place of the fee above. None: the fee above everywhere.')}</p>
+              {(s.areas || []).map((a, i) => (
+                <div key={i} className="apt-area-row">
+                  <input className="input" value={a.name} maxLength={60} placeholder={tr('e.g. Accra, Tema, Kumasi')} onChange={(e) => setS({ ...s, areas: s.areas.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} aria-label={tr('Area')} />
+                  <label className="apt-fee-in">GHS<input className="input" type="number" min="0" max="100000" step="1" value={a.fee} onChange={(e) => setS({ ...s, areas: s.areas.map((x, j) => (j === i ? { ...x, fee: Number(e.target.value) } : x)) })} aria-label={tr('Fee (GHS), 0 for free')} /></label>
+                  <button type="button" className="apt-x" onClick={() => setS({ ...s, areas: s.areas.filter((_, j) => j !== i) })} aria-label={tr('Remove')}>×</button>
+                </div>
+              ))}
+              <button type="button" className="btn btn-secondary" disabled={(s.areas || []).length >= 20} onClick={() => setS({ ...s, areas: (s.areas || []).concat([{ name: '', fee: 0 }]) })}>+ {tr('An area')}</button>
+              <label className="apt-field">{tr('A line about fees for the customer')}<input className="input" maxLength={200} value={s.feeNote || ''} onChange={(e) => setS({ ...s, feeNote: e.target.value })} placeholder={tr('e.g. Deducted from your order if you go ahead with us.')} /></label>
             </fieldset>
             <fieldset className="apt-fs">
               <legend>{tr('When')}</legend>
@@ -153,11 +170,16 @@ export default function AppointmentsPage() {
                 <span className="apt-main">
                   <span className="apt-line"><strong>{a.name}</strong><span className={'apt-tag is-' + a.status}>{STATUS[a.status][0]} {STATUS[a.status][1]()}</span></span>
                   <small>{a.serviceName} · <a href={'tel:' + a.phone}>{a.phone}</a>{a.email ? ' · ' + a.email : ''}</small>
-                  {a.location && <small>📍 {a.location}</small>}
+                  {a.location && <small>📍 {a.location}{a.area ? ' · ' + a.area : ''}</small>}
                   {a.note && <em>“{a.note}”</em>}
                   <span className="apt-links">
                     {a.leadRef && <Link to={'/crmleads?lead=' + a.leadId}>🎯 {tr('Lead {ref}', { ref: a.leadRef })}</Link>}
                     {a.siteVisitId && <Link to="/crmvisits">📐 {tr('Site visit')}</Link>}
+                    {a.fee && (
+                      <Link to={'/invoices?open=' + a.fee.invoiceId} className={'apt-fee' + (a.fee.paid ? ' is-paid' : a.fee.void ? ' is-void' : '')}>
+                        💳 {a.fee.paid ? tr('Fee paid · {amount}', { amount: money(a.fee.amount) }) : a.fee.void ? tr('Fee cancelled') : tr('Fee due · {amount}', { amount: money(a.fee.due) })}
+                      </Link>
+                    )}
                   </span>
                 </span>
                 {can('crm.manage') && (

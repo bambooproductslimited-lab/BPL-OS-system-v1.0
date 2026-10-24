@@ -11,7 +11,9 @@ import './BookPage.css';
 // showroom visit, a site measurement, a call), the day and the time (full
 // ones greyed out), who and where; then the booking's own page at
 // /book/<its link> to see it, add it to a calendar, or cancel it. Ghana
-// keeps UTC all year, so times are shown as the business gives them.
+// keeps UTC all year, so times are shown as the business gives them. A
+// booking with a fee (the service's, or for a visit the area's) is
+// invoiced at once: its page offers to pay it (on /share/<its link>).
 
 async function call(method, path, body) {
   const r = await fetch(API_URL + path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -19,6 +21,7 @@ async function call(method, path, body) {
   if (!r.ok) throw new Error((j.error && j.error.message) || tr('Something went wrong. Please try again.'));
   return j;
 }
+function cedis(n) { return 'GHS ' + Number(n || 0).toLocaleString(activeIntlLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 const ICON = { showroom: '🏬', measure: '📐', call: '📞' };
 function iconOf(s) { return ICON[s.id] || (s.visit ? '📐' : '📅'); }
 function dayBits(d) {
@@ -80,9 +83,19 @@ function Booking({ token }) {
         <dl>
           <div><dt>{tr('What')}</dt><dd>{b.serviceName}</dd></div>
           <div><dt>{tr('When')}</dt><dd>{whenLong(b.startsAt)}</dd></div>
-          {b.location && <div className="is-wide"><dt>{tr('Where')}</dt><dd>{b.location}</dd></div>}
+          {b.location && <div className="is-wide"><dt>{tr('Where')}</dt><dd>{b.location}{b.area ? ' · ' + b.area : ''}</dd></div>}
           <div className="is-wide"><dt>{tr('Name')}</dt><dd>{b.name}</dd></div>
         </dl>
+        {b.fee && !b.fee.void && (
+          <div className={'bkp-fee' + (b.fee.paid ? ' is-paid' : '')}>
+            <span aria-hidden="true">{b.fee.paid ? '✅' : '💳'}</span>
+            <span className="bkp-fee-main">
+              <strong>{b.fee.paid ? tr('Booking fee paid · {amount}', { amount: cedis(b.fee.amount) }) : tr('Booking fee: {amount}', { amount: cedis(b.fee.amount) })}</strong>
+              <small>{b.fee.invoiceNo ? tr('On invoice {no}', { no: b.fee.invoiceNo }) : ''}</small>
+            </span>
+            {b.fee.token && b.status !== 'cancelled' && <a className="shp-go" href={'/share/' + b.fee.token}>{b.fee.paid ? tr('See the receipt') : tr('Pay now')}</a>}
+          </div>
+        )}
         {(b.status === 'requested' || b.status === 'confirmed') && <a className="shp-go is-ghost" href={icsFor(b)} download="bamboo-booking.ics">🗓️ {tr('Add to my calendar')}</a>}
         {b.canCancel && <button type="button" className="shp-go is-ghost bkp-cancel" disabled={busy} onClick={cancel}>{tr('Cancel the booking')}</button>}
         {error && <div className="error-banner" role="alert">{error}</div>}
@@ -99,6 +112,7 @@ export default function BookPage() {
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
   const [f, setF] = useState({ name: '', phone: '', email: '', location: '', note: '' });
+  const [area, setArea] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [made, setMade] = useState(null);
@@ -126,11 +140,19 @@ export default function BookPage() {
   if (!opts.on) return <Shell><div className="shp-mid bkp-mid"><span aria-hidden="true" className="bkp-big">📞</span><h1>{tr('Booking online is closed for now')}</h1><p>{tr('Please call us to arrange a visit.')}</p></div></Shell>;
 
   const svc = opts.services.find((s) => s.id === service) || opts.services[0];
+  const areas = opts.areas || [];
+  const byArea = !!(svc && svc.visit && areas.length);
+  const picked = byArea ? areas.find((a) => a.name === area) : null;
+  const fee = byArea ? (picked ? picked.fee : null) : (svc && svc.fee) || 0;
+  const feeLabel = (s) => {
+    if (s.visit && areas.length) { const lo = Math.min(...areas.map((a) => a.fee)); return lo > 0 ? tr('fee from {amount}', { amount: cedis(lo) }) : tr('fee by area'); }
+    return s.fee > 0 ? tr('fee {amount}', { amount: cedis(s.fee) }) : tr('free');
+  };
   const slots = opts.date === date && opts.service === service ? opts.slots : [];
   async function book(e) {
     e.preventDefault();
     setBusy(true); setError(null);
-    try { const r = await call('POST', '/book', { ...f, service, date, time, website: '' }); setMade(r.token); } catch (err) { setError(err.message); } finally { setBusy(false); }
+    try { const r = await call('POST', '/book', { ...f, area: byArea ? area : '', service, date, time, website: '' }); setMade(r.token); } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
   return (
     <Shell>
@@ -148,6 +170,7 @@ export default function BookPage() {
                 <span className="bkp-svc-ico" aria-hidden="true">{iconOf(s)}</span>
                 <strong>{s.name}</strong>
                 <small>{tr('{n} min', { n: s.minutes })}{s.visit ? ' · ' + tr('we come to you') : ''}</small>
+                <span className={'bkp-svc-fee' + (feeLabel(s) === tr('free') ? ' is-free' : '')}>{feeLabel(s)}</span>
                 {s.note && <em>{s.note}</em>}
               </button>
             ))}
@@ -181,12 +204,32 @@ export default function BookPage() {
             <label className="shp-field"><span>{tr('Phone number')}</span><input className="input" type="tel" inputMode="tel" required autoComplete="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="024 000 0000" /></label>
             <label className="shp-field"><span>{tr('Email (optional)')}</span><input className="input" type="email" autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
           </div>
+          {byArea && (
+            <div className="shp-field"><span>{tr('Your area')}</span>
+              <div className="bkp-areas" role="radiogroup" aria-label={tr('Your area')}>
+                {areas.map((a) => (
+                  <button key={a.name} type="button" role="radio" aria-checked={area === a.name} className={area === a.name ? 'is-on' : ''} onClick={() => setArea(a.name)}>
+                    <b>{a.name}</b><small>{a.fee > 0 ? cedis(a.fee) : tr('free')}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {svc && svc.visit && <label className="shp-field"><span>{tr('Where should we come?')}</span><input className="input" required maxLength={300} autoComplete="street-address" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} placeholder={tr('Address or landmark')} /></label>}
           <label className="shp-field"><span>{tr('Tell us about your project (optional)')}</span><textarea className="input" rows={3} maxLength={500} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder={tr('e.g. blinds for 4 windows, a bamboo ceiling, office furniture')} /></label>
         </fieldset>
+        {fee > 0 && (
+          <div className="bkp-fee is-before">
+            <span aria-hidden="true">💳</span>
+            <span className="bkp-fee-main">
+              <strong>{tr('Booking fee: {amount}', { amount: cedis(fee) })}{picked ? ' · ' + picked.name : ''}</strong>
+              <small>{opts.feeNote || (opts.payOnline ? tr('Paid online by card or Mobile Money right after booking.') : tr('Invoiced to you right after booking.'))}</small>
+            </span>
+          </div>
+        )}
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <button type="submit" className="shp-go is-big" disabled={busy || !service || !date || !time}>
-          {busy ? tr('One moment…') : time ? tr('Book {what} at {time}', { what: svc.name.toLowerCase(), time }) : tr('Pick a time')}
+        <button type="submit" className="shp-go is-big" disabled={busy || !service || !date || !time || (byArea && !picked)}>
+          {busy ? tr('One moment…') : !time ? tr('Pick a time') : byArea && !picked ? tr('Choose your area') : fee > 0 ? tr('Book for {time} · fee {amount}', { time, amount: cedis(fee) }) : tr('Book {what} at {time}', { what: svc.name.toLowerCase(), time })}
         </button>
         <p className="shp-hint is-center">{tr('We confirm every booking by text or a call.')}</p>
       </form>

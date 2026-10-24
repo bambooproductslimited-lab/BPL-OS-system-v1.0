@@ -292,3 +292,84 @@ test('a quotation approved online with a deposit is invoiced at once, and its pa
   assert.equal(r.body.pay.deposit, null);
   await pool.query("UPDATE settings SET commercial = commercial #- '{templates,invoiceOnApproval}' WHERE id = 1");
 });
+
+test('booking fees: each service its own, a visit by its area; invoiced at once to pay on the customer website, voided if cancelled unpaid', async function () {
+  await bookings.saveSettings(boss, { on: true, services: [
+    { id: 'showroom', name: 'Showroom consultation', minutes: 60, fee: 100 },
+    { id: 'measure', name: 'Site measurement', minutes: 60, visit: true, fee: 150 },
+    { id: 'call', name: 'Phone call', minutes: 30, fee: 0 }
+  ], areas: [{ name: 'Zqh Accra', fee: 200 }, { name: 'Zqh Kumasi', fee: 450 }], feeNote: 'Zqh: deducted from your order', from: '08:00', to: '12:00', step: 60, perSlot: 3, daysAhead: 10, noticeHours: 0, days: [0, 1, 2, 3, 4, 5, 6] });
+  var o = await bookings.options({});
+  assert.deepEqual(o.services.map(function (s) { return [s.id, s.fee]; }), [['showroom', 100], ['measure', 150], ['call', 0]]);
+  assert.deepEqual(o.areas, [{ name: 'Zqh Accra', fee: 200 }, { name: 'Zqh Kumasi', fee: 450 }]);
+  assert.equal(o.feeNote, 'Zqh: deducted from your order');
+
+  var book = function (p, ip) { return bookings.book(Object.assign({ date: day(5), time: '09:00', name: 'Zqh Kojo Fee', phone: '0244000333', email: 'zqh.kojo@example.com', location: 'Zqh: Osu, by the castle' }, p), ip); };
+  // A consultation: its own fee, invoiced to the customer, its page on the customer website.
+  var c = await book({ service: 'showroom' }, '10.7.2.1');
+  assert.equal(c.booking.fee.amount, 100);
+  assert.equal(c.booking.fee.paid, false);
+  assert.ok(c.booking.fee.token);
+  var a = (await pool.query('SELECT * FROM appointments WHERE token = $1', [c.token])).rows[0];
+  var inv = (await pool.query('SELECT * FROM invoices WHERE id = $1', [a.fee_invoice_id])).rows[0];
+  assert.equal(Number(inv.grand_total), 100);
+  assert.equal(inv.status, 'unpaid');
+  assert.equal(String(inv.due_date).slice(0, 10), day(5));
+  var line = (await pool.query("SELECT description FROM document_line_items WHERE document_type = 'invoice' AND document_id = $1", [inv.id])).rows[0];
+  assert.equal(line.description, 'Showroom consultation fee');
+  var cust = (await pool.query('SELECT * FROM customers WHERE id = $1', [a.customer_id])).rows[0];
+  assert.equal(cust.name, 'Zqh Kojo Fee');
+  assert.equal((await pool.query('SELECT customer_id FROM crm_leads WHERE id = $1', [a.lead_id])).rows[0].customer_id, cust.id);
+  var mailed = sent.find(function (m) { return m.to === 'zqh.kojo@example.com' && /Your booking/.test(m.subject); });
+  assert.match(mailed.text, /fee of GHS 100\.00 is on invoice/);
+  assert.match(mailed.text, /https:\/\/online\.bplghana\.com\/share\//);
+  assert.match(mailed.text, /https:\/\/online\.bplghana\.com\/book\//);
+  // Its fee's page opens (to pay it).
+  var page = await http('GET', '/api/share/' + c.booking.fee.token);
+  assert.equal(page.status, 200);
+  assert.equal(page.body.grandTotal, 100);
+
+  // A visit: the area's fee, chosen; without an area, refused.
+  await assert.rejects(book({ service: 'measure', time: '10:00' }, '10.7.2.2'), /Choose your area/);
+  var v = await book({ service: 'measure', time: '10:00', area: 'zqh kumasi' }, '10.7.2.3');
+  assert.equal(v.booking.fee.amount, 450);
+  assert.equal(v.booking.area, 'Zqh Kumasi');
+  // A free call: no invoice.
+  var f = await book({ service: 'call', time: '11:00' }, '10.7.2.4');
+  assert.equal(f.booking.fee, null);
+  assert.equal((await pool.query('SELECT fee_invoice_id FROM appointments WHERE token = $1', [f.token])).rows[0].fee_invoice_id, null);
+
+  // Staff see the fee due; cancelled unpaid, its invoice is voided.
+  var listed = await bookings.list(boss, { from: day(4), to: day(6) });
+  var mine = listed.appointments.find(function (x) { return x.name === 'Zqh Kojo Fee' && x.serviceName === 'Site measurement'; });
+  assert.equal(mine.fee.due, 450);
+  assert.equal(mine.area, 'Zqh Kumasi');
+  var gone = await http('POST', '/api/book/' + v.token + '/cancel');
+  assert.equal(gone.body.status, 'cancelled');
+  assert.equal(gone.body.fee.void, true);
+  assert.equal((await pool.query('SELECT i.status FROM appointments a JOIN invoices i ON i.id = a.fee_invoice_id WHERE a.token = $1', [v.token])).rows[0].status, 'void');
+  // Paid, then cancelled by staff: the invoice stays, to refund.
+  await pool.query("UPDATE invoices SET status = 'paid', amount_paid = grand_total, balance_due = 0 WHERE id = $1", [inv.id]);
+  var paidView = await http('GET', '/api/book/' + c.token);
+  assert.equal(paidView.body.fee.paid, true);
+  await bookings.update(boss, a.id, { status: 'cancelled' });
+  assert.equal((await pool.query('SELECT status FROM invoices WHERE id = $1', [inv.id])).rows[0].status, 'paid');
+});
+
+test('the customer website online.bplghana.com reaches the shop, the bookings and documents\' pages, nothing else', async function () {
+  var call = function (path) { return fetch(base + path, { headers: { Origin: 'https://online.bplghana.com' } }); };
+  var ok = await call('/api/book');
+  assert.equal(ok.headers.get('access-control-allow-origin'), 'https://online.bplghana.com');
+  ok = await call('/api/shop');
+  assert.equal(ok.headers.get('access-control-allow-origin'), 'https://online.bplghana.com');
+  ok = await call('/api/share/zqh-not-a-token');
+  assert.equal(ok.headers.get('access-control-allow-origin'), 'https://online.bplghana.com');
+  var no = await call('/api/employees');
+  assert.equal(no.headers.get('access-control-allow-origin'), null);
+  no = await call('/api/shop-orders');
+  assert.equal(no.headers.get('access-control-allow-origin'), null);
+  no = await call('/api/bookings');
+  assert.equal(no.headers.get('access-control-allow-origin'), null);
+  var listed = await shop.list(boss, {});
+  assert.equal(listed.url, 'https://online.bplghana.com');
+});

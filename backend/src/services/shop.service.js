@@ -175,7 +175,7 @@ async function place(p, ip) {
   for (var i = 0; i < holders.length; i++) {
     await notify(pool, holders[i].employee_id, '🛍️ New shop order ' + row.order_no, name + ' · GHS ' + round2(inv.grandTotal).toFixed(2) + ' · ' + (fulfilment === 'delivery' ? 'delivery' : 'pickup'), '/shop-orders?open=' + row.id);
   }
-  var url = config.appUrl + '/share/' + link.token;
+  var url = config.bplSiteUrl + '/share/' + link.token;
   // And the customer, when they gave an email.
   if (email) {
     try {
@@ -217,7 +217,7 @@ async function list(ctx, q) {
   return {
     orders: rows.map(orderOut), settings: await settingsOf(),
     totals: { fresh: Number(sums.fresh), ready: Number(sums.ready), month: round2(sums.month), monthCount: Number(sums.month_count), monthPaid: Number(sums.month_paid) },
-    url: config.appUrl + '/shop', payOnline: require('./invoicePay.service').configured()
+    url: config.bplSiteUrl, payOnline: require('./invoicePay.service').configured()
   };
 }
 
@@ -253,7 +253,7 @@ async function setStatus(ctx, id, p) {
 async function getSettings(ctx) {
   if (!ctx.can('invoice.read')) fail('forbidden', 'Your role does not allow this action (invoice.read).');
   var cats = (await pool.query('SELECT c.id, c.name, (SELECT count(*) FROM catalog_items i WHERE i.category_id = c.id AND i.active) AS items FROM catalog_categories c ORDER BY c.name')).rows;
-  return { settings: await settingsOf(), categories: cats.map(function (c) { return { id: c.id, name: c.name, items: Number(c.items) }; }), url: config.appUrl + '/shop', payOnline: require('./invoicePay.service').configured() };
+  return { settings: await settingsOf(), categories: cats.map(function (c) { return { id: c.id, name: c.name, items: Number(c.items) }; }), url: config.bplSiteUrl, payOnline: require('./invoicePay.service').configured() };
 }
 async function saveSettings(ctx, p) {
   if (!ctx.can('catalog.manage')) fail('forbidden', 'Your role does not allow this action (catalog.manage).');
@@ -270,4 +270,4 @@ async function saveSettings(ctx, p) {
   return getSettings(ctx);
 }
 
-module.exports = { view: view, photoKey: photoKey, place: place, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };
+module.exports = { view: view, photoKey: photoKey, place: place, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };
