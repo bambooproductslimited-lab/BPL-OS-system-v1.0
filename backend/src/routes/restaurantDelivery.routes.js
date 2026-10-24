@@ -62,6 +62,10 @@ router.get('/online/:code/promo', h(function (req) { return online.promo(req.par
 router.post('/online/:code/orders', h(function (req) { return online.place(req.params.code, body(req), req.ip, posToken(req)); }));
 router.get('/online/track/:token', h(function (req) { return online.track(req.params.token); }));
 router.post('/online/track/:token/cancel', h(function (req) { return online.cancel(req.params.token); }));
+router.post('/online/track/:token/here', h(function (req) { return online.here(req.params.token, body(req)); }));
+// Curbside pickup: who is outside, brought out.
+router.get('/curbside', h(function (req) { return online.curbside(posToken(req)); }));
+router.post('/curbside/:id/brought', h(function (req) { return online.brought(posToken(req), req.params.id); }));
 // A customer's own account (restaurantCustomerAccounts): made, signed in to,
 // its details and orders — the website's own token, not a till's.
 router.post('/online/account/signup', h(function (req) { return accounts.signup(body(req), req.ip); }));
@@ -70,6 +74,7 @@ router.get('/online/account', h(function (req) { return accounts.me(posToken(req
 router.put('/online/account', h(function (req) { return accounts.update(posToken(req), body(req)); }));
 router.get('/online/account/orders/:id', h(function (req) { return online.trackMine(posToken(req), req.params.id); }));
 router.post('/online/account/orders/:id/cancel', h(function (req) { return online.cancel(req.params.id, posToken(req)); }));
+router.post('/online/account/orders/:id/here', h(function (req) { return online.here(req.params.id, body(req), posToken(req)); }));
 
 // ── a sale's receipt, opened from the link sent to the customer ──
 router.get('/receipt/:token', h(function (req) { return require('../services/restaurantPos.service').publicReceipt(req.params.token); }));

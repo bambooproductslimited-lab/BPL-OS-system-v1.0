@@ -103,6 +103,12 @@ router.post('/settings/insights', h(async function (req) {
   return insights.report(m.session.posCompanyId, body(req), await access.settingsOf(m.session.posCompanyId));
 }));
 
+// ── kitchen ticket times (restaurantTicketTimes.service.js) ──
+router.post('/settings/tickettimes', h(async function (req) {
+  var m = await access.settingsManager(posToken(req), body(req).managerPin, req.ip);
+  return require('../services/restaurantTicketTimes.service').report(m.session.posCompanyId, body(req), await access.settingsOf(m.session.posCompanyId));
+}));
+
 // ── the self-order kiosk (migration 0177; its key as the bearer token) and the till's side of it ──
 router.post('/kiosk/hello', h(function (req) { return kiosk.hello(body(req).key, req.ip, req.headers['user-agent']); }));
 router.get('/kiosk', h(function (req) { return kiosk.view(posToken(req)); }));

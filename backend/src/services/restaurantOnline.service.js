@@ -381,6 +381,7 @@ async function trackOut(o) {
     items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total), charges: o.charges || {},
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), readyMinutes: o.ready_minutes, rejectReason: o.reject_reason,
     placedAt: o.created_at, decidedAt: o.decided_at, scheduledFor: o.scheduled_for, canCancel: canCancel(o),
+    here: o.here_at ? { at: o.here_at, note: o.here_note || '', broughtAt: o.brought_at || null } : null, canSayHere: canSayHere(o, stage),
     restaurant: { code: r.code, name: r.name, phone: r.phone, location: r.location },
     delivery: d ? {
       ref: d.ref, status: d.status, rider: { name: d.rider.name, phone: d.rider.phone, vehicle: d.rider.vehicle, plate: d.rider.plate },
@@ -391,6 +392,52 @@ async function trackOut(o) {
 }
 // GET /api/pos/online/track/:token
 async function track(raw) { return trackOut(await byToken(raw)); }
+
+// ── curbside pickup (migration 0191) ──
+// A pickup customer outside says so on their order's page, with a word
+// about their car; the till sees them (curbside) and brings it out.
+function canSayHere(o, stage) {
+  return o.fulfillment === 'pickup' && o.status === 'accepted' && !o.brought_at && stage !== 'scheduled';
+}
+// POST /api/pos/online/track/:token/here { note }, or by a signed-in
+// customer (account: their token, raw: the order's id).
+async function here(raw, p, account) {
+  var o = account ? await byAccount(account, raw) : await byToken(raw);
+  var d = null;
+  if (!canSayHere(o, await stageOf(o, d))) fail('conflict', o.fulfillment !== 'pickup' ? 'This order is delivered to you.' : o.brought_at || o.status === 'done' ? 'Your order was brought out already.' : 'Your order is not on its way yet.');
+  var note = cleanText((p || {}).note, 120);
+  var first = !o.here_at;
+  await pool.query('UPDATE restaurant_online_orders SET here_at = coalesce(here_at, now()), here_note = $2, updated_at = now() WHERE id = $1', [o.id, note]);
+  if (first) {
+    await activity.log(pool, { companyId: o.company_id, employeeId: null, app: 'online', action: 'online.here',
+      summary: o.customer_name + ' is outside for ' + ref(o.number) + (note ? ' (' + note + ')' : '') + '.', refType: 'online', refId: o.id });
+  }
+  return trackOut(await byToken(raw));
+}
+// GET /api/pos/curbside — who is outside now, waiting longest first, with
+// whether the kitchen has their order ready.
+async function curbside(token) {
+  var session = await access.need(token, ['charge', 'delivery']);
+  var rows = (await pool.query(
+    "SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND here_at IS NOT NULL AND brought_at IS NULL AND status IN ('accepted', 'done') AND here_at > now() - interval '6 hours' ORDER BY here_at",
+    [session.posCompanyId])).rows;
+  var states = rows.length ? await kitchen.statusOf(pool, session.posCompanyId, 'tab_id', rows.filter(function (o) { return o.tab_id; }).map(function (o) { return o.tab_id; })) : {};
+  return { outside: rows.map(function (o) {
+    var st = o.tab_id ? states[o.tab_id] : null;
+    return { id: o.id, ref: ref(o.number), name: o.customer_name, phone: o.customer_phone, note: o.here_note || '', hereAt: o.here_at, total: round2(o.total), payMethod: o.pay_method,
+      waitedMinutes: Math.max(0, Math.round((Date.now() - new Date(o.here_at).getTime()) / 60000)), ready: !!(st && (st.state === 'ready' || st.state === 'served')) };
+  }) };
+}
+// POST /api/pos/curbside/:id/brought — it is in their hands.
+async function brought(token, id) {
+  var session = await access.need(token, ['charge', 'delivery']);
+  var o = (await pool.query("UPDATE restaurant_online_orders SET brought_at = now(), brought_by = $3, updated_at = now() WHERE id = $1 AND company_id = $2 AND here_at IS NOT NULL AND brought_at IS NULL RETURNING *",
+    [id, session.posCompanyId, session.posEmployeeId])).rows[0];
+  if (!o) fail('conflict', 'That order was brought out already.');
+  await activity.log(pool, { companyId: o.company_id, employeeId: session.posEmployeeId, app: 'till', action: 'online.brought',
+    summary: ref(o.number) + ' brought out to ' + o.customer_name + ' after ' + Math.max(0, Math.round((new Date(o.brought_at) - new Date(o.here_at)) / 60000)) + ' min.', refType: 'online', refId: o.id });
+  return curbside(token);
+}
 // An order of a signed-in customer's own, by its id (their orders, on any phone).
 async function byAccount(accountToken, id, lock, client) {
   var a = await accounts().need(accountToken);
@@ -558,7 +605,7 @@ async function reject(token, id, p) {
 module.exports = {
   siteUrlFor: siteUrlFor, shopOf: shopOf,
   modsFrom: modsFrom, billRules: billRules,
-  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start,
+  categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start, here: here, curbside: curbside, brought: brought,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP,
   promo: promo, promoByCode: promoByCode, promoThrottle: promoThrottle
 };

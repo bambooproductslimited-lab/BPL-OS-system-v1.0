@@ -18,6 +18,7 @@ import Insights from './till/Insights';
 import { AppsTab, CardSettings, KioskTab } from './till/GrowthSettings';
 import TipsReport from './till/TipsReport';
 import FeedbackReport from './till/FeedbackReport';
+import TicketTimes from './till/TicketTimes';
 import FoodCostReport, { RecipesTab } from './till/FoodCost';
 import DealsSettings from './till/Deals';
 import PurchasingTab from './till/Purchasing';
@@ -83,7 +84,7 @@ const METHOD = {
 const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat Pay') };
 // The tabs, in three groups: what happened, what is sold, how the till works.
 const GROUPS = [
-  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['closeday', () => tr('Close the day'), 'check'], ['insights', () => tr('Insights'), 'pulse'], ['tips', () => tr('Tips'), 'cash'], ['foodcost', () => tr('Food cost'), 'percent'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
+  ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['closeday', () => tr('Close the day'), 'check'], ['insights', () => tr('Insights'), 'pulse'], ['tickettimes', () => tr('Ticket times'), 'clock'], ['tips', () => tr('Tips'), 'cash'], ['foodcost', () => tr('Food cost'), 'percent'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
   ['guestsGroup', () => tr('Guests'), [['feedback', () => tr('Feedback'), 'star'], ['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['recipes', () => tr('Recipes and costs'), 'percent'], ['stock', () => tr('Stock'), 'layers'], ['purchasing', () => tr('Low stock and orders'), 'send']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['rota', () => tr('Rota'), 'calendar'], ['timecards', () => tr('Timecards'), 'clock'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
@@ -361,6 +362,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'giftcards' && <GiftCardsReport token={token} pin={pin} onFail={fail} />}
             {tab === 'insights' && <Insights token={token} pin={pin} onFail={fail} />}
             {tab === 'tips' && <TipsReport token={token} pin={pin} onFail={fail} />}
+            {tab === 'tickettimes' && <TicketTimes token={token} pin={pin} onFail={fail} />}
             {tab === 'foodcost' && <FoodCostReport token={token} pin={pin} onFail={fail} />}
             {tab === 'feedback' && <FeedbackReport token={token} pin={pin} onFail={fail} />}
             {tab === 'recipes' && <RecipesTab token={token} pin={pin} onFail={fail} />}

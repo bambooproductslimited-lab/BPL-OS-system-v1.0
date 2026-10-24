@@ -97,7 +97,7 @@ var posCors = cors({ origin: config.corsOrigin.concat(config.restaurantSiteOrigi
 var bplCors = cors({ origin: config.corsOrigin.concat(config.salesSiteOrigins, config.bplSiteOrigins), credentials: true });
 function bplPublic(path) {
   return path === '/api/shop' || path.indexOf('/api/shop/') === 0 || path === '/api/book' || path.indexOf('/api/book/') === 0 || path.indexOf('/api/share/') === 0 ||
-    path.indexOf('/api/pay/') === 0 || path.indexOf('/api/c/') === 0;
+    path.indexOf('/api/pay/') === 0 || path.indexOf('/api/c/') === 0 || path.indexOf('/api/portal/') === 0;
 }
 app.use(function (req, res, next) {
   if (req.path.indexOf('/api/feeds/attendance') === 0) return next();
@@ -224,6 +224,8 @@ app.use('/api', require('./routes/bookings.routes'));
 app.use('/api', require('./routes/paymentLinks.routes'));
 // Contracts signed online: a contract's page public, the rest for staff (contracts.routes.js).
 app.use('/api', require('./routes/contracts.routes'));
+// "My account" on Bamboo Products' website: a code, then the customer's own things (portal.routes.js).
+app.use('/api', require('./routes/portal.routes'));
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 // oauthRoutes and whatsappRoutes are mounted first and at a more specific

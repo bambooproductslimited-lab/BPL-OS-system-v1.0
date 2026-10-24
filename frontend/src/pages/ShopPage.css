@@ -108,6 +108,13 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
 .shp-field > span { font-size: 12.5px; font-weight: 800; color: var(--shp-muted); }
 .shp-sheet .input { color: var(--shp-ink); background: #fff; border-color: rgba(31, 42, 28, .18); }
 .shp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.shp-signed { margin: 0; padding: 9px 12px; font-size: 13.5px; font-weight: 700; color: var(--shp-gd); border-radius: 14px; background: #eef6e8; }
+.shp-acct-opt { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 16px; background: #f7f8f4; border: 1px dashed rgba(31, 42, 28, .18); cursor: pointer; }
+.shp-acct-opt:has(input:checked) { background: #f1f8ea; border: 1px solid #a3d977; }
+.shp-acct-opt input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: #3f7d3b; }
+.shp-acct-opt span { display: flex; flex-direction: column; gap: 2px; }
+.shp-acct-opt strong { font-size: 14.5px; }
+.shp-acct-opt small { font-size: 12.5px; line-height: 1.4; color: var(--shp-muted); }
 .shp-done { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; max-width: 520px; text-align: center; }
 .shp-done h1 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
 .shp-done p { margin: 0; color: var(--shp-muted); line-height: 1.5; }
@@ -140,6 +147,18 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
 .shp-link { padding: 0; font: inherit; font-size: 13px; font-weight: 700; color: var(--shp-g); text-decoration: underline; background: none; border: 0; cursor: pointer; }
 .shp-total.is-off { padding-top: 0; border-top: 0; }
 .shp-total.is-off strong { font-size: 16px; color: #b45309; }
+/* Delivery areas at checkout; the account link in the hero. */
+.shp-areas { display: flex; flex-wrap: wrap; gap: 6px; }
+.shp-areas button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 12px; font: inherit; color: var(--shp-ink); border-radius: 14px; border: 1px solid var(--shp-line); background: #f7f8f4; cursor: pointer; }
+.shp-areas button strong { font-size: 14px; }
+.shp-areas button small { font-size: 12px; color: var(--shp-muted); }
+.shp-areas button.is-on { border-color: var(--shp-g); background: #eef6e8; box-shadow: inset 0 0 0 1px var(--shp-g); }
+.shp-total.is-fee { padding-top: 0; border-top: 0; }
+.shp-total.is-fee strong { font-size: 16px; color: var(--shp-ink); }
+.shp-hero-acts { display: inline-flex; align-items: center; gap: 8px; }
+.shp-acct { padding: 6px 12px; font-size: 13px; font-weight: 800; color: #fff; text-decoration: none; border-radius: 999px; border: 1px solid rgba(255, 255, 255, .35); background: rgba(255, 255, 255, .14); }
+.shp-acct:hover { background: rgba(255, 255, 255, .24); }
+.shp-go.is-track { background: linear-gradient(135deg, #f59f00, #e8590c); }
 .shp-foot { margin-top: 30px; text-align: center; font-size: 12.5px; color: var(--shp-muted); }
 @media (min-width: 700px) {
   .shp-back { align-items: center; padding: 20px; }

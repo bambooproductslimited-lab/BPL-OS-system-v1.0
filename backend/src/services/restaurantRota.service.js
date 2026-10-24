@@ -12,6 +12,9 @@ var { notify } = require('../utils/notify');
 // was published waits to be published again. Copied from last week in one
 // go. The planned hours and what they cost sit beside the sales of the same
 // days last week, so the week is planned against the work there is.
+// Time off (migration 0191): asked for on the till, decided by a manager; a
+// day off approved (or leave approved in the OS) cannot be put on the rota,
+// and the weekdays someone cannot work are shown on it.
 
 var ROLES = ['Cashier', 'Waiter', 'Kitchen', 'Bar', 'Manager', 'Cleaner', 'Delivery'];
 function who(m) { return { user: { id: null }, employee: { first_name: m.first_name, last_name: m.last_name } }; }
@@ -70,8 +73,15 @@ async function week(companyId, weekOf) {
   var templates = (await pool.query(
     "SELECT DISTINCT s.name, s.start_time, s.end_time FROM shifts s JOIN departments d ON d.id = s.department_id WHERE d.company_id = $1 AND s.status = 'active' ORDER BY s.start_time", [companyId])).rows
     .map(function (t) { return { name: t.name, starts: String(t.start_time).slice(0, 5), ends: String(t.end_time).slice(0, 5) }; });
+  var offs = await offBetween(companyId, from, to);
+  var avail = await availabilityOf(companyId);
+  shifts.forEach(function (sh) {
+    var wd = new Date(sh.day + 'T00:00:00Z').getUTCDay();
+    sh.unavailable = !!(avail[sh.employeeId] && avail[sh.employeeId].daysOff.indexOf(wd) >= 0);
+    sh.off = offs.some(function (o) { return o.status === 'approved' && o.employeeId === sh.employeeId && o.from <= sh.day && o.to >= sh.day; });
+  });
   return {
-    weekStart: from, weekEnd: to, today: today(), roles: ROLES, templates: templates,
+    weekStart: from, weekEnd: to, today: today(), roles: ROLES, templates: templates, timeOff: offs, availability: avail,
     staff: people.map(function (p) { return Object.assign({}, p, { hours: perPerson[p.id] || 0 }); }),
     shifts: shifts, days: days, hours: hours, cost: round2(cost), noRate: noRate,
     drafts: shifts.filter(function (s) { return !s.published; }).length,
@@ -92,6 +102,8 @@ async function save(companyId, m, p) {
   if (s.starts === s.ends) fail('invalid', 'A shift ends after it starts.');
   if (hoursOf(s.starts, s.ends) > 16) fail('invalid', 'A shift is 16 hours at most.');
   await checkPerson(pool, companyId, s.employeeId);
+  var off = await offOn(companyId, s.employeeId, s.day);
+  if (off) fail('conflict', (await nameOf(s.employeeId)) + ' is off that day (' + off + ').');
   var role = text(s.role, 30), note = text(s.note, 200);
   return withTransaction(async function (db) {
     // The same person twice at once is a mistake.
@@ -122,7 +134,8 @@ async function remove(companyId, id) {
   if (!r.rowCount) fail('notfound', 'That shift is gone.');
 }
 
-// Last week's shifts into this one, a week on: those not there already.
+// Last week's shifts into this one, a week on: those not there already,
+// nor on a day the person is off.
 async function copyLast(companyId, m, weekOf) {
   var from = mondayOf(weekOf);
   var last = (await pool.query('SELECT * FROM restaurant_rota_shifts WHERE company_id = $1 AND day BETWEEN $2 AND $3', [companyId, addDays(from, -7), addDays(from, -1)])).rows;
@@ -131,7 +144,7 @@ async function copyLast(companyId, m, weekOf) {
   for (var i = 0; i < last.length; i++) {
     var s = last[i], day = addDays(dayOf(s.day), 7);
     var there = (await pool.query('SELECT 1 FROM restaurant_rota_shifts WHERE company_id = $1 AND employee_id = $2 AND day = $3 AND starts = $4', [companyId, s.employee_id, day, s.starts])).rows[0];
-    if (there) continue;
+    if (there || await offOn(companyId, s.employee_id, day)) continue;
     await pool.query('INSERT INTO restaurant_rota_shifts (company_id, employee_id, day, starts, ends, role, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [companyId, s.employee_id, day, s.starts, s.ends, s.role, s.note, m.id]);
     n++;
@@ -156,6 +169,100 @@ async function publish(companyId, m, weekOf) {
   }
   await audit(pool, who(m), 'restaurant.rota_publish', 'company', companyId, 'Published the rota for the week of ' + from + ': ' + rows.length + ' shift(s), ' + told.length + ' people told.');
   return { published: rows.length, told: told.length };
+}
+
+// ---- time off and availability -------------------------------------------
+// Days off asked for on the till; a manager approves or declines them in the
+// rota. Leave approved in the OS counts as time off too. Availability: the
+// weekdays someone cannot work, said by themselves on the till.
+
+var TO_SELECT = 'SELECT t.*, e.first_name, e.last_name, d.first_name AS d_first, d.last_name AS d_last FROM restaurant_time_off t JOIN employees e ON e.id = t.employee_id LEFT JOIN employees d ON d.id = t.decided_by ';
+function timeOffOut(r) {
+  return { id: r.id, kind: 'timeoff', employeeId: r.employee_id, name: r.first_name + ' ' + r.last_name, from: dayOf(r.starts_on), to: dayOf(r.ends_on), days: daysIn(dayOf(r.starts_on), dayOf(r.ends_on)),
+    reason: r.reason, status: r.status, decidedBy: r.d_first ? r.d_first + ' ' + r.d_last : null, decidedAt: r.decided_at, createdAt: r.created_at };
+}
+function daysIn(a, b) { return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000) + 1; }
+// Time off and approved leave between two days, for the people of the restaurant.
+async function offBetween(companyId, from, to) {
+  var rows = (await pool.query(TO_SELECT + "WHERE t.company_id = $1 AND t.status IN ('requested', 'approved') AND t.starts_on <= $3 AND t.ends_on >= $2 ORDER BY t.starts_on", [companyId, from, to])).rows.map(timeOffOut);
+  var ids = (await staff(companyId)).map(function (p) { return p.id; });
+  if (ids.length) {
+    var leave = (await pool.query(
+      "SELECT l.id, l.employee_id, l.start_date, l.end_date, e.first_name, e.last_name, lt.name AS type_name FROM leave_requests l JOIN employees e ON e.id = l.employee_id LEFT JOIN leave_types lt ON lt.id = l.leave_type_id " +
+      "WHERE l.status = 'approved' AND l.employee_id = ANY($1) AND l.start_date <= $3 AND l.end_date >= $2 ORDER BY l.start_date", [ids, from, to])).rows;
+    leave.forEach(function (l) {
+      rows.push({ id: l.id, kind: 'leave', employeeId: l.employee_id, name: l.first_name + ' ' + l.last_name, from: dayOf(l.start_date), to: dayOf(l.end_date), days: daysIn(dayOf(l.start_date), dayOf(l.end_date)),
+        reason: l.type_name || 'Leave', status: 'approved', decidedBy: null, decidedAt: null, createdAt: null });
+    });
+  }
+  return rows;
+}
+// Why someone is off on a day (approved time off, or leave), else nothing.
+async function offOn(companyId, employeeId, day) {
+  var t = (await pool.query("SELECT reason FROM restaurant_time_off WHERE company_id = $1 AND employee_id = $2 AND status = 'approved' AND starts_on <= $3 AND ends_on >= $3 LIMIT 1", [companyId, employeeId, day])).rows[0];
+  if (t) return 'time off approved';
+  var l = (await pool.query("SELECT 1 FROM leave_requests WHERE employee_id = $1 AND status = 'approved' AND start_date <= $2 AND end_date >= $2 LIMIT 1", [employeeId, day])).rows[0];
+  return l ? 'on leave' : null;
+}
+async function availabilityOf(companyId) {
+  var out = {};
+  (await pool.query('SELECT employee_id, days_off, note FROM restaurant_availability WHERE company_id = $1', [companyId])).rows.forEach(function (r) {
+    out[r.employee_id] = { daysOff: (r.days_off || []).map(Number), note: r.note || '' };
+  });
+  return out;
+}
+function rangeWords(from, to) {
+  var f = new Date(from + 'T00:00:00Z'), t = new Date(to + 'T00:00:00Z');
+  var one = function (d) { return DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()]; };
+  return from === to ? one(f) : one(f) + ' to ' + one(t);
+}
+var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// On the till (POST /api/pos/rota/swaps): action 'timeoff' { from, to,
+// reason }, 'timeoffCancel' { id }, 'availability' { daysOff, note }.
+async function timeOffAction(companyId, employeeId, p) {
+  if (p.action === 'timeoff') {
+    if (!isDay(p.from) || !isDay(p.to || p.from)) fail('invalid', 'From which day to which?');
+    var from = p.from, to = p.to || p.from;
+    if (from < today()) fail('invalid', 'Time off starts today or later.');
+    if (to < from) fail('invalid', 'The last day is on or after the first.');
+    if (daysIn(from, to) > 60) fail('invalid', 'At most 60 days at once.');
+    var reason = text(p.reason, 200);
+    var clash = (await pool.query("SELECT starts_on, ends_on FROM restaurant_time_off WHERE company_id = $1 AND employee_id = $2 AND status IN ('requested', 'approved') AND starts_on <= $4 AND ends_on >= $3 LIMIT 1", [companyId, employeeId, from, to])).rows[0];
+    if (clash) fail('conflict', 'You asked for ' + rangeWords(dayOf(clash.starts_on), dayOf(clash.ends_on)) + ' already.');
+    await pool.query('INSERT INTO restaurant_time_off (company_id, employee_id, starts_on, ends_on, reason) VALUES ($1, $2, $3, $4, $5)', [companyId, employeeId, from, to, reason]);
+    var who = await nameOf(employeeId);
+    var mgrs = await managersOf(companyId);
+    for (var i = 0; i < mgrs.length; i++) if (mgrs[i] !== employeeId) await notify(pool, mgrs[i], '🌴 ' + who + ' asks for time off', rangeWords(from, to) + (reason ? ': ' + reason : '') + '. Decide it in the rota.', null);
+  } else if (p.action === 'timeoffCancel') {
+    var t = (await pool.query('SELECT * FROM restaurant_time_off WHERE id = $1 AND company_id = $2', [p.id, companyId])).rows[0];
+    if (!t || t.employee_id !== employeeId) fail('notfound', 'That request is gone.');
+    if (['requested', 'approved'].indexOf(t.status) < 0) fail('conflict', 'That request is ' + t.status + ' already.');
+    if (dayOf(t.ends_on) < today()) fail('conflict', 'That time off has passed.');
+    await pool.query("UPDATE restaurant_time_off SET status = 'cancelled' WHERE id = $1", [t.id]);
+    if (t.status === 'approved') {
+      var w = await nameOf(employeeId), m2 = await managersOf(companyId);
+      for (var j = 0; j < m2.length; j++) await notify(pool, m2[j], '🌴 ' + w + ' will work after all', rangeWords(dayOf(t.starts_on), dayOf(t.ends_on)) + ': their time off is cancelled.', null);
+    }
+  } else if (p.action === 'availability') {
+    var days = (Array.isArray(p.daysOff) ? p.daysOff : []).map(Number).filter(function (d, k, a) { return d >= 0 && d <= 6 && Math.floor(d) === d && a.indexOf(d) === k; }).sort();
+    await pool.query('INSERT INTO restaurant_availability (company_id, employee_id, days_off, note) VALUES ($1, $2, $3, $4) ON CONFLICT (company_id, employee_id) DO UPDATE SET days_off = EXCLUDED.days_off, note = EXCLUDED.note, updated_at = now()',
+      [companyId, employeeId, days, text(p.note, 200)]);
+  }
+}
+
+// A manager decides a request (the rota's action 'decideTimeOff').
+async function decideTimeOff(companyId, m, p) {
+  var approve = !!p.approve;
+  var t = (await pool.query(TO_SELECT + 'WHERE t.id = $1 AND t.company_id = $2', [p.timeOffId, companyId])).rows[0];
+  if (!t) fail('notfound', 'That request is gone.');
+  if (t.status !== 'requested') fail('conflict', 'That request is ' + t.status + ' already.');
+  await pool.query('UPDATE restaurant_time_off SET status = $2, decided_by = $3, decided_at = now() WHERE id = $1', [t.id, approve ? 'approved' : 'declined', m.id]);
+  var range = rangeWords(dayOf(t.starts_on), dayOf(t.ends_on));
+  var shifts = (await pool.query('SELECT count(*)::int AS n FROM restaurant_rota_shifts WHERE company_id = $1 AND employee_id = $2 AND day BETWEEN $3 AND $4', [companyId, t.employee_id, t.starts_on, t.ends_on])).rows[0].n;
+  await notify(pool, t.employee_id, approve ? '🌴 Time off approved' : '✖ Time off declined', range + (approve ? '. Enjoy it!' : '. Talk to your manager.'), null);
+  await audit(pool, who(m), 'restaurant.time_off', 'restaurant_time_off', t.id, (approve ? 'Approved' : 'Declined') + ' time off for ' + t.first_name + ' ' + t.last_name + ', ' + range + '.');
+  return { clashes: approve ? shifts : 0 };
 }
 
 // ---- swaps ---------------------------------------------------------------
@@ -212,13 +319,17 @@ async function swaps(companyId, employeeId, p) {
       for (var i = 0; i < mgrs.length; i++) await notify(pool, mgrs[i], '🔁 ' + taker + ' would take ' + w.o_first + ' ' + w.o_last + '\'s shift', shiftWords(w) + '. Approve it in the rota.', null);
       await notify(pool, w.offered_by, '🔁 ' + taker + ' would take your shift', shiftWords(w) + '. A manager approves it.', null);
     }
+  } else if (action === 'timeoff' || action === 'timeoffCancel' || action === 'availability') {
+    await timeOffAction(companyId, employeeId, p);
   } else if (action !== 'mine') fail('invalid', 'Unknown action.');
   var mine = (await pool.query('SELECT * FROM restaurant_rota_shifts WHERE company_id = $1 AND employee_id = $2 AND published AND day BETWEEN $3 AND $4 ORDER BY day, starts', [companyId, employeeId, today(), addDays(today(), 27)])).rows.map(shiftOut);
   var live = (await pool.query(SWAP_SELECT + "WHERE w.company_id = $1 AND w.status IN ('open', 'taken') AND s.day >= $2 ORDER BY s.day, s.starts", [companyId, today()])).rows.map(swapOut);
   return {
     mine: mine.map(function (s) { var w2 = live.find(function (x) { return x.shift.id === s.id; }); return Object.assign(s, { swap: w2 ? { id: w2.id, status: w2.status, takenBy: w2.takenBy } : null }); }),
     open: live.filter(function (x) { return x.status === 'open' && x.offeredBy.id !== employeeId; }),
-    waiting: live.filter(function (x) { return x.status === 'taken' && x.takenBy && x.takenBy.id === employeeId; })
+    waiting: live.filter(function (x) { return x.status === 'taken' && x.takenBy && x.takenBy.id === employeeId; }),
+    timeOff: (await pool.query(TO_SELECT + "WHERE t.company_id = $1 AND t.employee_id = $2 AND t.ends_on >= $3 AND t.status <> 'cancelled' ORDER BY t.starts_on", [companyId, employeeId, addDays(today(), -30)])).rows.map(timeOffOut),
+    availability: (await availabilityOf(companyId))[employeeId] || { daysOff: [], note: '' }
   };
 }
 function overlaps(a1s, a1e, b1s, b1e) {
@@ -255,8 +366,10 @@ async function tab(companyId, m, p) {
   else if (action === 'copy') out.copied = await copyLast(companyId, m, p.weekOf);
   else if (action === 'publish') Object.assign(out, await publish(companyId, m, p.weekOf));
   else if (action === 'decide') await decide(companyId, m, p);
+  else if (action === 'decideTimeOff') Object.assign(out, await decideTimeOff(companyId, m, p));
   else if (action !== 'week') fail('invalid', 'Unknown action.');
-  return Object.assign(await week(companyId, p.weekOf), out, { swaps: await swapsOpen(companyId) });
+  return Object.assign(await week(companyId, p.weekOf), out, { swaps: await swapsOpen(companyId),
+    timeOffOpen: (await pool.query(TO_SELECT + "WHERE t.company_id = $1 AND t.status = 'requested' AND t.ends_on >= $2 ORDER BY t.starts_on", [companyId, today()])).rows.map(timeOffOut) });
 }
 
 // For the till: who works today, published shifts only.

@@ -10,13 +10,17 @@ import BookPage from '../pages/BookPage';
 import SharePage from '../pages/SharePage';
 import PayPage from '../pages/PayPage';
 import ContractPage from '../pages/ContractPage';
+import ShopOrderPage from '../pages/ShopOrderPage';
+import PortalPage from '../pages/PortalPage';
 
 // Bamboo Products' customer website (online.bplghana.com; bpl-site.html,
 // tools/build-bpl.mjs): the online shop at /, booking a consultation or a
 // site visit at /book, a booking's own page at /book/<its link>, and a
 // document's page at /share/<its link> — where the shop's and the bookings'
 // invoices are paid — a payment link at /pay/<its link>, and a contract to
-// sign at /c/<its link>. No account and none of the OS around it.
+// sign at /c/<its link>, a shop order followed at /o/<its link>, and the
+// customer's own account at /account (a code, no password). None of the OS
+// around it.
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
@@ -30,6 +34,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="/share/:token" element={<SharePage />} />
             <Route path="/pay/:token" element={<PayPage />} />
             <Route path="/c/:token" element={<ContractPage />} />
+            <Route path="/o/:token" element={<ShopOrderPage />} />
+            <Route path="/account" element={<PortalPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </I18nProvider>

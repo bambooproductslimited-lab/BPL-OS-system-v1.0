@@ -644,3 +644,20 @@
 .on-gb-share { display: flex; flex-direction: column; gap: 0; }
 .on-gb-share .on-go { margin-top: 10px; }
 @media (prefers-reduced-motion: reduce) { .on-gb-confetti i { animation: none; } }
+
+/* Curbside: "I'm here" for a pickup (OnlineTrack.jsx; the till's side is till/Curbside.jsx). */
+.cbs-here { display: flex; align-items: flex-start; gap: 12px; }
+.cbs-here > div { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.cbs-here strong { font-size: 16px; }
+.cbs-here small { font-size: 13px; color: var(--on-muted, inherit); opacity: .85; line-height: 1.4; }
+.cbs-here-form .input { margin-top: 8px; }
+.cbs-here-form .on-go { margin-top: 8px; }
+.cbs-here-art { position: relative; display: grid; place-items: center; flex: none; width: 50px; height: 50px; font-size: 26px; border-radius: 16px; background: color-mix(in srgb, var(--on-accent, #f59f00) 16%, transparent); }
+.cbs-here.is-waiting { border-color: color-mix(in srgb, #2f9e44 45%, var(--on-line)); }
+.cbs-here.is-waiting .cbs-here-art { background: color-mix(in srgb, #2f9e44 18%, transparent); animation: cbs-idle 2.4s ease-in-out infinite; }
+.cbs-here.is-waiting .cbs-here-art i { position: absolute; right: -3px; top: -3px; width: 12px; height: 12px; border-radius: 50%; background: #2f9e44; box-shadow: 0 0 0 3px var(--on-card); animation: cbs-ping 1.6s ease-out infinite; }
+.cbs-here-note { font-weight: 700; }
+.cbs-here.is-done { align-items: center; }
+@keyframes cbs-idle { 50% { transform: translateX(3px); } }
+@keyframes cbs-ping { 0% { box-shadow: 0 0 0 3px var(--on-card), 0 0 0 3px rgba(47, 158, 68, .5); } 100% { box-shadow: 0 0 0 3px var(--on-card), 0 0 0 12px rgba(47, 158, 68, 0); } }
+@media (prefers-reduced-motion: reduce) { .cbs-here-art, .cbs-here-art i { animation: none !important; } }

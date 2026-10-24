@@ -15,6 +15,7 @@ var shares = require('../src/services/shares.service');
 var shop = require('../src/services/shop.service');
 var bookings = require('../src/services/bookings.service');
 var invoicePay = require('../src/services/invoicePay.service');
+var invoices = require('../src/services/invoices.service');
 var mail = require('../src/services/mail.service');
 var { buildContext } = require('../src/services/context.service');
 
@@ -30,6 +31,11 @@ async function http(method, path, body) {
   var json = null;
   try { json = await res.json(); } catch (e) { json = null; }
   return { status: res.status, body: json };
+}
+// An order's invoice paid in full, as staff record it: the order is placed.
+async function payFor(invoiceNo) {
+  var inv = (await pool.query('SELECT id, balance_due FROM invoices WHERE invoice_no = $1', [invoiceNo])).rows[0];
+  return invoices.recordPayment(boss, inv.id, { amount: Number(inv.balance_due), method: 'mobile_money', reference: 'Zqh MoMo' });
 }
 async function cleanup() {
   var custs = (await pool.query("SELECT id FROM customers WHERE name LIKE 'Zqh %'")).rows.map(function (r) { return r.id; });
@@ -84,6 +90,7 @@ test.after(async function () {
 });
 
 test('the online shop: closed until opened; only its categories, active choices, today\'s prices; an order is a customer, an invoice and its link', async function () {
+  config.paystackBpl.secretKey = '';
   await pool.query("UPDATE settings SET shop = '{}' WHERE id = 1");
   var closed = await http('GET', '/api/shop');
   assert.equal(closed.status, 404);
@@ -133,31 +140,66 @@ test('the online shop: closed until opened; only its categories, active choices,
   var doc = await http('GET', '/api/share/' + ok.body.token);
   assert.equal(doc.status, 200);
   assert.equal(doc.body.docNo, ok.body.invoiceNo);
-  assert.ok(sent.some(function (m) { return m.to === 'zqh.kofi@example.com' && /Your order SHOP-/.test(m.subject); }));
-  var told = (await pool.query("SELECT count(*)::int AS n FROM notifications WHERE title = $1", ['🛍️ New shop order ' + ok.body.orderNo])).rows[0].n;
-  assert.ok(told >= 1);
+  // Paid first: until then nobody is told and staff do not see it.
+  assert.deepEqual([ok.body.status, ok.body.payUrl, ok.body.payOnline], ['unpaid', null, false]);
+  assert.ok(!sent.some(function (m) { return m.to === 'zqh.kofi@example.com'; }), 'no "we have your order" before it is paid');
+  var told = function () { return pool.query("SELECT count(*)::int AS n FROM notifications WHERE title = $1", ['🛍️ New shop order ' + ok.body.orderNo + ' · paid']).then(function (x) { return x.rows[0].n; }); };
+  assert.equal(await told(), 0);
+  var waiting = await shop.list(boss, {});
+  assert.ok(!waiting.orders.some(function (o) { return o.orderNo === ok.body.orderNo; }), 'not among the orders until paid');
+  assert.ok(waiting.totals.unpaid >= 1);
+  var unpaid = (await shop.list(boss, { status: 'unpaid' })).orders.find(function (o) { return o.orderNo === ok.body.orderNo; });
+  await assert.rejects(shop.setStatus(boss, unpaid.id, { status: 'ready' }), /Not paid yet/);
+  await assert.rejects(shop.setStatus(boss, unpaid.id, { status: 'unpaid' }), /unpaid until/);
+  // Paid (staff record it on the invoice, or Paystack does): placed, staff told, the customer emailed once.
+  await payFor(ok.body.invoiceNo);
+  assert.ok(await told() >= 1);
+  var mails = sent.filter(function (m) { return m.to === 'zqh.kofi@example.com' && /Your order SHOP-/.test(m.subject); });
+  assert.equal(mails.length, 1);
+  assert.match(mails[0].text, /We have your payment and your order SHOP-/);
+  assert.equal(await shop.invoicePaid(inv.id), null, 'once');
 
   // The same phone again: the same customer.
   var second = await order({ name: 'Zqh Kofi B.', email: '', fulfilment: 'pickup', address: '', lines: [{ variationId: varL, qty: 1 }] });
   assert.equal(second.status, 201);
   var inv2 = (await pool.query('SELECT customer_id FROM invoices WHERE invoice_no = $1', [second.body.invoiceNo])).rows[0];
   assert.equal(inv2.customer_id, c.id);
+  // Someone else's email typed with that phone is not made theirs: it would
+  // sign in to "My account" as them.
+  var third = await order({ email: 'zqh.stranger@example.com', fulfilment: 'pickup', address: '', lines: [{ variationId: varL, qty: 1 }] });
+  assert.equal((await pool.query('SELECT customer_id FROM invoices WHERE invoice_no = $1', [third.body.invoiceNo])).rows[0].customer_id, c.id);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM customer_identities WHERE value = 'zqh.stranger@example.com'")).rows[0].n, 0);
+  assert.equal((await pool.query('SELECT email FROM customers WHERE id = $1', [c.id])).rows[0].email, 'zqh.kofi@example.com');
+  await payFor(second.body.invoiceNo);
 
   // Staff: the orders, marked ready and done; cancelled voids an unpaid invoice.
   var listed = await shop.list(boss, {});
   var mine = listed.orders.find(function (o) { return o.orderNo === ok.body.orderNo; });
   assert.equal(mine.status, 'new');
-  assert.equal(mine.invoice.balance, 900);
+  assert.deepEqual([mine.invoice.balance, mine.invoice.paid, mine.invoice.status], [0, 900, 'paid']);
   assert.ok(listed.totals.fresh >= 2);
   var r = await shop.setStatus(boss, mine.id, { status: 'ready' });
   assert.equal(r.status, 'ready');
   r = await shop.setStatus(boss, mine.id, { status: 'done' });
   assert.equal(r.status, 'done');
   var other2 = listed.orders.find(function (o) { return o.orderNo === second.body.orderNo; });
-  r = await shop.setStatus(boss, other2.id, { status: 'cancelled' });
+  await assert.rejects(shop.setStatus(boss, other2.id, { status: 'cancelled' }), /refund it from the invoice first/);
+  // An unpaid one cancelled: its invoice voided.
+  var other3 = (await shop.list(boss, { status: 'unpaid' })).orders.find(function (o) { return o.orderNo === third.body.orderNo; });
+  r = await shop.setStatus(boss, other3.id, { status: 'cancelled' });
   assert.equal(r.status, 'cancelled');
-  assert.equal((await pool.query('SELECT status FROM invoices WHERE invoice_no = $1', [second.body.invoiceNo])).rows[0].status, 'void');
-  await assert.rejects(shop.setStatus(boss, other2.id, { status: 'ready' }), /was cancelled/);
+  assert.equal((await pool.query('SELECT status FROM invoices WHERE invoice_no = $1', [third.body.invoiceNo])).rows[0].status, 'void');
+  await assert.rejects(shop.setStatus(boss, other3.id, { status: 'ready' }), /was cancelled/);
+
+  // Never paid: cancelled after two days, its invoice voided; a paid one kept.
+  var late = await order({ email: '', fulfilment: 'pickup', address: '', lines: [{ variationId: varM, qty: 1 }] });
+  await pool.query("UPDATE shop_orders SET created_at = now() - interval '50 hours' WHERE order_no = ANY($1)", [[late.body.orderNo, second.body.orderNo]]);
+  var swept = await shop.sweepUnpaid();
+  assert.ok(swept.cancelled >= 1);
+  var lateRow = (await pool.query('SELECT o.status, o.steps, i.status AS inv FROM shop_orders o JOIN invoices i ON i.id = o.invoice_id WHERE o.order_no = $1', [late.body.orderNo])).rows[0];
+  assert.deepEqual([lateRow.status, lateRow.inv], ['cancelled', 'void']);
+  assert.ok(lateRow.steps.cancelled);
+  assert.equal((await pool.query('SELECT status FROM shop_orders WHERE order_no = $1', [second.body.orderNo])).rows[0].status, 'new');
 });
 
 test('booking a consultation: open days and free times, a lead and a site visit, one per slot, cancelled from its page; staff confirm and assign', async function () {
@@ -388,8 +430,11 @@ test('made to order: each item\'s days to make on the shop and at checkout, the 
   var page = await http('GET', '/api/shop');
   assert.deepEqual(page.body.items.find(function (i) { return i.id === item; }).makeDays, { from: 3, to: 7 });
 
+  shop._placedBy.clear();
+  config.paystackBpl.secretKey = '';
   var r = await http('POST', '/api/shop/orders', { name: 'Zqh Make Days', phone: '024 400 0611', email: 'zqh.make@example.com', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] });
   assert.equal(r.status, 201);
+  await payFor(r.body.invoiceNo);
   var ready = shop.readyOf([{ makeDays: { from: 3, to: 7 } }]);
   assert.deepEqual(r.body.ready, ready);
   assert.notEqual(new Date(ready.from + 'T00:00:00Z').getUTCDay(), 0, 'never a Sunday');
@@ -401,6 +446,7 @@ test('made to order: each item\'s days to make on the shop and at checkout, the 
   assert.ok(sent.some(function (m) { return m.to === 'zqh.make@example.com' && /made to order: it will be ready between/.test(m.text); }));
   var listed = (await shop.list(boss, {})).orders.find(function (x) { return x.orderNo === r.body.orderNo; });
   assert.equal(listed.readyBy, ready.by);
+  assert.equal(listed.status, 'new');
 
   // Cleared: in stock, no days; an order of it is ready now (none kept).
   await shop.saveMakeDays(boss, { items: [{ itemId: item, from: '', to: '' }] });
@@ -438,6 +484,8 @@ test('shop discount codes: a percentage or an amount off, a least order, an end 
   c = await check('ZQHOFF', 250);
   assert.match(c.body.error.message, /not right, or has ended/);
 
+  shop._placedBy.clear();
+  config.paystackBpl.secretKey = '';
   var order = function (code, lines) { return http('POST', '/api/shop/orders', { name: 'Zqh Code Buyer', phone: '024 400 0612', fulfilment: 'pickup', code: code, lines: lines }); };
   var r = await order('zqh10', [{ variationId: varM, qty: 2 }]);
   assert.equal(r.status, 201);
@@ -458,7 +506,7 @@ test('shop discount codes: a percentage or an amount off, a least order, an end 
   var uses = (await shop.getSettings(boss)).codeUses;
   assert.deepEqual(uses.ZQH10, { uses: 1, off: 50 });
   // A cancelled order gives its use back.
-  var gone = (await shop.list(boss, {})).orders.find(function (x) { return x.promoCode === 'ZQH-50'; });
+  var gone = (await shop.list(boss, { status: 'unpaid' })).orders.find(function (x) { return x.promoCode === 'ZQH-50'; });
   await shop.setStatus(boss, gone.id, { status: 'cancelled' });
   c = await check('ZQH-50', 800);
   assert.equal(c.body.discount, 50);
@@ -499,4 +547,78 @@ test('the reminder before a booking: confirmed ones, the day before, once, with 
   await pool.query('UPDATE appointments SET reminded_at = NULL WHERE id = $1', [a.id]);
   assert.equal(await bookings.remindDue(before), 0);
   assert.ok(asked.token);
+});
+
+// The tenth batch's shop changes (migration 0191): delivery by area, and
+// the order's own page to follow it as staff move it along.
+test('shop delivery by area and the order\'s own page: being made, ready, on its way, delivered; the customer told', async function () {
+  shop._placedBy.clear();
+  var s = (await shop.getSettings(boss)).settings;
+  await shop.saveSettings(boss, Object.assign({}, s, { on: true, categories: [catA], delivery: true, pickup: true, pickupAddress: 'Zqh showroom', codes: [],
+    areas: [{ name: 'Zqh Accra', fee: 50 }, { name: 'Zqh Tema', fee: 80 }, { name: 'x', fee: 9 }, { name: 'Zqh Accra', fee: 99 }] }));
+  var page = await http('GET', '/api/shop');
+  assert.deepEqual(page.body.shop.areas, [{ name: 'Zqh Accra', fee: 50 }, { name: 'Zqh Tema', fee: 80 }]);
+  // Paystack stubbed: the checkout goes straight to its page, back to the order's.
+  var asked = [];
+  config.paystackBpl.secretKey = 'zqh-fake-bpl-paystack-key';
+  invoicePay.setFetchForTests(async function (url, o) {
+    asked.push({ url: url, body: o.body ? JSON.parse(o.body) : null });
+    return { ok: true, status: 200, json: async function () { return { status: true, data: { authorization_url: 'https://checkout.paystack.test/zqh-' + asked.length } }; } };
+  });
+  var order = function (p) { return http('POST', '/api/shop/orders', Object.assign({ name: 'Zqh Track Me', phone: '024 400 0711', email: 'zqh.track@example.com', fulfilment: 'delivery', address: 'Zqh: Tema Community 5', lines: [{ variationId: varM, qty: 1 }] }, p)); };
+  var bad = await order({});
+  assert.match(bad.body.error.message, /Choose your area/);
+  var r = await order({ area: 'zqh tema' });
+  assert.equal(r.status, 201);
+  assert.equal(r.body.total, 330, '250 and the area\'s 80');
+  assert.deepEqual([r.body.area, r.body.deliveryFee], ['Zqh Tema', 80]);
+  assert.match(r.body.trackUrl, /^https:\/\/online\.bplghana\.com\/o\/[A-Za-z0-9_-]{24}$/);
+  var lines = (await pool.query("SELECT description, unit_price FROM document_line_items WHERE document_type = 'invoice' AND document_id = (SELECT id FROM invoices WHERE invoice_no = $1) ORDER BY sort_order", [r.body.invoiceNo])).rows;
+  assert.deepEqual(lines.map(function (l) { return [l.description, Number(l.unit_price)]; }), [['Zqh roller blind — Medium', 250], ['Delivery (Zqh Tema)', 80]]);
+  assert.equal(r.body.payUrl, 'https://checkout.paystack.test/zqh-1');
+  var init = asked.find(function (x) { return /\/transaction\/initialize$/.test(x.url); });
+  assert.equal(init.body.amount, 33000, 'all of it, in pesewas');
+  assert.equal(init.body.callback_url, r.body.trackUrl, 'back to the order\'s own page');
+  // A pickup pays no fee and needs no area.
+  var pick = await order({ fulfilment: 'pickup', address: '', email: '' });
+  assert.equal(pick.body.total, 250);
+
+  // Its own page: unpaid until paid, no phone or email.
+  var t = await http('GET', '/api/shop/orders/' + r.body.orderToken);
+  assert.equal(t.status, 200);
+  assert.deepEqual([t.body.status, t.body.area, t.body.deliveryFee, t.body.name], ['unpaid', 'Zqh Tema', 80, 'Zqh']);
+  assert.equal(t.body.phone, undefined);
+  assert.equal(t.body.email, undefined);
+  assert.equal(t.body.invoice.paid, false);
+  assert.ok(t.body.invoice.token);
+  assert.equal(t.body.payOnline, true);
+  assert.equal((await http('GET', '/api/shop/orders/zqh-not-an-order-token-00')).status, 404);
+  sent.length = 0;
+  await payFor(r.body.invoiceNo);
+  await payFor(pick.body.invoiceNo);
+  invoicePay.setFetchForTests(null);
+  config.paystackBpl.secretKey = '';
+  assert.ok(sent.some(function (m) { return m.to === 'zqh.track@example.com' && m.text.indexOf(r.body.trackUrl) >= 0; }), 'the order email has its page');
+  t = await http('GET', '/api/shop/orders/' + r.body.orderToken);
+  assert.deepEqual([t.body.status, t.body.invoice.paid], ['new', true]);
+  assert.ok(t.body.steps.new && t.body.steps.paid);
+
+  // Staff move it along; each step is kept and the customer emailed.
+  var mine = (await shop.list(boss, {})).orders.find(function (o) { return o.orderNo === r.body.orderNo; });
+  assert.equal(mine.trackUrl, r.body.trackUrl);
+  sent.length = 0;
+  var u = await shop.setStatus(boss, mine.id, { status: 'making' });
+  assert.equal(u.status, 'making');
+  assert.equal(u.emailed, true);
+  assert.match(sent[0].subject, /being made/);
+  await shop.setStatus(boss, mine.id, { status: 'ready' });
+  u = await shop.setStatus(boss, mine.id, { status: 'out' });
+  assert.match(sent[sent.length - 1].text, /on its way to you/);
+  await shop.setStatus(boss, mine.id, { status: 'done' });
+  t = await http('GET', '/api/shop/orders/' + r.body.orderToken);
+  assert.equal(t.body.status, 'done');
+  assert.deepEqual(Object.keys(t.body.steps).sort(), ['done', 'making', 'new', 'out', 'paid', 'ready']);
+  var pk = (await shop.list(boss, {})).orders.find(function (o) { return o.orderNo === pick.body.orderNo; });
+  await assert.rejects(shop.setStatus(boss, pk.id, { status: 'out' }), /Only a delivery goes out/);
+  assert.ok((await shop.list(boss, {})).totals.making >= 0);
 });

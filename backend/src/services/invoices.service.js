@@ -262,6 +262,10 @@ async function recordPayment(ctx, invoiceId, p, opts) {
   if (!p.noReceiptEmail) setImmediate(function () { require('./documentEmails.service').afterPayment(result.receiptId); });
 
   var invRes = await pool.query('SELECT * FROM invoices WHERE id = $1', [result.invoiceId]);
+  // Paid in full: a shop order waiting on it is placed (shop.service.js invoicePaid).
+  if (invRes.rows[0].status === 'paid') {
+    try { await require('./shop.service').invoicePaid(result.invoiceId); } catch (e) { console.error('Shop order not placed after payment:', e.message); }
+  }
   var payRes = await pool.query('SELECT * FROM payments WHERE id = $1', [result.paymentId]);
   var rctRes = await pool.query('SELECT * FROM receipts WHERE id = $1', [result.receiptId]);
   return {

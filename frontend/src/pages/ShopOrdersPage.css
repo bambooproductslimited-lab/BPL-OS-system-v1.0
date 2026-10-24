@@ -108,3 +108,20 @@
 .sho-mk-days { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .sho-mk-days .input { width: 62px; padding: 6px 8px; text-align: center; }
 .sho-mk-days small { font-size: 12px; color: var(--color-text-muted); }
+
+/* Delivery areas in the shop's settings; the customer's page; new steps. */
+.sho-area { display: grid; grid-template-columns: minmax(0, 1fr) 130px 30px; align-items: center; gap: 8px; padding: 4px 0; }
+.sho-area .input { min-width: 0; padding: 6px 8px; font-size: 13.5px; }
+.sho-area-fee { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: var(--color-text-muted); }
+.sho-track { padding: 4px 10px; font-size: 12.5px; font-weight: 700; text-decoration: none; border-radius: 999px; color: var(--color-text); background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.sho-tag.is-making { color: #8a4b08; background: color-mix(in srgb, #f59f00 16%, transparent); }
+.sho-tag.is-out { color: #1864ab; background: color-mix(in srgb, #1c7ed6 16%, transparent); }
+:root[data-theme='dark'] .sho-tag.is-making { color: #fcc419; }
+:root[data-theme='dark'] .sho-tag.is-out { color: #74c0fc; }
+
+/* Paid first: checkouts not paid yet. */
+.sho-tag.is-unpaid { color: #7c5a00; background: color-mix(in srgb, #fcc419 26%, transparent); }
+:root[data-theme='dark'] .sho-tag.is-unpaid { color: #ffe066; }
+.sho-order.is-unpaid { border-style: dashed; }
+.sho-o-wait { margin: 0; padding: 8px 10px; font-size: 13px; line-height: 1.45; border-radius: 12px; color: var(--color-text); background: color-mix(in srgb, #fcc419 12%, transparent); }
+.sho-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; font-size: 11px; font-style: normal; font-weight: 800; color: #fff; border-radius: 999px; background: #e8590c; }

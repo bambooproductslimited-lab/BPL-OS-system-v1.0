@@ -39,6 +39,7 @@ import TableBill from './till/TableBill';
 import OfflineQueue from './till/OfflineQueue';
 import Bookings from './till/Bookings';
 import BusyMode, { BusyPill } from './till/BusyMode';
+import Curbside, { CurbsidePill } from './till/Curbside';
 import GiftCards from './till/GiftCards';
 import CustomerScreen from './till/CustomerScreen';
 import Rewards from './till/Rewards';
@@ -387,6 +388,9 @@ export default function RestaurantPosPage() {
   // Busy mode for the website (till/BusyMode.jsx): on, its pill at the top.
   const [busyMode, setBusyMode] = useState(null);
   const [busyOpen, setBusyOpen] = useState(false);
+  // Website customers outside for their pickup (till/Curbside.jsx).
+  const [outside, setOutside] = useState([]);
+  const [curbOpen, setCurbOpen] = useState(false);
   // Refunds, VIP money and IOUs (TillMoney.jsx)
   const [refundFor, setRefundFor] = useState(null); // 'find' | an order id | null
   const [vipOpen, setVipOpen] = useState(null); // { startGuest } | null
@@ -410,6 +414,15 @@ export default function RestaurantPosPage() {
     const t = setInterval(load, 30000);
     return () => clearInterval(t);
   }, [sessionToken, canDelivery]);
+  // Curbside: who is outside, every 20 seconds, for whoever takes money or runs deliveries.
+  const canCurb = can('charge') || canDelivery;
+  useEffect(() => {
+    if (!sessionToken || !canCurb) { setOutside([]); return undefined; }
+    const load = () => posFetch('GET', '/pos/curbside', sessionToken).then((r) => setOutside(r.outside)).catch(() => {});
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [sessionToken, canCurb]);
   // Money is taken, given back and receipts printed only on one's own open
   // drawer: the cashier on duty's (one cashier at a time), or a manager's.
   const onDuty = (k) => can(k) && !!drawer;
@@ -2202,6 +2215,7 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
+          <CurbsidePill outside={outside} onClick={() => setCurbOpen(true)} />
           <BusyPill busy={busyMode} onClick={() => setBusyOpen(true)} />
           {soon && soon.can && (soon.requested > 0 || soon.waiting > 0) && (
             <button type="button" className="pos-stat is-bookings is-asking" onClick={() => setBookingsOpen(true)}>
@@ -2351,6 +2365,7 @@ export default function RestaurantPosPage() {
 
       {toast && <div className="toast" role="status">{toast}</div>}
 
+      {curbOpen && <Curbside token={session.token} outside={outside} onClose={() => setCurbOpen(false)} onChanged={setOutside} onToast={setToast} />}
       {busyOpen && <BusyMode token={session.token} onClose={() => setBusyOpen(false)} onChanged={setBusyMode} onToast={setToast} />}
       {bookingsOpen && <Bookings token={session.token} tables={tables} onSeat={seatBooking} onToast={setToast} onClose={() => { setBookingsOpen(false); loadSoon(); }} />}
       {contactFor && <GuestContactDialog token={session.token} guest={contactFor} onClose={() => setContactFor(null)}

@@ -100,11 +100,13 @@ function emailFor(cust) {
   return 'payments@' + (host || 'bambooproducts.com');
 }
 // Back to the invoice's page after paying: one of the OS's own addresses, or
-// Bamboo Products' customer website (where the shop's invoices are paid).
+// Bamboo Products' customer website (where the shop's invoices are paid) —
+// or, for a shop order, back to the order's own page there (/o/<its link>).
 function backTo(back, token) {
   var u = null;
   try { u = new URL(String(back || '')); } catch (e) { u = null; }
   var origin = u && config.corsOrigin.concat(config.bplSiteOrigins).indexOf(u.origin) >= 0 ? u.origin : config.appUrl;
+  if (u && origin === u.origin && /^\/o\/[A-Za-z0-9_-]{16,64}$/.test(u.pathname)) return origin + u.pathname;
   return origin + '/share/' + encodeURIComponent(token);
 }
 

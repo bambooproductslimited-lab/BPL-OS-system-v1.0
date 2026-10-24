@@ -32,6 +32,9 @@ router.get('/shop/photos/:id', async function (req, res, next) {
 router.get('/shop/code', async function (req, res, next) {
   try { res.json(await shop.checkCode(req.query, req.ip)); } catch (e) { next(e); }
 });
+router.get('/shop/orders/:token', async function (req, res, next) {
+  try { res.json(await shop.track(req.params.token)); } catch (e) { next(e); }
+});
 router.post('/shop/orders', orderLimiter, async function (req, res, next) {
   try { res.status(201).json(await shop.place(req.body, req.ip)); } catch (e) { next(e); }
 });

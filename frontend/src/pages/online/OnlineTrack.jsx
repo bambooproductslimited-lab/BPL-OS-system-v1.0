@@ -70,6 +70,14 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
   }, [load]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
+  // Curbside: outside for a pickup, with a word about the car.
+  const [car, setCar] = useState(null);
+  async function sayHere(e) {
+    e.preventDefault();
+    setBusy(true);
+    try { const r = await posFetch('POST', path + '/here', auth || null, { note: car || '' }); stage.current = r.stage; setO(r); setCar(null); setError(null); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+
   async function cancel() {
     if (!window.confirm(tr('Cancel this order?'))) return;
     setBusy(true);
@@ -85,7 +93,7 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
   const home = o.customer.lat != null ? { lat: o.customer.lat, lng: o.customer.lng } : null;
   const d = o.delivery;
   const spot = d && here ? riderSpot({ ...d, customer: o.customer }, here, now, fetchedAt) : null;
-  const left = !OVER.includes(o.stage) && o.stage !== 'waiting' && o.stage !== 'scheduled' ? minutesLeft(o, now) : null;
+  const left = !OVER.includes(o.stage) && !['waiting', 'scheduled', 'ready_pickup'].includes(o.stage) ? minutesLeft(o, now) : null;
   const base = o.fulfillment === 'pickup' ? STEPS_PICKUP : STEPS_DELIVERY;
   const steps = o.scheduledFor ? [base[0], STEP_LATER].concat(base.slice(1)) : base;
   const at = steps.findIndex(([k]) => k === STEP_OF[o.stage]);
@@ -144,6 +152,32 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
           </div>
           <span className="on-cal-count">{countdown(o.scheduledFor, now)}</span>
         </div>
+      )}
+
+      {o.fulfillment === 'pickup' && (o.canSayHere || o.here) && (
+        o.here && o.here.broughtAt ? (
+          <div className="on-card cbs-here is-done"><span className="cbs-here-art" aria-hidden="true">🛍️</span><div><strong>{tr('Brought out to you. Enjoy!')}</strong></div></div>
+        ) : o.here && car == null ? (
+          <div className="on-card cbs-here is-waiting">
+            <span className="cbs-here-art" aria-hidden="true">🚗<i /></span>
+            <div>
+              <strong>{tr('We know you are here')}</strong>
+              <small>{o.stage === 'ready_pickup' ? tr('Someone is bringing it out to you now.') : tr('It is still cooking: we bring it out as soon as it is ready.')}</small>
+              {o.here.note && <small className="cbs-here-note">🚙 “{o.here.note}”</small>}
+            </div>
+            <button type="button" className="on-link" onClick={() => setCar(o.here.note || '')}>{tr('Change')}</button>
+          </div>
+        ) : (
+          <form className="on-card cbs-here" onSubmit={sayHere}>
+            <span className="cbs-here-art" aria-hidden="true">🚗</span>
+            <div className="cbs-here-form">
+              <strong>{o.here ? tr('Where are you?') : tr('Here to collect it?')}</strong>
+              <small>{tr('Tell us you are outside and we bring it out to you.')}</small>
+              <input className="input" maxLength={120} value={car || ''} onChange={(e) => setCar(e.target.value)} placeholder={tr('Your car or where you are, e.g. blue Corolla by the gate')} aria-label={tr('Your car or where you are')} />
+              <button type="submit" className="on-go" disabled={busy}>{o.here ? tr('Update') : '🙋 ' + tr('I\'m here')}</button>
+            </div>
+          </form>
+        )
       )}
 
       {!bad && (

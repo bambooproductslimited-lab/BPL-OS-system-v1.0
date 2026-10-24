@@ -1,0 +1,10 @@
+ALTER TABLE restaurant_online_orders DROP COLUMN IF EXISTS brought_by, DROP COLUMN IF EXISTS brought_at, DROP COLUMN IF EXISTS here_note, DROP COLUMN IF EXISTS here_at;
+DROP TABLE IF EXISTS restaurant_availability;
+DROP TABLE IF EXISTS restaurant_time_off;
+DROP TABLE IF EXISTS portal_sessions;
+DROP TABLE IF EXISTS portal_codes;
+UPDATE shop_orders SET status = 'new' WHERE status IN ('making', 'unpaid');
+UPDATE shop_orders SET status = 'ready' WHERE status = 'out';
+ALTER TABLE shop_orders DROP CONSTRAINT IF EXISTS shop_orders_status_check;
+ALTER TABLE shop_orders ADD CONSTRAINT shop_orders_status_check CHECK (status IN ('new', 'ready', 'done', 'cancelled'));
+ALTER TABLE shop_orders DROP COLUMN IF EXISTS steps, DROP COLUMN IF EXISTS delivery_fee, DROP COLUMN IF EXISTS area, DROP COLUMN IF EXISTS token;

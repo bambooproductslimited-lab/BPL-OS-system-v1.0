@@ -1,3 +1,4 @@
+var crypto = require('crypto');
 var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
@@ -17,11 +18,16 @@ var config = require('../config');
 // make_days_min/max, migration 0190), on the item and at checkout, and the
 // order keeps the days it will be ready between. Discount codes
 // (settings.shop.codes, migration 0189) take a percentage or an amount off.
+// Delivery is priced by area when areas are set (settings.shop.areas), and
+// each order has its own page to follow it (/o/<token>, migration 0191):
+// received, being made, ready, on its way, delivered or collected.
 
-var DEFAULTS = { on: false, title: 'Bamboo Products', intro: '', categories: [], delivery: true, pickup: true, pickupAddress: '', deliveryNote: '', codes: [] };
+var DEFAULTS = { on: false, title: 'Bamboo Products', intro: '', categories: [], delivery: true, pickup: true, pickupAddress: '', deliveryNote: '', codes: [], areas: [] };
 var CODE_KINDS = ['percent', 'amount'];
 var MAX_MAKE_DAYS = 180;
-var STATUSES = ['new', 'ready', 'done', 'cancelled'];
+// new, being made (making), ready, on its way (out, delivery only), done, cancelled.
+var STATUSES = ['unpaid', 'new', 'making', 'ready', 'out', 'done', 'cancelled'];
+var UNPAID_DAYS = 2;
 var MAX_LINES = 30;
 var PER_IP_HOUR = 6;
 var ctxShop = { can: function () { return true; }, user: { id: null }, employee: { id: null, first_name: 'Online shop', last_name: '' } };
@@ -39,6 +45,17 @@ function dayText(d) { return d instanceof Date ? d.getFullYear() + '-' + String(
 function longDay(day) { return new Date(day + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); }
 function makeDaysOf(r) { return r.make_days_max != null ? { from: Number(r.make_days_min), to: Number(r.make_days_max) } : null; }
 function codeKey(v) { return String(v == null ? '' : v).toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24); }
+
+// The delivery areas, each with its fee (Accra, Tema, further…).
+function cleanAreas(list) {
+  var out = [];
+  (Array.isArray(list) ? list : []).forEach(function (a) {
+    var name = text(a && a.name, 60), fee = round2(a && a.fee);
+    if (name.length < 2 || out.length >= 30 || out.some(function (o) { return o.name.toLowerCase() === name.toLowerCase(); })) return;
+    out.push({ name: name, fee: fee > 0 && fee <= 100000 ? fee : 0 });
+  });
+  return out;
+}
 
 // The discount codes, as kept: { code, kind: percent|amount, value,
 // minTotal, endsOn, maxUses (0: no limit), on }.
@@ -60,7 +77,7 @@ async function settingsOf(db) {
   return {
     on: !!s.on, title: text(s.title, 80) || DEFAULTS.title, intro: text(s.intro, 400), categories: Array.isArray(s.categories) ? s.categories.filter(function (c) { return /^[0-9a-f-]{36}$/i.test(c); }) : [],
     delivery: s.delivery !== false, pickup: s.pickup !== false, pickupAddress: text(s.pickupAddress, 200), deliveryNote: text(s.deliveryNote, 300),
-    codes: cleanCodes(s.codes)
+    codes: cleanCodes(s.codes), areas: cleanAreas(s.areas)
   };
 }
 
@@ -89,7 +106,7 @@ async function view() {
   items.forEach(function (r) { var n = r.category_name || 'More'; if (cats.indexOf(n) < 0) cats.push(n); });
   return {
     shop: { title: s.title, intro: s.intro, delivery: s.delivery, pickup: s.pickup, pickupAddress: s.pickupAddress, deliveryNote: s.deliveryNote, currency: 'GHS',
-      payOnline: require('./invoicePay.service').configured(), codes: s.codes.some(function (c) { return c.on; }) },
+      payOnline: require('./invoicePay.service').configured(), codes: s.codes.some(function (c) { return c.on; }), areas: s.delivery ? s.areas : [] },
     categories: cats,
     items: items.map(function (r) {
       return {
@@ -122,20 +139,24 @@ function throttle(ip) {
 }
 
 // The customer by their phone or email (the CRM's identities, then the
-// customer's own fields), else a new one: a lead from the shop.
+// customer's own fields), else a new one: a lead from the shop. What is typed
+// on a public form is never linked to a customer found already: a stranger
+// could type someone's phone with their own email, then sign in to "My
+// account" (portal.service.js) with that email and see that customer's
+// invoices. Only an empty address is filled in.
 async function customerFor(client, p) {
   var inbox = require('./crmInbox.service');
   var ids = [inbox.normIdentity({ kind: 'phone', value: p.phone }), p.email ? inbox.normIdentity({ kind: 'email', value: p.email }) : null].filter(Boolean);
   var found = await inbox.findCustomerByIdentities(client, ids);
   if (!found && p.email) found = ((await client.query("SELECT id FROM customers WHERE lower(email) = $1 AND status = 'active' ORDER BY created_at LIMIT 1", [p.email])).rows[0] || {}).id;
   if (found) {
-    await client.query("UPDATE customers SET email = CASE WHEN email = '' THEN $2 ELSE email END, address = CASE WHEN address = '' THEN $3 ELSE address END WHERE id = $1", [found, p.email, p.address]);
-  } else {
-    var companyId = await inbox.crmCompanyId();
-    found = (await client.query(
-      "INSERT INTO customers (name, phone, email, address, category, source, origin_channel, company_id) VALUES ($1,$2,$3,$4,'lead','crm','shop',$5) RETURNING id",
-      [p.name, '+' + internationalNumber(p.phone), p.email, p.address, companyId])).rows[0].id;
+    await client.query("UPDATE customers SET address = CASE WHEN address = '' THEN $2 ELSE address END WHERE id = $1", [found, p.address]);
+    return found;
   }
+  var companyId = await inbox.crmCompanyId();
+  found = (await client.query(
+    "INSERT INTO customers (name, phone, email, address, category, source, origin_channel, company_id) VALUES ($1,$2,$3,$4,'lead','crm','shop',$5) RETURNING id",
+    [p.name, '+' + internationalNumber(p.phone), p.email, p.address, companyId])).rows[0].id;
   await inbox.addIdentities(client, found, ids);
   return found;
 }
@@ -181,8 +202,9 @@ async function checkCode(q, ip) {
 }
 
 // POST /api/shop/orders { name, phone, email, fulfilment: delivery|pickup,
-// address, note, lines: [{ variationId, qty }], website (left empty: a
-// form robot fills it) } — the order, its invoice and the link to pay it.
+// address, note, lines: [{ variationId, qty }], code, area, website (left
+// empty: a form robot fills it) } — the order, unpaid, its invoice and the
+// page to pay it on: it is placed once paid (invoicePaid).
 async function place(p, ip) {
   p = p || {};
   var s = await settingsOf();
@@ -198,6 +220,11 @@ async function place(p, ip) {
   if ((fulfilment === 'delivery' && !s.delivery) || (fulfilment === 'pickup' && !s.pickup)) fail('invalid', fulfilment === 'delivery' ? 'We do not deliver from the shop: choose pickup.' : 'Pickup is not offered: choose delivery.');
   var address = text(p.address, 300);
   if (fulfilment === 'delivery' && address.length < 5) fail('invalid', 'Where should we deliver? Type the address or a landmark.');
+  // Delivery by area: its fee on the invoice.
+  var area = null;
+  if (fulfilment === 'delivery' && s.areas.length) {
+    area = s.areas.find(function (a) { return a.name.toLowerCase() === String(p.area || '').trim().toLowerCase(); }) || fail('invalid', 'Choose your area for the delivery.');
+  }
   var note = text(p.note, 500);
   var want = Array.isArray(p.lines) ? p.lines : [];
   if (!want.length) fail('invalid', 'Your basket is empty.');
@@ -225,8 +252,10 @@ async function place(p, ip) {
   var customerId = await withTransaction(function (client) { return customerFor(client, { name: name, phone: phone, email: email, address: fulfilment === 'delivery' ? address : '' }); });
   var n = Number((await pool.query('SELECT count(*) AS n FROM shop_orders')).rows[0].n) + 1001;
   var orderNo = 'SHOP-' + n;
+  var invoiceLines = lines.slice();
+  if (area && area.fee > 0) invoiceLines.push({ description: 'Delivery (' + area.name + ')', qty: 1, unit: 'trip', unitPrice: area.fee, taxRate: 0 });
   var inv = await require('./invoices.service').createManual(ctxShop, {
-    customerId: customerId, currency: 'GHS', items: lines, discount: promo && promo.discount > 0 ? { value: promo.discount, type: 'fixed' } : undefined,
+    customerId: customerId, currency: 'GHS', items: invoiceLines, discount: promo && promo.discount > 0 ? { value: promo.discount, type: 'fixed' } : undefined,
     notes: 'Online shop order ' + orderNo + ': ' + (fulfilment === 'delivery' ? 'delivery to ' + address : 'pickup' + (s.pickupAddress ? ' at ' + s.pickupAddress : '')) + (note ? '. ' + note : '') + '.' +
       (ready ? ' Made to order: ready between ' + longDay(ready.from) + ' and ' + longDay(ready.by) + '.' : '') + (promo ? ' Code ' + promo.code + ': GHS ' + promo.discount.toFixed(2) + ' off.' : '')
   });
@@ -236,37 +265,83 @@ async function place(p, ip) {
   for (var tries = 0; tries < 5 && !row; tries++) {
     try {
       row = (await pool.query(
-        'INSERT INTO shop_orders (order_no, customer_id, invoice_id, share_id, name, phone, email, fulfilment, address, note, lines, total, ip, promo_code, discount, ready_from, ready_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *',
+        'INSERT INTO shop_orders (order_no, customer_id, invoice_id, share_id, name, phone, email, fulfilment, address, note, lines, total, ip, promo_code, discount, ready_from, ready_by, token, area, delivery_fee, steps, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,\'unpaid\') RETURNING *',
         ['SHOP-' + (n + tries), customerId, inv.id, share.id, name, '+' + internationalNumber(phone), email, fulfilment, fulfilment === 'delivery' ? address : '', note,
           JSON.stringify(lines.map(function (l) { return { variationId: l.variationId, description: l.description, qty: l.qty, unitPrice: l.unitPrice, makeDays: l.makeDays || null }; })), inv.grandTotal, String(ip || '').slice(0, 60),
-          promo ? promo.code : '', promo ? promo.discount : 0, ready ? ready.from : null, ready ? ready.by : null])).rows[0];
+          promo ? promo.code : '', promo ? promo.discount : 0, ready ? ready.from : null, ready ? ready.by : null,
+          crypto.randomBytes(18).toString('base64url'), area ? area.name : '', area ? area.fee : 0, JSON.stringify({})])).rows[0];
     } catch (e) { if (e.code !== '23505') throw e; }
   }
   if (!row) fail('conflict', 'Could not number the order. Try again.');
+  // Nothing to pay (a code took it all off): placed straight away.
+  if (!(round2(inv.grandTotal) > 0)) { await invoicePaid(inv.id); row = (await pool.query('SELECT * FROM shop_orders WHERE id = $1', [row.id])).rows[0]; }
   if (row.order_no !== orderNo) await pool.query('UPDATE invoices SET notes = replace(notes, $2, $3) WHERE id = $1', [inv.id, orderNo, row.order_no]);
-  await audit(pool, ctxShop, 'shop.order', 'shop_order', row.id, row.order_no + ' from ' + name + ' (' + inv.invoiceNo + ', GHS ' + round2(inv.grandTotal).toFixed(2) + ').');
+  await audit(pool, ctxShop, 'shop.order', 'shop_order', row.id, row.order_no + ' from ' + name + ' (' + inv.invoiceNo + ', GHS ' + round2(inv.grandTotal).toFixed(2) + '), waiting to be paid.');
 
-  // Whoever runs the invoices is told.
+  // Paid first: straight on to Paystack, back to the order's own page. Staff
+  // hear of it, and the customer is emailed, once it is paid (invoicePaid).
+  var url = config.bplSiteUrl + '/share/' + link.token;
+  var trackUrl = config.bplSiteUrl + '/o/' + row.token;
+  var pay = require('./invoicePay.service'), payUrl = null;
+  if (pay.configured()) {
+    try { payUrl = (await pay.start(link.token, { pay: 'all', back: trackUrl })).url || null; } catch (e) { payUrl = null; }
+  }
+  return { orderNo: row.order_no, invoiceNo: inv.invoiceNo, total: round2(inv.grandTotal), currency: inv.currency, token: link.token, url: url, payOnline: pay.configured(), payUrl: payUrl, status: row.status,
+    discount: promo ? promo.discount : 0, code: promo ? promo.code : null, ready: ready, orderToken: row.token, trackUrl: trackUrl, deliveryFee: area ? area.fee : 0, area: area ? area.name : '' };
+}
+
+// invoices.service.js recordPayment, once an invoice is paid in full: the shop
+// order waiting on it is placed — whoever runs the invoices is told and the
+// customer emailed. Once: a second payment finds it placed already.
+async function invoicePaid(invoiceId) {
+  var row = (await pool.query(
+    "UPDATE shop_orders SET status = 'new', steps = steps || jsonb_build_object('paid', to_jsonb(now()), 'new', to_jsonb(now())) WHERE invoice_id = $1 AND status = 'unpaid' RETURNING *", [invoiceId])).rows[0];
+  if (!row) return null;
+  var inv = (await pool.query('SELECT i.invoice_no, i.grand_total, ds.token AS share_token FROM invoices i LEFT JOIN document_shares ds ON ds.id = $2 WHERE i.id = $1', [invoiceId, row.share_id])).rows[0] || {};
+  var total = 'GHS ' + round2(row.total).toFixed(2);
+  await audit(pool, ctxShop, 'shop.order_paid', 'shop_order', row.id, row.order_no + ' paid (' + (inv.invoice_no || '') + ', ' + total + '): placed.');
   var holders = await require('./staffAlerts.service').holdersOf(['invoice.manage']);
   for (var i = 0; i < holders.length; i++) {
-    await notify(pool, holders[i].employee_id, '🛍️ New shop order ' + row.order_no, name + ' · GHS ' + round2(inv.grandTotal).toFixed(2) + ' · ' + (fulfilment === 'delivery' ? 'delivery' : 'pickup'), '/shop-orders?open=' + row.id);
+    await notify(pool, holders[i].employee_id, '🛍️ New shop order ' + row.order_no + ' · paid', row.name + ' · ' + total + ' · ' + (row.fulfilment === 'delivery' ? 'delivery' + (row.area ? ' to ' + row.area : '') : 'pickup'), '/shop-orders?open=' + row.id);
   }
-  var url = config.bplSiteUrl + '/share/' + link.token;
-  // And the customer, when they gave an email.
-  if (email) {
+  var emailed = false;
+  if (row.email) {
     try {
       var mail = require('./mail.service');
       if (mail.configured()) {
-        var words = 'Thank you, ' + name.split(' ')[0] + '! We have your order ' + row.order_no + ' (GHS ' + round2(inv.grandTotal).toFixed(2) + ').' +
-          (ready ? ' It is made to order: it will be ready between ' + longDay(ready.from) + ' and ' + longDay(ready.by) + '.' : '') + ' Its invoice ' + inv.invoiceNo + ', to see and pay: ' + url;
-        await mail.send({ to: email, subject: 'Your order ' + row.order_no + ' from Bamboo Products', fromName: 'Bamboo Products', text: words,
-          html: '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937">' + mail.escapeHtml(words.replace(': ' + url, '.')) +
-            '<p style="margin:18px 0"><a href="' + mail.escapeHtml(url) + '" style="display:inline-block;padding:12px 20px;border-radius:12px;background:#2f6b2c;color:#fff;text-decoration:none;font-weight:700">See and pay the invoice</a></p></div>' });
+        var trackUrl = config.bplSiteUrl + '/o/' + row.token;
+        var words = 'Thank you, ' + String(row.name).split(' ')[0] + '! We have your payment and your order ' + row.order_no + ' (' + total + ').' +
+          (row.ready_by ? ' It is made to order: it will be ready between ' + longDay(dayText(row.ready_from || row.ready_by)) + ' and ' + longDay(dayText(row.ready_by)) + '.' : '') +
+          ' Follow it here: ' + trackUrl + (inv.invoice_no ? '. Its invoice, ' + inv.invoice_no + ', is paid' + (inv.share_token ? ': ' + config.bplSiteUrl + '/share/' + inv.share_token : '') : '') + '.';
+        await mail.send({ to: row.email, subject: 'Your order ' + row.order_no + ' from Bamboo Products', fromName: 'Bamboo Products', text: words,
+          html: '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937">' + mail.escapeHtml(words.replace(' Follow it here: ' + trackUrl + '.', '')) +
+            '<p style="margin:18px 0"><a href="' + mail.escapeHtml(trackUrl) + '" style="display:inline-block;padding:12px 20px;border-radius:12px;background:#2f6b2c;color:#fff;text-decoration:none;font-weight:700">Follow your order</a></p></div>' });
+        emailed = true;
       }
-    } catch (e) { /* the page has the link */ }
+    } catch (e) { /* the page has it */ }
   }
-  return { orderNo: row.order_no, invoiceNo: inv.invoiceNo, total: round2(inv.grandTotal), currency: inv.currency, token: link.token, url: url, payOnline: require('./invoicePay.service').configured(),
-    discount: promo ? promo.discount : 0, code: promo ? promo.code : null, ready: ready };
+  return { orderNo: row.order_no, emailed: emailed };
+}
+
+// Checkouts never paid: after two days with nothing paid, the order is
+// cancelled and its invoice voided (jobs/paymentLinks.js, hourly).
+async function sweepUnpaid() {
+  var rows = (await pool.query(
+    "SELECT o.id, o.order_no, o.invoice_id, i.status AS invoice_status, coalesce(i.amount_paid, 0) AS amount_paid FROM shop_orders o LEFT JOIN invoices i ON i.id = o.invoice_id " +
+    "WHERE o.status = 'unpaid' AND o.created_at < now() - make_interval(days => $1) LIMIT 200", [UNPAID_DAYS])).rows;
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var o = rows[i];
+    if (Number(o.amount_paid) > 0) continue;
+    var done = (await pool.query("UPDATE shop_orders SET status = 'cancelled', steps = steps || jsonb_build_object('cancelled', to_jsonb(now())) WHERE id = $1 AND status = 'unpaid' RETURNING id", [o.id])).rows[0];
+    if (!done) continue;
+    if (o.invoice_id && o.invoice_status !== 'void') {
+      try { await require('./invoices.service').voidInvoice(ctxShop, o.invoice_id, 'Shop order ' + o.order_no + ' never paid.'); } catch (e) { /* left for the invoice page */ }
+    }
+    await audit(pool, ctxShop, 'shop.order_unpaid', 'shop_order', o.id, o.order_no + ' cancelled: not paid in ' + UNPAID_DAYS + ' days.');
+    n++;
+  }
+  return { cancelled: n };
 }
 
 // ── for staff ──
@@ -275,6 +350,7 @@ function orderOut(r) {
     id: r.id, orderNo: r.order_no, name: r.name, phone: r.phone, email: r.email, fulfilment: r.fulfilment, address: r.address, note: r.note, lines: r.lines,
     total: round2(r.total), status: r.status, createdAt: r.created_at, customerId: r.customer_id, promoCode: r.promo_code || '', discount: round2(r.discount || 0),
     readyFrom: r.ready_from ? dayText(r.ready_from) : null, readyBy: r.ready_by ? dayText(r.ready_by) : null,
+    area: r.area || '', deliveryFee: round2(r.delivery_fee || 0), steps: r.steps || {}, trackUrl: r.token ? config.bplSiteUrl + '/o/' + r.token : null,
     invoice: r.invoice_id ? { id: r.invoice_id, invoiceNo: r.invoice_no, status: r.invoice_status, balance: round2(r.balance_due), paid: round2(r.amount_paid) } : null
   };
 }
@@ -286,46 +362,85 @@ async function list(ctx, q) {
   q = q || {};
   var args = [], where = '';
   if (STATUSES.indexOf(q.status) >= 0) { args.push(q.status); where = 'WHERE o.status = $1 '; }
+  else where = "WHERE o.status <> 'unpaid' ";
   var rows = (await pool.query(ORDER_SELECT + where + 'ORDER BY o.created_at DESC LIMIT 200', args)).rows;
   var sums = (await pool.query(
-    "SELECT count(*) FILTER (WHERE o.status = 'new') AS fresh, count(*) FILTER (WHERE o.status = 'ready') AS ready, " +
-    "coalesce(sum(o.total) FILTER (WHERE o.created_at >= date_trunc('month', now()) AND o.status <> 'cancelled'), 0) AS month, " +
-    "count(*) FILTER (WHERE o.created_at >= date_trunc('month', now()) AND o.status <> 'cancelled') AS month_count, " +
+    "SELECT count(*) FILTER (WHERE o.status = 'new') AS fresh, count(*) FILTER (WHERE o.status = 'unpaid') AS unpaid, count(*) FILTER (WHERE o.status = 'ready') AS ready, count(*) FILTER (WHERE o.status = 'making') AS making, count(*) FILTER (WHERE o.status = 'out') AS out_now, " +
+    "coalesce(sum(o.total) FILTER (WHERE o.created_at >= date_trunc('month', now()) AND o.status NOT IN ('cancelled', 'unpaid')), 0) AS month, " +
+    "count(*) FILTER (WHERE o.created_at >= date_trunc('month', now()) AND o.status NOT IN ('cancelled', 'unpaid')) AS month_count, " +
     "count(*) FILTER (WHERE i.status = 'paid' AND o.created_at >= date_trunc('month', now())) AS month_paid " +
     'FROM shop_orders o LEFT JOIN invoices i ON i.id = o.invoice_id')).rows[0];
   return {
     orders: rows.map(orderOut), settings: await settingsOf(),
-    totals: { fresh: Number(sums.fresh), ready: Number(sums.ready), month: round2(sums.month), monthCount: Number(sums.month_count), monthPaid: Number(sums.month_paid) },
+    totals: { fresh: Number(sums.fresh), unpaid: Number(sums.unpaid), ready: Number(sums.ready), making: Number(sums.making), out: Number(sums.out_now), month: round2(sums.month), monthCount: Number(sums.month_count), monthPaid: Number(sums.month_paid) },
     url: config.bplSiteUrl, payOnline: require('./invoicePay.service').configured()
   };
 }
 
-// PATCH /api/shop-orders/:id { status } — ready (the customer is texted when
-// texts are set up), done, or cancelled (its invoice voided when nothing was paid).
+// PATCH /api/shop-orders/:id { status } — being made, ready (the customer is
+// texted when texts are set up), on its way, done, or cancelled (its invoice
+// voided when nothing was paid). An unpaid order can only be cancelled.
 async function setStatus(ctx, id, p) {
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
   var status = STATUSES.indexOf((p || {}).status) >= 0 ? p.status : fail('invalid', 'Unknown status.');
+  if (status === 'unpaid') fail('invalid', 'An order is unpaid until its invoice is paid.');
   var o = (await pool.query(ORDER_SELECT + 'WHERE o.id = $1', [id])).rows[0];
   if (!o) fail('notfound', 'That order is gone.');
   if (o.status === status) return orderOut(o);
   if (o.status === 'cancelled') fail('conflict', 'That order was cancelled.');
+  if (o.status === 'unpaid' && status !== 'cancelled') fail('conflict', 'Not paid yet: it is placed once its invoice is paid. Record the payment on the invoice.');
+  if (status === 'out' && o.fulfilment !== 'delivery') fail('invalid', 'Only a delivery goes out: a pickup is collected (done).');
   if (status === 'cancelled' && o.invoice_id && Number(o.amount_paid) > 0) fail('conflict', 'Something was paid on its invoice: refund it from the invoice first.');
-  await pool.query('UPDATE shop_orders SET status = $2 WHERE id = $1', [id, status]);
+  await pool.query("UPDATE shop_orders SET status = $2, steps = steps || jsonb_build_object($2::text, to_jsonb(now())) WHERE id = $1", [id, status]);
   if (status === 'cancelled' && o.invoice_id && o.invoice_status !== 'void') {
     try { await require('./invoices.service').voidInvoice(ctx, o.invoice_id, 'Shop order ' + o.order_no + ' cancelled.'); } catch (e) { /* left for the invoice page */ }
   }
-  var texted = false;
-  if (status === 'ready') {
+  // The customer is told: by text when it is ready or on its way, by email at every step.
+  var link = o.token ? ' Follow it: ' + config.bplSiteUrl + '/o/' + o.token : '';
+  var words = {
+    making: 'Bamboo Products: we have started making your order ' + o.order_no + '.' + (o.ready_by ? ' It should be ready by ' + longDay(dayText(o.ready_by)) + '.' : '') + link,
+    ready: 'Bamboo Products: your order ' + o.order_no + (o.fulfilment === 'delivery' ? ' is ready; we will deliver it soon.' : ' is ready for pickup.') + link,
+    out: 'Bamboo Products: your order ' + o.order_no + ' is on its way to you.' + link,
+    done: 'Bamboo Products: your order ' + o.order_no + (o.fulfilment === 'delivery' ? ' was delivered.' : ' was collected.') + ' Thank you!'
+  }[status];
+  var texted = false, emailed = false;
+  if (words && (status === 'ready' || status === 'out')) {
     var sms = require('./sms.service');
-    if (sms.configured()) {
-      try {
-        await sms.send({ to: o.phone, message: 'Bamboo Products: your order ' + o.order_no + (o.fulfilment === 'delivery' ? ' is ready and on its way to you.' : ' is ready for pickup.') + ' Thank you!', purpose: 'shop_order', refId: o.id });
-        texted = true;
-      } catch (e) { /* staff call instead */ }
-    }
+    if (sms.configured()) { try { await sms.send({ to: o.phone, message: words, purpose: 'shop_order', refId: o.id }); texted = true; } catch (e) { /* staff call instead */ } }
+  }
+  if (words && o.email) {
+    try {
+      var mail = require('./mail.service');
+      if (mail.configured()) {
+        await mail.send({ to: o.email, subject: 'Your order ' + o.order_no + ': ' + { making: 'being made', ready: 'ready', out: 'on its way', done: 'thank you' }[status], fromName: 'Bamboo Products', text: words,
+          html: '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937">' + mail.escapeHtml(words) + '</div>' });
+        emailed = true;
+      }
+    } catch (e) { /* the page shows it */ }
   }
   await audit(pool, ctx, 'shop.order_' + status, 'shop_order', id, o.order_no + ' marked ' + status + (texted ? ' (customer texted).' : '.'));
-  return Object.assign(orderOut((await pool.query(ORDER_SELECT + 'WHERE o.id = $1', [id])).rows[0]), { texted: texted });
+  return Object.assign(orderOut((await pool.query(ORDER_SELECT + 'WHERE o.id = $1', [id])).rows[0]), { texted: texted, emailed: emailed });
+}
+
+// GET /api/shop/orders/:token — an order's own page for its customer: where
+// it stands and when each step came, what is in it, the days it will be
+// ready between, and its invoice to pay. Not the phone or the email.
+async function track(token) {
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(String(token || ''))) fail('notfound', 'We cannot find that order.');
+  var o = (await pool.query(
+    'SELECT o.*, i.invoice_no, i.status AS invoice_status, i.balance_due, i.amount_paid, i.grand_total, ds.token AS share_token FROM shop_orders o ' +
+    'LEFT JOIN invoices i ON i.id = o.invoice_id LEFT JOIN document_shares ds ON ds.id = o.share_id WHERE o.token = $1', [token])).rows[0];
+  if (!o) fail('notfound', 'We cannot find that order.');
+  var s = await settingsOf();
+  return {
+    orderNo: o.order_no, status: o.status, fulfilment: o.fulfilment, name: String(o.name).split(' ')[0], address: o.address, area: o.area || '', note: o.note,
+    lines: (o.lines || []).map(function (l) { return { description: l.description, qty: l.qty, unitPrice: l.unitPrice, makeDays: l.makeDays || null }; }),
+    deliveryFee: round2(o.delivery_fee || 0), discount: round2(o.discount || 0), promoCode: o.promo_code || '', total: round2(o.total),
+    readyFrom: o.ready_from ? dayText(o.ready_from) : null, readyBy: o.ready_by ? dayText(o.ready_by) : null,
+    steps: o.steps || {}, placedAt: o.created_at, pickupAddress: o.fulfilment === 'pickup' ? s.pickupAddress : '',
+    invoice: o.invoice_no ? { invoiceNo: o.invoice_no, status: o.invoice_status, paid: o.invoice_status === 'paid', balance: round2(o.balance_due), amountPaid: round2(o.amount_paid), token: o.share_token || null } : null,
+    payOnline: require('./invoicePay.service').configured()
+  };
 }
 
 // GET/PUT /api/shop/settings — the shop on or off, its words, which categories, delivery and pickup.
@@ -349,7 +464,8 @@ async function saveSettings(ctx, p) {
     on: !!p.on, title: text(p.title, 80) || DEFAULTS.title, intro: text(p.intro, 400),
     categories: (Array.isArray(p.categories) ? p.categories : []).filter(function (c) { return known.indexOf(c) >= 0; }),
     delivery: !!p.delivery, pickup: !!p.pickup, pickupAddress: text(p.pickupAddress, 200), deliveryNote: text(p.deliveryNote, 300),
-    codes: p.codes !== undefined ? cleanCodes(p.codes) : (await settingsOf()).codes
+    codes: p.codes !== undefined ? cleanCodes(p.codes) : (await settingsOf()).codes,
+    areas: p.areas !== undefined ? cleanAreas(p.areas) : (await settingsOf()).areas
   };
   if (s.on && !s.delivery && !s.pickup) fail('invalid', 'Offer delivery, pickup or both.');
   if (Array.isArray(p.codes) && p.codes.length !== s.codes.length) fail('invalid', 'Each code needs 3 or more letters or numbers, used once, and a value (a percentage up to 90).');
@@ -385,4 +501,4 @@ async function saveMakeDays(ctx, p) {
   return getSettings(ctx);
 }
 
-module.exports = { view: view, photoKey: photoKey, place: place, checkCode: checkCode, saveMakeDays: saveMakeDays, readyOf: readyOf, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };
+module.exports = { _placedBy: placedBy, view: view, photoKey: photoKey, place: place, track: track, invoicePaid: invoicePaid, sweepUnpaid: sweepUnpaid, checkCode: checkCode, saveMakeDays: saveMakeDays, readyOf: readyOf, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };

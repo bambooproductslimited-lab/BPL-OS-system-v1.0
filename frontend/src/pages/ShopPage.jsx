@@ -2,16 +2,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { API_URL } from '../api/client';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import DeviceLanguage from '../components/DeviceLanguage';
+import { loadToken, portalCall, saveSignup, saveToken } from '../lib/portal';
 import './ShopPage.css';
 
 // Bamboo Products' online shop at /shop (backend shop.service.js): public,
 // outside the OS's frame. The catalogue's items put on the shop, by
 // category, with a search; an item's sheet with its photos and choices; a
-// basket kept on this phone; and the order — delivery or pickup — which
-// becomes an invoice, opened to pay at once (by card or Mobile Money when
-// online payments are on, else by the bank details on it). Items made to
-// order say how many days they take, and the checkout the days the order
-// will be ready between; a discount code is checked before it is placed.
+// basket kept on this phone; and the order — delivery or pickup — paid
+// before it is placed: the checkout goes straight on to pay by card or
+// Mobile Money (when online payments are on; else the invoice says how),
+// and the order is placed once it is paid. Items made to order say how many
+// days they take, and the checkout the days the order will be ready
+// between; a discount code is checked before it is placed. A signed-in
+// customer's details are filled in; anyone else may ask for an account.
 
 const CART_KEY = 'bplShopCart';
 function loadCart() { try { const c = JSON.parse(localStorage.getItem(CART_KEY) || '[]'); return Array.isArray(c) ? c : []; } catch { return []; } }
@@ -37,7 +40,8 @@ function readyOf(mds) {
   const from = Math.max(...list.map((m) => m.from)), to = Math.max(...list.map((m) => m.to));
   return { from: at(from), by: at(to), days: { from, to } };
 }
-function dayWords(d) { return new Date(d).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }); }
+// Without a closing full stop ("29 oct."): the sentence brings its own.
+function dayWords(d) { return new Date(d).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\.$/, ''); }
 
 function ItemSheet({ item, onAdd, onClose }) {
   const [vid, setVid] = useState(item.variations[0].id);
@@ -90,9 +94,13 @@ function ItemSheet({ item, onAdd, onClose }) {
   );
 }
 
-function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
+function Checkout({ shop, cart, items, setCart, me, onDone, onClose }) {
   const [how, setHow] = useState(shop.delivery ? 'delivery' : 'pickup');
-  const [f, setF] = useState({ name: '', phone: '', email: '', address: '', note: '' });
+  const mine = (me && me.profile) || {};
+  const [f, setF] = useState({ name: mine.name || '', phone: mine.phone || '', email: mine.email || '', address: mine.address || '', note: '', area: '' });
+  const [account, setAccount] = useState(false);
+  const areas = shop.areas || [];
+  const area = how === 'delivery' ? areas.find((a) => a.name === f.area) : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [code, setCode] = useState('');
@@ -105,7 +113,8 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
   }).filter(Boolean);
   const total = lines.reduce((a, l) => a + l.v.price * l.qty, 0);
   const ready = readyOf(lines.map((l) => made(l.item.makeDays)));
-  const toPay = Math.max(0, total - (promo ? promo.discount : 0));
+  const fee = area ? area.fee : 0;
+  const toPay = Math.max(0, total - (promo ? promo.discount : 0)) + fee;
   // The basket changed: the code is checked again for it.
   useEffect(() => {
     if (!promo) return;
@@ -124,8 +133,10 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
     setBusy(true); setError(null);
     try {
       const r = await call('POST', '/shop/orders', { ...f, fulfilment: how, code: promo ? promo.code : '', lines: lines.map((l) => ({ variationId: l.variationId, qty: l.qty })), website: '' });
+      // The account is made on the order's page, once it is paid.
+      if (account && !me) saveSignup({ name: f.name, email: f.email, phone: f.phone });
       onDone(r);
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) { setError(err.message); setBusy(false); }
   }
   return (
     <div className="shp-back" onClick={onClose}>
@@ -165,8 +176,9 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
           </div>
         )}
         {promo && promo.discount > 0 && <div className="shp-total is-off"><span>{tr('Discount ({code})', { code: promo.code })}</span><strong>− {cedis(promo.discount)}</strong></div>}
+        {area && fee > 0 && <div className="shp-total is-fee"><span>{tr('Delivery to {area}', { area: area.name })}</span><strong>+ {cedis(fee)}</strong></div>}
         <div className="shp-total"><span>{tr('Total')}</span><strong>{cedis(toPay)}</strong></div>
-        <p className="shp-hint">{tr('Prices include what is charged on the invoice; delivery is agreed with you on the phone.')}</p>
+        <p className="shp-hint">{areas.length ? tr('Prices include what is charged on the invoice.') : tr('Prices include what is charged on the invoice; delivery is agreed with you on the phone.')}</p>
         {ready && (
           <div className="shp-ready" role="note">
             <span className="shp-ready-ico" aria-hidden="true">🗓️</span>
@@ -181,30 +193,55 @@ function Checkout({ shop, cart, items, setCart, onDone, onClose }) {
             <button type="button" role="radio" aria-checked={how === 'pickup'} className={how === 'pickup' ? 'is-on' : ''} onClick={() => setHow('pickup')}><span aria-hidden="true">🏬</span><strong>{tr('Pickup')}</strong><small>{shop.pickupAddress || tr('at our showroom')}</small></button>
           </div>
         )}
+        {me && <p className="shp-signed">👤 {tr('Signed in as {who}: your details are filled in.', { who: me.signedInAs })}</p>}
         <label className="shp-field"><span>{tr('Your name')}</span><input className="input" required maxLength={120} autoComplete="name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label>
         <div className="shp-two">
           <label className="shp-field"><span>{tr('Phone number')}</span><input className="input" type="tel" inputMode="tel" required autoComplete="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="024 000 0000" /></label>
           <label className="shp-field"><span>{tr('Email (for the invoice)')}</span><input className="input" type="email" autoComplete="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
         </div>
+        {how === 'delivery' && areas.length > 0 && (
+          <div className="shp-field"><span>{tr('Your area')}</span>
+            <div className="shp-areas" role="radiogroup" aria-label={tr('Your area')}>
+              {areas.map((a) => (
+                <button key={a.name} type="button" role="radio" aria-checked={f.area === a.name} className={f.area === a.name ? 'is-on' : ''} onClick={() => setF({ ...f, area: a.name })}>
+                  <strong>{a.name}</strong><small>{a.fee > 0 ? cedis(a.fee) : tr('Free')}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {how === 'delivery' && <label className="shp-field"><span>{tr('Delivery address or landmark')}</span><input className="input" required maxLength={300} autoComplete="street-address" value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} /></label>}
         {how === 'delivery' && shop.deliveryNote && <p className="shp-hint">🚚 {shop.deliveryNote}</p>}
         <label className="shp-field"><span>{tr('Anything we should know? (optional)')}</span><input className="input" maxLength={500} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} placeholder={tr('e.g. sizes, colours, a time to call')} /></label>
+        {!me && (
+          <label className="shp-acct-opt">
+            <input type="checkbox" checked={account} onChange={(e) => setAccount(e.target.checked)} />
+            <span><strong>{tr('Create an account with these details')}</strong><small>{tr('To follow your orders and invoices later, and check out faster. We send you a code once you have paid.')}</small></span>
+          </label>
+        )}
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <button type="submit" className="shp-go is-big" disabled={busy || !lines.length}>{busy ? tr('One moment…') : tr('Place the order · {amount}', { amount: cedis(toPay) })}</button>
-        <p className="shp-hint is-center">{shop.payOnline ? tr('Next: your invoice, to pay by card or Mobile Money.') : tr('Next: your invoice, with how to pay it.')}</p>
+        <button type="submit" className="shp-go is-big" disabled={busy || !lines.length || (how === 'delivery' && areas.length > 0 && !area)}>
+          {busy ? tr('One moment…') : shop.payOnline ? '🔒 ' + tr('Pay {amount}', { amount: cedis(toPay) }) : tr('Place the order · {amount}', { amount: cedis(toPay) })}</button>
+        <p className="shp-hint is-center">{shop.payOnline ? tr('Next: pay by card or Mobile Money. Your order is placed once it is paid.') : tr('Next: your invoice, with how to pay it. Your order is placed once it is paid.')}</p>
       </form>
     </div>
   );
 }
 
+// Placed without going on to pay (online payments off, or Paystack did not
+// answer): what is left is to pay; the order starts once it is.
 function Placed({ r, onShop }) {
   return (
     <div className="shp shp-done">
-      <span className="shp-done-art" aria-hidden="true">{['🎉', '🎋', '✨'].map((x, i) => <i key={i} style={{ '--i': i }}>{x}</i>)}</span>
-      <h1>{tr('Thank you! Order {no} is in.', { no: r.orderNo })}</h1>
-      <p>{tr('Its invoice {no} for {amount} is ready. We will call you to agree the delivery or pickup.', { no: r.invoiceNo, amount: cedis(r.total) })}</p>
+      <span className="shp-done-art" aria-hidden="true">{['💳', '🎋', '✨'].map((x, i) => <i key={i} style={{ '--i': i }}>{x}</i>)}</span>
+      <h1>{tr('Almost there! Order {no} is waiting for your payment.', { no: r.orderNo })}</h1>
+      <p>{r.payOnline ? tr('Pay {amount} by card or Mobile Money; we start on your order as soon as it is paid.', { amount: cedis(r.total) })
+        : tr('Pay its invoice {no} of {amount} as it says; we start on your order as soon as it is paid. Unpaid orders are cancelled after two days.', { no: r.invoiceNo, amount: cedis(r.total) })}</p>
       {r.ready && <p className="shp-ready is-done"><span aria-hidden="true">🛠️</span>{tr('It is made to order for you: ready between {from} and {to}.', { from: dayWords(r.ready.from + 'T12:00:00'), to: dayWords(r.ready.by + 'T12:00:00') })}</p>}
-      <a className="shp-go is-big" href={'/share/' + r.token}>{r.payOnline ? '💳 ' + tr('See the invoice and pay') : '🧾 ' + tr('See the invoice')}</a>
+      {r.payOnline && r.orderToken
+        ? <a className="shp-go is-big" href={'/o/' + r.orderToken}>💳 {tr('Pay {amount}', { amount: cedis(r.total) })}</a>
+        : <a className="shp-go is-big" href={'/share/' + r.token}>🧾 {tr('See the invoice and how to pay')}</a>}
+      {r.orderToken && !r.payOnline && <a className="shp-go is-big is-ghost" href={'/o/' + r.orderToken}>📦 {tr('Follow your order')}</a>}
       <button type="button" className="shp-go is-ghost" onClick={onShop}>{tr('Back to the shop')}</button>
     </div>
   );
@@ -220,7 +257,14 @@ export default function ShopPage() {
   const [checkout, setCheckout] = useState(false);
   const [placed, setPlaced] = useState(null);
   const [bump, setBump] = useState(0);
+  const [me, setMe] = useState(null);
+  const [going, setGoing] = useState(false);
   useEffect(() => { call('GET', '/shop').then((d) => { setData(d); document.title = d.shop.title; }).catch((e) => setError(e.message)); }, []);
+  // Signed in to "My account": their details for the checkout.
+  useEffect(() => {
+    const token = loadToken();
+    if (token) portalCall('GET', '/portal/me', null, token).then(setMe).catch((e) => { if (e.status === 401) saveToken(''); });
+  }, []);
   function setCart(c) { setCartState(c); saveCart(c); }
   function add(item, v, qty) {
     const have = cart.find((c) => c.variationId === v.id);
@@ -235,6 +279,7 @@ export default function ShopPage() {
 
   if (error) return <div className="shp shp-mid"><img src="/logo.png" alt="Bamboo Products Limited" className="shp-logo" /><h1>{tr('The shop is closed for now')}</h1><p>{error}</p></div>;
   if (!data) return <div className="shp shp-mid"><span className="shp-spin" aria-hidden="true">🎋</span><p>{tr('Loading…')}</p></div>;
+  if (going) return <div className="shp shp-mid"><span className="shp-spin" aria-hidden="true">💳</span><h1>{tr('On to pay…')}</h1><p>{tr('Your order is placed as soon as it is paid.')}</p></div>;
   if (placed) return <Placed r={placed} onShop={() => setPlaced(null)} />;
   const s = data.shop;
   return (
@@ -243,7 +288,10 @@ export default function ShopPage() {
         <span className="shp-leaves" aria-hidden="true">{LEAVES.map((x, i) => <i key={i} style={{ '--i': i }}>{x}</i>)}</span>
         <div className="shp-hero-top">
           <img src="/logo.png" alt="" className="shp-logo" />
-          <DeviceLanguage className="shp-lang" />
+          <span className="shp-hero-acts">
+            <a className="shp-acct" href="/account">👤 {me && me.name ? me.name.split(' ')[0] : tr('My account')}</a>
+            <DeviceLanguage className="shp-lang" />
+          </span>
         </div>
         <h1>{s.title}</h1>
         {s.intro && <p>{s.intro}</p>}
@@ -289,8 +337,13 @@ export default function ShopPage() {
         </button>
       )}
       {open && <ItemSheet item={open} onAdd={add} onClose={() => setOpen(null)} />}
-      {checkout && <Checkout shop={s} cart={cart} items={items} setCart={setCart} onClose={() => setCheckout(false)}
-        onDone={(r) => { setCart([]); setCheckout(false); setPlaced(r); window.scrollTo(0, 0); }} />}
+      {checkout && <Checkout shop={s} cart={cart} items={items} setCart={setCart} me={me} onClose={() => setCheckout(false)}
+        onDone={(r) => {
+          setCart([]); setCheckout(false);
+          // Straight on to Paystack's page, back to the order's own page.
+          if (r.payUrl) { setGoing(true); window.location.assign(r.payUrl); return; }
+          setPlaced(r); window.scrollTo(0, 0);
+        }} />}
       <footer className="shp-foot">Bamboo Products Limited · {tr('Made in Ghana from bamboo')} 🎋</footer>
     </div>
   );

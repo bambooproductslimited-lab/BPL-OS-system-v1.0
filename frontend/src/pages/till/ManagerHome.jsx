@@ -15,7 +15,7 @@ import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 
 const SECTIONS = [
   ['reports', msg('Reports'), msg('What happened on the till, and what is owed.'), [
-    ['sales', 'up', msg('Sales')], ['closeday', 'check', msg('Close the day')], ['insights', 'pulse', msg('Insights')], ['tips', 'cash', msg('Tips')], ['foodcost', 'percent', msg('Food cost')], ['monthly', 'calendar', msg('Monthly report')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
+    ['sales', 'up', msg('Sales')], ['closeday', 'check', msg('Close the day')], ['insights', 'pulse', msg('Insights')], ['tickettimes', 'clock', msg('Ticket times')], ['tips', 'cash', msg('Tips')], ['foodcost', 'percent', msg('Food cost')], ['monthly', 'calendar', msg('Monthly report')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
   ['guestsGroup', msg('Guests'), msg('What guests said, texts and emails to them, loyalty points and gift cards.'), [
     ['feedback', 'star', msg('Feedback')], ['campaigns', 'send', msg('Texts and emails')], ['loyalty', 'star', msg('Loyalty')], ['giftcards', 'card', msg('Gift cards')]]],
   ['menu', msg('Menu and stock'), msg('What the till sells, at what price, and what is left.'), [
@@ -40,6 +40,7 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
     ask('/pos/stock', { action: 'list' }, 'stock', (d) => ({ low: d.menu.concat(d.supplies, d.ingredients).filter((i) => i.isLow).length, items: d.menu.length }));
     ask('/pos/settings/feedback', {}, 'feedback', (d) => d.summary);
     ask('/pos/settings/tips', {}, 'tips', (d) => ({ total: d.total, owed: d.owed }));
+    ask('/pos/settings/tickettimes', {}, 'tickettimes', (d) => ({ ...d.totals, targets: d.targets }));
     ask('/pos/settings/costs', { action: 'report' }, 'costs', (d) => d.totals);
     ask('/pos/settings/screens', { action: 'list' }, 'screens', (d) => ({ set: d.screens.length, online: d.screens.filter((s) => s.online).length, waiting: d.waiting.length }));
     ask('/pos/settings/closeday', { action: 'preview' }, 'closeday', (d) => ({ closed: d.closed, net: d.live.sales.net, open: d.live.openOrders.count }));
@@ -52,6 +53,7 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
   function figure(k) {
     const s = live.sales, dr = live.drawers, dp = live.disputes, ac = live.accounts, st = live.stock, sc = live.screens, fb = live.feedback, tp = live.tips, fc = live.costs;
     if (k === 'feedback' && fb) return fb.open ? [String(fb.open), tr('unhappy, to follow up'), 'warn'] : fb.average != null ? [fb.average.toFixed(1) + ' / 5', fb.count === 1 ? tr('1 guest said, last 7 days') : tr('{n} guests said, last 7 days', { n: fb.count })] : null;
+    if (k === 'tickettimes' && live.tickettimes && live.tickettimes.median != null) { const tt = live.tickettimes; return [tr('{n} min', { n: tt.median }), tt.onTime != null ? tr('{n}% on time, last 7 days', { n: tt.onTime }) : tr('last 7 days'), tt.median > tt.targets.lateAfter ? 'warn' : null]; }
     if (k === 'tips' && tp) return [money(tp.total), tp.owed > 0 ? tr('{amount} to hand out', { amount: money(tp.owed) }) : tr('last 7 days'), tp.owed > 0 ? 'warn' : null];
     if (k === 'foodcost' && fc && fc.foodCost != null) return [fc.foodCost + '%', tr('food cost, last 7 days'), fc.foodCost > 38 ? 'warn' : null];
     if (k === 'sales' && s) return [money(s.net), s.sales === 1 ? tr('1 sale today') : tr('{n} sales today', { n: s.sales })];

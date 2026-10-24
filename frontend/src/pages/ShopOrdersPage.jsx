@@ -16,9 +16,9 @@ import './ShopOrdersPage.css';
 // (made to order), which the customer sees before ordering.
 
 const STATUS = {
-  new: ['🆕', () => tr('New')], ready: ['📦', () => tr('Ready')], done: ['✅', () => tr('Done')], cancelled: ['✕', () => tr('Cancelled')]
+  unpaid: ['💳', () => tr('Not paid yet')], new: ['🆕', () => tr('New')], making: ['🛠️', () => tr('Being made')], ready: ['📦', () => tr('Ready')], out: ['🚚', () => tr('On its way')], done: ['✅', () => tr('Done')], cancelled: ['✕', () => tr('Cancelled')]
 };
-const FILTERS = [['', () => tr('All')], ['new', () => tr('New')], ['ready', () => tr('Ready')], ['done', () => tr('Done')], ['cancelled', () => tr('Cancelled')]];
+const FILTERS = [['', () => tr('All')], ['new', () => tr('New')], ['making', () => tr('Being made')], ['ready', () => tr('Ready')], ['out', () => tr('On its way')], ['done', () => tr('Done')], ['unpaid', () => tr('Not paid yet')], ['cancelled', () => tr('Cancelled')]];
 function dayWords(day) { return new Date(day + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }); }
 const NEW_CODE = { code: '', kind: 'percent', value: 10, minTotal: 0, endsOn: null, maxUses: 0, on: true };
 
@@ -144,6 +144,20 @@ function SettingsDialog({ onClose, onSaved }) {
               <label className="sho-check"><input type="checkbox" checked={s.pickup} onChange={(e) => setS({ ...s, pickup: e.target.checked })} />🏬 {tr('Pickup')}</label>
             </div>
             {s.pickup && <label className="sho-field">{tr('Where to pick up')}<input className="input" maxLength={200} value={s.pickupAddress} onChange={(e) => setS({ ...s, pickupAddress: e.target.value })} placeholder={tr('e.g. our showroom')} /></label>}
+            {s.delivery && (
+              <fieldset className="sho-fs">
+                <legend>🚚 {tr('Delivery areas')}</legend>
+                <p className="muted">{s.areas && s.areas.length ? tr('Customers choose their area; its fee goes on the invoice.') : tr('None: the delivery fee is agreed on the phone.')}</p>
+                {(s.areas || []).map((a, i) => (
+                  <div key={i} className="sho-area">
+                    <input className="input" maxLength={60} value={a.name} onChange={(e) => setS({ ...s, areas: s.areas.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} placeholder={tr('e.g. Accra')} aria-label={tr('Area')} />
+                    <label className="sho-area-fee">GHS<input className="input" type="number" min="0" step="1" value={a.fee} onChange={(e) => setS({ ...s, areas: s.areas.map((x, j) => (j === i ? { ...x, fee: Number(e.target.value) } : x)) })} aria-label={tr('Delivery fee (GHS)')} /></label>
+                    <button type="button" className="sho-code-x" onClick={() => setS({ ...s, areas: s.areas.filter((_, j) => j !== i) })} aria-label={tr('Remove')}>✕</button>
+                  </div>
+                ))}
+                <button type="button" className="btn btn-secondary sho-code-add" onClick={() => setS({ ...s, areas: (s.areas || []).concat([{ name: '', fee: 0 }]) })}>＋ {tr('Add an area')}</button>
+              </fieldset>
+            )}
             {s.delivery && <label className="sho-field">{tr('About delivery')}<input className="input" maxLength={300} value={s.deliveryNote} onChange={(e) => setS({ ...s, deliveryNote: e.target.value })} placeholder={tr('e.g. Delivery fee agreed on the phone; 2–5 days.')} /></label>}
             <CodesEditor codes={s.codes || []} uses={d.codeUses || {}} onChange={(codes) => setS({ ...s, codes })} />
             <p className={'sho-pay' + (d.payOnline ? ' is-on' : '')}>{d.payOnline ? '💳 ' + tr('Customers pay their invoice online by card or Mobile Money.') : '🏦 ' + tr('Online payments are not set up (PAYSTACK_BPL_SECRET_KEY on the server): customers pay by the bank details on the invoice.')}</p>
@@ -184,7 +198,7 @@ export default function ShopOrdersPage() {
     setBusy(o.id);
     try {
       const r = await api.patch('/shop-orders/' + o.id, { status });
-      setToast(status === 'ready' ? (r.texted ? tr('{no} is ready: {name} was texted.', { no: o.orderNo, name: o.name }) : tr('{no} is ready.', { no: o.orderNo })) : tr('{no} updated.', { no: o.orderNo }));
+      setToast((status === 'ready' || status === 'out') && r.texted ? tr('{no}: {name} was texted.', { no: o.orderNo, name: o.name }) : r.emailed ? tr('{no}: {name} was emailed.', { no: o.orderNo, name: o.name }) : tr('{no} updated.', { no: o.orderNo }));
       load();
     } catch (e) { setToast(e.message); } finally { setBusy(null); }
   }
@@ -199,7 +213,7 @@ export default function ShopOrdersPage() {
         <div className="sho-hero-main">
           <span className={'sho-state' + (data.settings.on ? ' is-on' : '')}><i />{data.settings.on ? tr('The shop is open') : tr('The shop is closed')}</span>
           <h1>{tr('Online shop')}</h1>
-          <p>{tr('Orders from the shop on the website: each is an invoice the customer can pay online. Mark them ready and done as they go out.')}</p>
+          <p>{tr('Orders from the shop on the website, paid before they show here; checkouts not paid wait under "Not paid yet" and are cancelled after two days. Move them along: the customer is told at each step.')}</p>
         </div>
         <div className="sho-hero-acts">
           <a className="btn btn-secondary" href={data.url} target="_blank" rel="noreferrer">↗ {tr('Open the shop')}</a>
@@ -210,13 +224,14 @@ export default function ShopOrdersPage() {
 
       <div className="sho-stats">
         <div className={'sho-stat' + (t.fresh ? ' is-hot' : '')}><small>{tr('New orders')}</small><strong>{t.fresh}</strong><span>{tr('to call and prepare')}</span></div>
-        <div className="sho-stat"><small>{tr('Ready')}</small><strong>{t.ready}</strong><span>{tr('waiting to go out')}</span></div>
+        <div className="sho-stat"><small>{tr('Being made')}</small><strong>{t.making || 0}</strong><span>{tr('in the workshop')}</span></div>
+        <div className="sho-stat"><small>{tr('Ready')}</small><strong>{t.ready}</strong><span>{t.out ? tr('{n} on its way', { n: t.out }) : tr('waiting to go out')}</span></div>
         <div className="sho-stat"><small>{tr('This month')}</small><strong>{money(t.month)}</strong><span>{t.monthCount === 1 ? tr('1 order') : tr('{n} orders', { n: t.monthCount })}</span></div>
         <div className="sho-stat"><small>{tr('Paid this month')}</small><strong>{t.monthPaid}</strong><span>{data.payOnline ? tr('card and Mobile Money online') : tr('online payments off')}</span></div>
       </div>
 
       <div className="sho-filters" role="tablist" aria-label={tr('Which orders')}>
-        {FILTERS.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label()}</button>)}
+        {FILTERS.map(([k, label]) => <button key={k} type="button" role="tab" aria-selected={filter === k} className={filter === k ? 'is-on' : ''} onClick={() => setFilter(k)}>{label()}{k === 'unpaid' && t.unpaid > 0 && <em className="sho-count">{t.unpaid}</em>}</button>)}
       </div>
 
       {!data.orders.length ? (
@@ -239,7 +254,7 @@ export default function ShopOrdersPage() {
                   <span><strong>{o.name}</strong><small><a href={'tel:' + o.phone}>{o.phone}</a>{o.email ? ' · ' + o.email : ''}</small></span>
                   <span className={'sho-how is-' + o.fulfilment}>{o.fulfilment === 'delivery' ? '🚚 ' + tr('Delivery') : '🏬 ' + tr('Pickup')}</span>
                 </div>
-                {o.address && <p className="sho-o-addr">📍 {o.address}</p>}
+                {o.address && <p className="sho-o-addr">📍 {o.address}{o.area ? ' · ' + o.area : ''}{o.deliveryFee > 0 ? ' · ' + tr('delivery {amount}', { amount: money(o.deliveryFee) }) : ''}</p>}
                 <ul className="sho-o-lines">
                   {o.lines.map((l) => <li key={l.variationId}><b>{l.qty}×</b> {l.description}<span>{money(l.unitPrice * l.qty)}</span></li>)}
                 </ul>
@@ -250,7 +265,9 @@ export default function ShopOrdersPage() {
                   </div>
                 )}
                 {o.note && <p className="sho-o-note">“{o.note}”</p>}
+                {o.status === 'unpaid' && <p className="sho-o-wait">⏳ {tr('Waiting for the customer to pay. It is placed once its invoice is paid: record a payment on the invoice if they paid you another way.')}</p>}
                 <div className="sho-o-foot">
+                  {o.trackUrl && <a className="sho-track" href={o.trackUrl} target="_blank" rel="noreferrer">🔗 {tr('Their page')}</a>}
                   {o.invoice && (
                     <Link className={'sho-inv' + (paid ? ' is-paid' : '')} to={'/invoices?open=' + o.invoice.id}>
                       🧾 {o.invoice.invoiceNo} · {paid ? tr('Paid') : o.invoice.status === 'void' ? tr('Voided') : tr('{amount} due', { amount: money(o.invoice.balance) })}
@@ -258,9 +275,12 @@ export default function ShopOrdersPage() {
                   )}
                   {can('invoice.manage') && (
                     <span className="sho-acts">
-                      {o.status === 'new' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'ready')}>📦 {tr('Mark ready')}</button>}
-                      {o.status === 'ready' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'done')}>✅ {tr('Mark done')}</button>}
-                      {(o.status === 'new' || o.status === 'ready') && <button type="button" className="btn btn-secondary" disabled={busy === o.id} onClick={() => mark(o, 'cancelled')}>{tr('Cancel')}</button>}
+                      {o.status === 'new' && <button type="button" className="btn btn-secondary" disabled={busy === o.id} onClick={() => mark(o, 'making')}>🛠️ {tr('Start making')}</button>}
+                      {(o.status === 'new' || o.status === 'making') && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'ready')}>📦 {tr('Mark ready')}</button>}
+                      {o.status === 'ready' && o.fulfilment === 'delivery' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'out')}>🚚 {tr('Out for delivery')}</button>}
+                      {o.status === 'ready' && o.fulfilment === 'pickup' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'done')}>🤝 {tr('Collected')}</button>}
+                      {o.status === 'out' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'done')}>🏡 {tr('Delivered')}</button>}
+                      {['unpaid', 'new', 'making', 'ready'].includes(o.status) && <button type="button" className="btn btn-secondary" disabled={busy === o.id} onClick={() => mark(o, 'cancelled')}>{tr('Cancel')}</button>}
                     </span>
                   )}
                 </div>

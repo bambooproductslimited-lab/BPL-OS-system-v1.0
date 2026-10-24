@@ -5,6 +5,7 @@ import { money } from '../../lib/currency';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import './rota.css';
 import './eighth.css';
+import './tenth.css';
 
 // The rota, in the till settings (Setup → Rota; backend
 // restaurantRota.service.js): who works when this week, one row a person,
@@ -86,6 +87,9 @@ export default function RotaTab({ token, pin, onFail }) {
   const by = {};
   data.shifts.forEach((s) => { (by[s.employeeId + ':' + s.day] = by[s.employeeId + ':' + s.day] || []).push(s); });
   const thisWeek = data.weekStart <= data.today && data.today <= data.weekEnd;
+  // Who is off when: time off (approved, or asked for) and leave from the OS.
+  const offOf = (id, d) => (data.timeOff || []).find((t) => t.employeeId === id && t.from <= d && t.to >= d);
+  const cantWork = (id, d) => { const a = (data.availability || {})[id]; return !!(a && a.daysOff.includes(new Date(d + 'T00:00:00Z').getUTCDay())); };
 
   return (
     <section className="ts-sec ro">
@@ -126,6 +130,24 @@ export default function RotaTab({ token, pin, onFail }) {
         </div>
       )}
 
+      {data.timeOffOpen && data.timeOffOpen.length > 0 && (
+        <div className="sw-strip toff-strip">
+          <strong>🌴 {tr('Time off to decide')}</strong>
+          <ul>
+            {data.timeOffOpen.map((t) => (
+              <li key={t.id} className="is-taken">
+                <span className="sw-who"><b>{t.name}</b>
+                  <small>{t.from === t.to ? dayName(t.from, { weekday: 'short', day: 'numeric', month: 'short' }) : tr('{from} to {to}', { from: dayName(t.from, { weekday: 'short', day: 'numeric', month: 'short' }), to: dayName(t.to, { weekday: 'short', day: 'numeric', month: 'short' }) })} · {t.days === 1 ? tr('1 day') : tr('{n} days', { n: t.days })}{t.reason ? ' · “' + t.reason + '”' : ''}</small></span>
+                <span className="sw-acts">
+                  <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => act({ action: 'decideTimeOff', timeOffId: t.id, approve: false }, () => tr('Declined: {name} is told.', { name: t.name }))}>{tr('Decline')}</button>
+                  <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act({ action: 'decideTimeOff', timeOffId: t.id, approve: true }, (d) => (d.clashes ? tr('Approved. {name} has {n} shifts on those days: change them on the rota.', { name: t.name, n: d.clashes }) : tr('Approved: {name} is off then.', { name: t.name })))}>✓ {tr('Approve')}</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="ro-cards">
         <div className="ro-card"><small>{tr('Hours planned')}</small><strong>{data.hours.toLocaleString(activeIntlLocale())}</strong><span>{tr('{n} shifts', { n: data.shifts.length })}</span></div>
         <div className="ro-card"><small>{tr('What they cost')}</small><strong>{money(data.cost)}</strong><span>{data.noRate ? tr('{n} shifts with no pay rate', { n: data.noRate }) : tr('at each person\'s rate')}</span></div>
@@ -152,16 +174,20 @@ export default function RotaTab({ token, pin, onFail }) {
             {data.staff.map((p) => (
               <tr key={p.id}>
                 <th className="ro-who"><span className="ro-av" aria-hidden="true">{p.name.replace(/^zq\s+/i, '').slice(0, 1)}</span><span><strong>{p.name}</strong><small>{p.hours ? tr('{n} h', { n: p.hours }) : tr('off all week')}</small></span></th>
-                {days.map((d) => (
-                  <td key={d} className={d === data.today ? 'is-today' : ''}>
+                {days.map((d) => {
+                  const off = offOf(p.id, d);
+                  return (
+                  <td key={d} className={(d === data.today ? 'is-today' : '') + (cantWork(p.id, d) ? ' is-cant' : '')}>
+                    {off && <span className={'toff-chip' + (off.status === 'requested' ? ' is-asked' : '') + (off.kind === 'leave' ? ' is-leave' : '')} title={off.reason || ''}>{off.kind === 'leave' ? '🏖️ ' + tr('Leave') : off.status === 'requested' ? '🌴 ' + tr('Asked off') : '🌴 ' + tr('Off')}</span>}
                     {(by[p.id + ':' + d] || []).map((s) => (
-                      <button key={s.id} type="button" className={'ro-shift is-' + (ROLE_TONE[s.role] || 'none') + (s.published ? '' : ' is-draft')} onClick={() => { setError(''); setEdit(s); }} title={s.note || ''}>
-                        <b>{s.starts}–{s.ends}</b>{s.role && <small>{roleWord(s.role)}</small>}
+                      <button key={s.id} type="button" className={'ro-shift is-' + (ROLE_TONE[s.role] || 'none') + (s.published ? '' : ' is-draft') + (s.off ? ' is-clash' : '')} onClick={() => { setError(''); setEdit(s); }} title={s.off ? tr('They are off that day') : s.unavailable ? tr('They said they cannot work this day') : s.note || ''}>
+                        <b>{s.starts}–{s.ends}</b>{s.role && <small>{roleWord(s.role)}</small>}{(s.off || s.unavailable) && <i className="toff-warn" aria-hidden="true">⚠</i>}
                       </button>
                     ))}
-                    <button type="button" className="ro-add" onClick={() => { setError(''); setEdit({ employeeId: p.id, day: d, starts: data.templates[0] ? data.templates[0].starts : '08:00', ends: data.templates[0] ? data.templates[0].ends : '16:00', role: '', note: '' }); }} aria-label={tr('Add a shift for {name} on {day}', { name: p.name, day: dayName(d, { weekday: 'long' }) })}>+</button>
+                    {!(off && off.status === 'approved') && <button type="button" className="ro-add" onClick={() => { setError(''); setEdit({ employeeId: p.id, day: d, starts: data.templates[0] ? data.templates[0].starts : '08:00', ends: data.templates[0] ? data.templates[0].ends : '16:00', role: '', note: '' }); }} aria-label={tr('Add a shift for {name} on {day}', { name: p.name, day: dayName(d, { weekday: 'long' }) })}>+</button>}
                   </td>
-                ))}
+                  );
+                })}
               </tr>
             ))}
           </tbody>
@@ -247,7 +273,50 @@ export function MyShifts({ token, onToast }) {
         </>
       )}
       {d.waiting.length > 0 && <p className="sw-wait">⏳ {d.waiting.length === 1 ? tr('1 shift you took waits for a manager.') : tr('{n} shifts you took wait for a manager.', { n: d.waiting.length })}</p>}
+      <TimeOff d={d} busy={busy} act={act} />
       {error && <div className="error-banner" role="alert">{error}</div>}
+    </div>
+  );
+}
+
+// Time off: ask for days off (a manager decides), see what was asked, take
+// it back; and the weekdays you cannot work, for whoever plans the rota.
+const TOFF = { requested: ['⏳', () => tr('Waiting')], approved: ['✅', () => tr('Approved')], declined: ['✖', () => tr('Declined')] };
+function TimeOff({ d, busy, act }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [f, setF] = useState({ from: '', to: '', reason: '' });
+  const [daysOff, setDaysOff] = useState(d.availability ? d.availability.daysOff : []);
+  const range = (t) => (t.from === t.to ? dayName(t.from, { weekday: 'short', day: 'numeric', month: 'short' }) : tr('{from} to {to}', { from: dayName(t.from, { day: 'numeric', month: 'short' }), to: dayName(t.to, { day: 'numeric', month: 'short' }) }));
+  const changed = JSON.stringify(daysOff.slice().sort()) !== JSON.stringify(((d.availability && d.availability.daysOff) || []).slice().sort());
+  return (
+    <div className="toff">
+      <h4>🌴 {tr('Time off')}</h4>
+      {(d.timeOff || []).length > 0 && (
+        <ul className="sw-list">
+          {d.timeOff.map((t) => (
+            <li key={t.id} className={'toff-' + t.status}>
+              <span className="sw-when"><b>{range(t)}</b><small>{t.days === 1 ? tr('1 day') : tr('{n} days', { n: t.days })}{t.reason ? ' · ' + t.reason : ''}</small></span>
+              <span className={'sw-tag toff-tag is-' + t.status}>{TOFF[t.status][0]} {TOFF[t.status][1]()}</span>
+              {(t.status === 'requested' || t.status === 'approved') && t.to >= today && <button type="button" className="btn btn-secondary sw-btn" disabled={busy} onClick={() => act({ action: 'timeoffCancel', id: t.id }, tr('Your time off is cancelled.'))}>{tr('Cancel')}</button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="toff-form" onSubmit={(e) => { e.preventDefault(); act({ action: 'timeoff', from: f.from, to: f.to || f.from, reason: f.reason }, tr('Asked: a manager decides, and you are told.')); setF({ from: '', to: '', reason: '' }); }}>
+        <label>{tr('From')}<input className="input" type="date" min={today} required value={f.from} onChange={(e) => setF({ ...f, from: e.target.value, to: f.to && f.to < e.target.value ? e.target.value : f.to })} /></label>
+        <label>{tr('To')}<input className="input" type="date" min={f.from || today} value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></label>
+        <label className="toff-why">{tr('Why (optional)')}<input className="input" maxLength={200} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder={tr('e.g. a wedding')} /></label>
+        <button type="submit" className="btn btn-primary" disabled={busy || !f.from}>🌴 {tr('Ask for it')}</button>
+      </form>
+      <h4>🗓️ {tr('Days I cannot work')}</h4>
+      <div className="toff-days" role="group" aria-label={tr('Days I cannot work')}>
+        {[1, 2, 3, 4, 5, 6, 0].map((wd) => (
+          <button key={wd} type="button" aria-pressed={daysOff.includes(wd)} className={daysOff.includes(wd) ? 'is-on' : ''} onClick={() => setDaysOff(daysOff.includes(wd) ? daysOff.filter((x) => x !== wd) : daysOff.concat([wd]))}>
+            {new Date(Date.UTC(2024, 0, 7 + wd)).toLocaleDateString(activeIntlLocale(), { weekday: 'short', timeZone: 'UTC' })}
+          </button>
+        ))}
+        {changed && <button type="button" className="btn btn-primary toff-save" disabled={busy} onClick={() => act({ action: 'availability', daysOff }, tr('Saved: the rota shows it.'))}>{tr('Save')}</button>}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,105 @@
+/* Time off on the till and the rota (till/Rota.jsx, toff-), kitchen ticket
+   times (till/TicketTimes.jsx, tt-) and curbside pickup (till/Curbside.jsx,
+   cbs-). */
+.toff { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--pos-line, var(--color-border)); }
+.toff h4 { margin: 6px 0 0; font-size: 14px; }
+.toff-form { display: grid; grid-template-columns: 1fr 1fr 1.4fr auto; align-items: end; gap: 8px; }
+.toff-form label { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
+.toff-form .input { min-width: 0; padding: 7px 9px; }
+.toff-tag.is-requested { color: #8a5300; background: color-mix(in srgb, #f59f00 16%, transparent); }
+.toff-tag.is-approved { color: #2b8a3e; background: color-mix(in srgb, #2f9e44 15%, transparent); }
+.toff-tag.is-declined { color: var(--color-text-muted); background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+.toff-days { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.toff-days button { min-width: 50px; padding: 8px 10px; font: inherit; font-size: 13px; font-weight: 800; color: var(--color-text); border-radius: 12px; border: 1px solid var(--pos-line, var(--color-border)); background: var(--pos-soft, transparent); cursor: pointer; }
+.toff-days button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, #868e96, #495057); text-decoration: line-through; }
+.toff-save { margin-left: auto; }
+.toff-chip { display: block; margin-bottom: 4px; padding: 3px 6px; font-size: 11.5px; font-weight: 800; text-align: center; border-radius: 8px; color: #0b7285; background: color-mix(in srgb, #15aabf 16%, transparent); }
+.toff-chip.is-asked { color: #8a5300; background: transparent; border: 1.5px dashed color-mix(in srgb, #f59f00 60%, transparent); }
+.toff-chip.is-leave { color: #5f3dc4; background: color-mix(in srgb, #7950f2 14%, transparent); }
+:root[data-theme='dark'] .toff-chip { color: #66d9e8; }
+:root[data-theme='dark'] .toff-chip.is-leave { color: #b197fc; }
+.ro-grid td.is-cant { background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--color-text) 6%, transparent) 0 6px, transparent 6px 12px); }
+.ro-shift.is-clash { border-style: dashed; border-color: #e03131; }
+.toff-warn { margin-left: auto; font-style: normal; font-size: 11px; color: #e8590c; }
+.ro-shift { position: relative; }
+.ro-shift .toff-warn { position: absolute; top: 3px; right: 5px; }
+.toff-strip li { border-color: color-mix(in srgb, #15aabf 45%, transparent); background: color-mix(in srgb, #15aabf 8%, transparent); }
+@media (max-width: 640px) { .toff-form { grid-template-columns: 1fr 1fr; } .toff-why { grid-column: 1 / -1; } }
+
+/* ── Ticket times (tt-): status colours, always with their sign ── */
+.tt { --tt-ok: #2b8a3e; --tt-slow: #d08700; --tt-late: #d03b3b; }
+:root[data-theme='dark'] .tt { --tt-ok: #40c057; --tt-slow: #fab005; --tt-late: #ff6b6b; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme='light']):not([data-theme='glass'])) .tt { --tt-ok: #40c057; --tt-slow: #fab005; --tt-late: #ff6b6b; } }
+.tt-bar.is-ok, .tt-key.is-ok { background: var(--tt-ok); }
+.tt-bar.is-slow, .tt-key.is-slow { background: var(--tt-slow); }
+.tt-bar.is-late, .tt-key.is-late { background: var(--tt-late); }
+.tt-sign { margin-right: 4px; font-style: normal; }
+.tt-sign.is-ok { color: var(--tt-ok); } .tt-sign.is-slow { color: var(--tt-slow); } .tt-sign.is-late { color: var(--tt-late); }
+.tt-hero { position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px 20px; border-radius: 24px; color: #fff;
+  background: radial-gradient(70% 140% at 100% 0%, rgba(255, 255, 255, .22), transparent 60%), linear-gradient(135deg, #1f6f3a, #0f3d22); box-shadow: 0 22px 44px -30px rgba(15, 61, 34, .9); }
+.tt-hero.is-slow { background: radial-gradient(70% 140% at 100% 0%, rgba(255, 255, 255, .25), transparent 60%), linear-gradient(135deg, #c27c00, #7a4a00); }
+.tt-hero.is-late { background: radial-gradient(70% 140% at 100% 0%, rgba(255, 255, 255, .2), transparent 60%), linear-gradient(135deg, #c92a2a, #7a1616); }
+.tt-hero.is-none { background: linear-gradient(135deg, #475569, #1e293b); }
+.tt-clock { position: relative; flex: none; width: 64px; height: 64px; border-radius: 50%; background: rgba(255, 255, 255, .14); box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .35); }
+.tt-clock::after { content: ''; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #fff; }
+.tt-clock i { position: absolute; left: 50%; bottom: 50%; width: 3px; height: 24px; margin-left: -1.5px; border-radius: 3px; background: #fff; transform-origin: bottom center;
+  transform: rotate(calc(var(--turn, 0) * 360deg)); animation: tt-sweep 1.2s cubic-bezier(.2, .9, .3, 1) both; }
+@keyframes tt-sweep { from { transform: rotate(0deg); } }
+.tt-hero-main { display: flex; flex-direction: column; flex: 1; min-width: 180px; }
+.tt-hero-main small { font-size: 12.5px; font-weight: 700; opacity: .85; }
+.tt-hero-main strong { font-size: clamp(30px, 6vw, 42px); line-height: 1.05; letter-spacing: -.03em; }
+.tt-hero-main span { font-size: 13px; font-weight: 700; opacity: .9; }
+.tt-delta { padding: 6px 12px; border-radius: 999px; background: rgba(255, 255, 255, .92); }
+.tt-legend { padding: 0 2px; }
+.tt .in-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.tt-days { position: relative; display: flex; align-items: flex-end; gap: 4px; height: 170px; padding-left: 34px; }
+.tt-day { height: 100%; }
+.tt-day .in-day-col { position: relative; }
+.tt-day .in-day-bar { width: 56%; max-width: 22px; }
+.tt-dtick { position: absolute; left: 50%; width: 60%; max-width: 24px; height: 3px; border-radius: 2px; background: var(--in-before); box-shadow: 0 0 0 2px var(--pos-card); transform: translate(-50%, 50%); }
+.tt-line { position: absolute; left: 34px; right: 0; height: 0; border-top: 1.5px dashed; pointer-events: none; z-index: 1; margin-bottom: 18px; }
+.tt-line.is-slow { border-color: var(--tt-slow); }
+.tt-line.is-late { border-color: var(--tt-late); }
+.tt-line em { position: absolute; left: -34px; top: -8px; width: 30px; font-size: 10px; font-style: normal; font-weight: 800; text-align: right; color: var(--color-text-muted); }
+.tt-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.tt-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: var(--pos-soft, color-mix(in srgb, var(--color-text) 5%, transparent)); }
+.tt-rank { display: grid; place-items: center; flex: none; width: 26px; height: 26px; font-size: 12px; border-radius: 9px; color: var(--color-text-muted); background: var(--pos-card); }
+.tt-rank.is-ico { font-size: 15px; }
+.tt-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.tt-main strong { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-main small { font-size: 11.5px; color: var(--color-text-muted); }
+.tt-pill { flex: none; padding: 4px 10px; font-size: 12px; font-weight: 800; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.tt-pill.is-ok { color: var(--tt-ok); background: color-mix(in srgb, var(--tt-ok) 14%, transparent); }
+.tt-pill.is-slow { color: var(--tt-slow); background: color-mix(in srgb, var(--tt-slow) 16%, transparent); }
+.tt-pill.is-late { color: var(--tt-late); background: color-mix(in srgb, var(--tt-late) 14%, transparent); }
+.tt-kinds { margin-top: 4px; }
+.tt-empty { padding: 30px 16px; text-align: center; }
+.tt-empty > span { font-size: 40px; }
+@media (max-width: 560px) { .tt-days { height: 140px; } .tt-hero { padding: 16px; } }
+@media (prefers-reduced-motion: reduce) { .tt-clock i { animation: none; } }
+
+/* ── Curbside on the till (cbs-) ── */
+.pos-stat.cbs-pill { --st: #2f9e44; border-color: color-mix(in srgb, #2f9e44 55%, transparent); }
+.pos-stat.cbs-pill .pos-stat-ico { font-size: 18px; background: linear-gradient(135deg, #8ce99a, #2f9e44); animation: cbs-honk 1.8s ease-in-out infinite; }
+.pos-stat.cbs-pill.is-long { --st: #e8590c; border-color: color-mix(in srgb, #e8590c 60%, transparent); }
+.pos-stat.cbs-pill.is-long .pos-stat-ico { background: linear-gradient(135deg, #ffa94d, #e8590c); }
+@keyframes cbs-honk { 0%, 70%, 100% { transform: translateX(0); } 78% { transform: translateX(-2px) rotate(-4deg); } 86% { transform: translateX(2px) rotate(3deg); } }
+.cbs-dlg { width: min(560px, 94vw); }
+.cbs-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.cbs-head h2 { margin: 0; }
+.cbs-head p { margin: 2px 0 0; }
+.cbs-car { display: grid; place-items: center; flex: none; width: 52px; height: 52px; font-size: 28px; border-radius: 18px; background: linear-gradient(135deg, #d3f9d8, #8ce99a); }
+.cbs-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.cbs-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 12px 14px; border-radius: 18px; border: 1px solid var(--pos-line, var(--color-border)); background: var(--pos-card, var(--color-surface)); animation: pos-rise .25s calc(var(--i) * 50ms) ease both; }
+.cbs-list li.is-long { border-color: color-mix(in srgb, #e8590c 55%, transparent); box-shadow: inset 4px 0 0 #e8590c; }
+.cbs-who { display: flex; flex-direction: column; min-width: 0; }
+.cbs-who strong { font-size: 16px; }
+.cbs-who small { font-size: 12.5px; color: var(--color-text-muted); }
+.cbs-ready { align-self: start; padding: 4px 10px; font-size: 12px; font-weight: 800; border-radius: 999px; color: #8a4b08; background: color-mix(in srgb, #f59f00 18%, transparent); }
+.cbs-ready.is-ready { color: #2b8a3e; background: color-mix(in srgb, #2f9e44 16%, transparent); }
+:root[data-theme='dark'] .cbs-ready { color: #fcc419; }
+:root[data-theme='dark'] .cbs-ready.is-ready { color: #69db7c; }
+.cbs-note { grid-column: 1 / -1; margin: 0; padding: 8px 10px; font-size: 14px; font-weight: 700; border-radius: 12px; background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.cbs-foot { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cbs-wait { flex: 1; min-width: 150px; font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); }
+@media (prefers-reduced-motion: reduce) { .pos-stat.cbs-pill .pos-stat-ico { animation: none; } }

@@ -78,6 +78,8 @@ import PaymentLinksPage from './pages/PaymentLinksPage';
 import ContractsPage from './pages/ContractsPage';
 import PayPage from './pages/PayPage';
 import ContractPage from './pages/ContractPage';
+import ShopOrderPage from './pages/ShopOrderPage';
+import PortalPage from './pages/PortalPage';
 import MeetPage from './pages/MeetPage';
 import FaceEnrollPage from './pages/FaceEnrollPage';
 import CrmOverviewPage from './pages/crm/CrmOverviewPage';
@@ -154,6 +156,8 @@ export default function App() {
       <Route path="/book/:token" element={<BookPage />} />
       <Route path="/pay/:token" element={<PayPage />} />
       <Route path="/c/:token" element={<ContractPage />} />
+      <Route path="/o/:token" element={<ShopOrderPage />} />
+      <Route path="/account" element={<PortalPage />} />
       <Route path="/p/:token" element={<ProductSheetPage />} />
       <Route path="/meet/:token" element={<MeetPage />} />
       <Route path="/enroll-face/:token" element={<FaceEnrollPage />} />
