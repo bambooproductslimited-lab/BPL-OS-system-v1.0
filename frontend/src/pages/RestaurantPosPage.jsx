@@ -22,6 +22,9 @@ import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
 import { CustomItemDialog, DeliveryDialog, DisputeDialog, NoteDialog, SendConfirmDialog } from './till/OrderDialogs';
 import { AddOnsDialog, DiscountDialog } from './till/BillDialogs';
+import PromoCodeDialog from './till/PromoCode';
+import { CameraScan, LinkBarcode } from './till/Barcode';
+import { dishByCode, useBarcodeWedge } from './till/barcodeScan';
 import { billOf, contactOf, serviceWords, modsPrice, modsWords, paidAheadOf, withMarkup } from './till/tillBill';
 import { ReceiptLines, ReceiptQr, SendReceipt } from './till/ReceiptParts';
 import MoveBill from './till/MoveBill';
@@ -150,7 +153,8 @@ const FALLBACK_ACCESS = {
     courses: { on: false, names: [], categories: {} }, hours: { categories: {} }, happyHours: []
   }
 };
-const NO_ADJUST = { discount: null, serviceOff: null };
+// promoCode: a deal's code given; promo, channel: the deal an open order kept, and where it came from (a website or kiosk order).
+const NO_ADJUST = { discount: null, serviceOff: null, promoCode: null, promo: null, channel: null };
 
 // One dish on the menu grid. A menu can run past a thousand dishes, so a
 // tile only draws again when its own dish, count or tap changes, not every
@@ -175,6 +179,7 @@ const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, on
         <span className="pos-tile-price">{m.variations && m.variations.length ? tr('{n} prices', { n: m.variations.length }) : money(m.price)}</span>
       </span>
       {happy > 0 && !closedFrom && <span className="pos-tile-happy">🍹 −{happy}%</span>}
+      {m.combo && !(happy > 0) && !closedFrom && <span className="pos-tile-combo">🍱 {tr('Combo')}</span>}
       {closedFrom && <span className="pos-tile-hours" title={tr('from {time}', { time: closedFrom })}>🕘 {closedFrom}</span>}
       {clash && <span className="pos-tile-clash" title={tr('Has what the guest is allergic to')}>⚠</span>}
       {canFavorite ? (
@@ -235,6 +240,9 @@ export default function RestaurantPosPage() {
   // tapping an item that has named price variations (e.g. "M" ₵98 vs
   // "Jellyfish" ₵238) opens this instead of adding straight to the cart.
   const [variantPickerItem, setVariantPickerItem] = useState(null); // the menu tile being picked for, or null
+  const [promoOpen, setPromoOpen] = useState(false); // typing a deal's promo code (till/PromoCode.jsx)
+  const [scanOpen, setScanOpen] = useState(false); // the camera reading a barcode (till/Barcode.jsx)
+  const [newCode, setNewCode] = useState(null); // a barcode no dish has yet, to give to one
   const [addOnsFor, setAddOnsFor] = useState(null); // { item, variation, line? }: a dish's add-ons being picked (till/BillDialogs.jsx)
   const [offFor, setOffFor] = useState(null); // 'bill' or a cart line: its discount being given
   const [moveFor, setMoveFor] = useState(null); // an open order being moved (till/MoveBill.jsx)
@@ -388,6 +396,13 @@ export default function RestaurantPosPage() {
   // Steady handlers for the memoized menu tiles (MenuTile), always calling
   // this render's tapItem and toggleFavorite.
   const tileHandlers = useRef({});
+  // A barcode scanner types the code and Enter wherever the cashier is (till/Barcode.jsx).
+  useBarcodeWedge(scanCode, !!session && !newCode && !scanOpen);
+  // A code scanned into the search box rings up its dish too.
+  useEffect(() => {
+    const c = search.trim();
+    if (c.length >= 4 && dishByCode(menu, c)) { setSearch(''); scanCode(c); }
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
   tileHandlers.current = { tap: tapItem, favorite: toggleFavorite };
   const onTileTap = useCallback((m) => tileHandlers.current.tap(m), []);
   const onTileFavorite = useCallback((e, m) => tileHandlers.current.favorite(e, m), []);
@@ -1016,6 +1031,17 @@ export default function RestaurantPosPage() {
     if (item.addOns && item.addOns.length) { setVariantPickerItem(null); setAddOnsFor({ item, variation: v }); return; }
     addToCart(item, v);
   }
+  // A barcode scanned or read by the camera (till/Barcode.jsx): its dish, or
+  // its size, as if tapped; a code no dish has asks which dish it is.
+  function scanCode(code) {
+    setScanOpen(false);
+    const found = dishByCode(menu, code);
+    if (!found) { setNewCode(code); return; }
+    const item = menuById.get(found.item.id) || found.item;
+    if (!found.variation) { tapItem(item); return; }
+    if (!categoryOpen(tillSettings, item.category)) { tapItem(item); return; }
+    pickVariation(item, found.variation);
+  }
   function addToCart(item, variation, mods, n) {
     const qty = n || 1;
     // A dish that counts its stock: no more than is left (what this open
@@ -1104,14 +1130,18 @@ export default function RestaurantPosPage() {
   }
   // The whole bill's discount and service charge as the server wants them.
   function adjustBody() {
-    return { discount: billAdjust.discount || undefined, serviceOff: billAdjust.serviceOff || undefined };
+    return { discount: billAdjust.discount || undefined, serviceOff: billAdjust.serviceOff || undefined, promoCode: billAdjust.promoCode || undefined };
   }
 
   // The bill as the server will make it (till/tillBill.js): add-ons,
   // discounts, the service charge, the taxes.
   // A delivery app's order is at the app's prices, and picked up by its rider.
-  const bill = useMemo(() => (appOrder ? billOf(withMarkup(cart, appOrder.markup), billAdjust, tillSettings, 'pickup') : billOf(cart, billAdjust, tillSettings, fulfillment)),
-    [cart, billAdjust, tillSettings, fulfillment, appOrder]);
+  // Deals (till/promos.js) look at each dish's category; a large party's service charge at how many sat down.
+  const bill = useMemo(() => {
+    const cats = new Map(menu.map((m) => [m.id, m.category]));
+    const lines = cart.map((l) => (l.category !== undefined || !l.menuItemId ? l : { ...l, category: cats.get(l.menuItemId) || '' }));
+    return appOrder ? billOf(withMarkup(lines, appOrder.markup), billAdjust, tillSettings, 'pickup', { channel: 'app' }) : billOf(lines, billAdjust, tillSettings, fulfillment, { guests });
+  }, [cart, billAdjust, tillSettings, fulfillment, appOrder, menu, guests]);
   const cartTotal = bill.total;
   const animatedCartTotal = useCountUp(cartTotal);
   // The customer's screen (till/customerScreenLink.js): the order as it
@@ -1442,7 +1472,8 @@ export default function RestaurantPosPage() {
     setSelectedWaiter(t.waiterId ? { id: t.waiterId, name: t.waiterName } : null);
     setSelectedGuest(t.guestId ? { id: t.guestId, name: t.guestName, phone: t.guestPhone || '' } : null);
     setCurrentTab({ id: t.id, label: t.label, name: tabName(t), createdAt: t.createdAt, kitchen: t.kitchen });
-    setBillAdjust({ discount: t.adjust && t.adjust.discount ? t.adjust.discount : null, serviceOff: t.adjust && t.adjust.serviceOff ? t.adjust.serviceOff : null });
+    const a = t.adjust || {};
+    setBillAdjust({ discount: a.discount || null, serviceOff: a.serviceOff || null, promoCode: a.promoCode || null, promo: a.promo || null, channel: a.channel || null });
     setGuests(t.guests || null); setSeat(null); setAllergy(t.allergy || null);
     setTabsOpen(false);
     // The customer's accounts (VIP, IOU) for the payment screen.
@@ -1994,6 +2025,7 @@ export default function RestaurantPosPage() {
                 <button type="button" onClick={() => changeQty(k, 1)} aria-label={tr('Increase')}>+</button>
               </div>
               <span key={l.qty + ':' + b.net} className="pos-line-total">
+                {b.dealName && <em className="pos-line-deal" title={b.dealName}>🎟️</em>}
                 {b.discount > 0 && <s>{money(b.gross)}</s>}
                 {money(b.net)}
               </span>
@@ -2007,10 +2039,12 @@ export default function RestaurantPosPage() {
         {cart.length > 0 && (bill.discountTotal > 0 || bill.serviceOn || bill.taxes.length > 0) && (
           <div className="pos-bill">
             <div><span>{tr('Dishes')}</span><b>{money(bill.itemsGross)}</b></div>
-            {bill.discountTotal > 0 && <div className="is-off"><span>{tr('Discounts')}{bill.billDiscountName ? ' · ' + bill.billDiscountName : ''}</span><b>−{money(bill.discountTotal)}</b></div>}
+            {/* The deal on its own line (till/promos.js), the other discounts beside it. */}
+            {bill.deal && <div className="is-deal"><span>🎟️ {bill.deal.name}{bill.deal.code && <small>{bill.deal.code}</small>}</span><b>−{money(bill.deal.amount)}</b></div>}
+            {bill.discountTotal - (bill.deal ? bill.deal.amount : 0) > 0.004 && <div className="is-off"><span>{tr('Discounts')}{bill.billDiscountName ? ' · ' + bill.billDiscountName : ''}</span><b>−{money(bill.discountTotal - (bill.deal ? bill.deal.amount : 0))}</b></div>}
             {bill.serviceOn && (
               <div className={bill.serviceOff ? 'is-struck' : ''}>
-                <span>{serviceWords(bill.serviceName, tr)} {bill.serviceOff ? '· ' + tr('taken off') : tillSettings.serviceCharge.rate + '%'}</span>
+                <span>{bill.partyService ? '👨‍👩‍👧‍👦 ' : ''}{serviceWords(bill.serviceName, tr)} {bill.serviceOff ? '· ' + tr('taken off') : (bill.serviceRate || (bill.partyService ? tillSettings.partyService.rate : tillSettings.serviceCharge.rate)) + '%'}</span>
                 <b>{money(bill.serviceCharge)}</b>
               </div>
             )}
@@ -2027,6 +2061,11 @@ export default function RestaurantPosPage() {
             <button type="button" className={'pos-link' + (billAdjust.discount ? ' is-set' : '')} onClick={() => setOffFor('bill')}>
               % {billAdjust.discount ? billAdjust.discount.name || bill.billDiscountName || tr('Discount') : bill.serviceOn ? tr('Discount or service charge') : tr('Discount the bill')}
             </button>
+            {!appOrder && (tillSettings.promotions || []).some((p) => p.code && p.on) && (
+              <button type="button" className={'pos-link is-promo' + (billAdjust.promoCode ? ' is-set' : '')} onClick={() => setPromoOpen(true)}>
+                🎟️ {billAdjust.promoCode || tr('Promo code')}
+              </button>
+            )}
             {tillSettings.loyalty && tillSettings.loyalty.on && selectedGuest && (
               <button type="button" className={'pos-link is-reward' + (billAdjust.discount && String(billAdjust.discount.presetId || '').indexOf('loyalty:') === 0 ? ' is-set' : '')} onClick={() => setRewardsOpen(true)}>
                 ⭐ {tr('Rewards')} · {tr('{n} points', { n: selectedGuest.points || 0 })}
@@ -2187,6 +2226,9 @@ export default function RestaurantPosPage() {
         <section className="pos-menu" aria-label={tr('Menu')}>
           <div className="pos-menu-tools">
             <div className="pos-search"><SearchInput value={search} onChange={setSearch} placeholder={tr('Search the menu…')} /></div>
+            <button type="button" className="pos-icon-btn pos-scan-btn" onClick={() => setScanOpen(true)} title={tr('Scan a barcode: with the camera, or point a scanner at it any time')} aria-label={tr('Scan a barcode')}>
+              <span className="pos-scan-ico" aria-hidden="true" />
+            </button>
             {can('customItem') && (
               <button type="button" className="btn btn-secondary tl-btn tl-custom-btn" onClick={() => setCustomOpen(true)} title={tr('A dish that is not on the menu')}>
                 <span aria-hidden="true">✦</span>{tr('Not on the menu')}
@@ -2536,6 +2578,19 @@ export default function RestaurantPosPage() {
         </div>
       )}
 
+      {scanOpen && <CameraScan onCode={scanCode} onClose={() => setScanOpen(false)} />}
+      {newCode && (
+        <LinkBarcode code={newCode} menu={menu} token={session.token} canStock={can('stock')} onClose={() => setNewCode(null)}
+          onLinked={(pick) => {
+            setNewCode(null); setToast(tr('{name} has its barcode now.', { name: pick.item.name }));
+            if (pick.variation) pickVariation(pick.item, pick.variation); else tapItem(pick.item);
+            loadMenu(session.token);
+          }} />
+      )}
+      {promoOpen && (
+        <PromoCodeDialog promotions={tillSettings.promotions} channel="till" current={billAdjust.promoCode}
+          onApply={(code) => { setBillAdjust((a) => ({ ...a, promoCode: code })); setPromoOpen(false); }} onClose={() => setPromoOpen(false)} />
+      )}
       {addOnsFor && (
         <AddOnsDialog item={addOnsFor.item} variation={addOnsFor.variation} editing={!!addOnsFor.line}
           base={addOnsFor.variation ? addOnsFor.variation.price : addOnsFor.item.price} picked={addOnsFor.line ? addOnsFor.line.modifiers : []}

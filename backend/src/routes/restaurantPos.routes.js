@@ -83,6 +83,14 @@ router.post('/settings/menu', posAuth, async function (req, res, next) {
 router.post('/stock', posAuth, async function (req, res, next) {
   try { res.json(await access.stock(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// Low stock, suppliers and purchase orders, by a manager.
+router.post('/settings/purchasing', posAuth, async function (req, res, next) {
+  try { res.json(await access.purchasing(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// Closing the day, by a manager.
+router.post('/settings/closeday', posAuth, async function (req, res, next) {
+  try { res.json(await access.closeDay(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 // A complaint or a wrong charge raised on the till.
 router.post('/disputes', posAuth, async function (req, res, next) {
   try { res.status(201).json(await restaurantPosService.raiseDispute(req.posToken, req.body)); } catch (e) { next(e); }

@@ -10,18 +10,19 @@ import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 // tile opens the till settings at its tab (TillSettings.jsx), with a live
 // figure on it: today's sales, who has a drawer, disputes open, what is
 // owed, stock running low, kitchen screens online, tips to hand out, the
-// food cost, unhappy guests to follow up.
+// food cost, unhappy guests to follow up, the day closed or not, purchase
+// orders on their way.
 
 const SECTIONS = [
   ['reports', msg('Reports'), msg('What happened on the till, and what is owed.'), [
-    ['sales', 'up', msg('Sales')], ['insights', 'pulse', msg('Insights')], ['tips', 'cash', msg('Tips')], ['foodcost', 'percent', msg('Food cost')], ['monthly', 'calendar', msg('Monthly report')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
+    ['sales', 'up', msg('Sales')], ['closeday', 'check', msg('Close the day')], ['insights', 'pulse', msg('Insights')], ['tips', 'cash', msg('Tips')], ['foodcost', 'percent', msg('Food cost')], ['monthly', 'calendar', msg('Monthly report')], ['drawers', 'drawer', msg('Drawers')], ['disputes', 'warn', msg('Disputes')], ['accounts', 'owed', msg('IOUs and VIP')], ['activity', 'pulse', msg('Activity')]]],
   ['guestsGroup', msg('Guests'), msg('What guests said, texts and emails to them, loyalty points and gift cards.'), [
     ['feedback', 'star', msg('Feedback')], ['campaigns', 'send', msg('Texts and emails')], ['loyalty', 'star', msg('Loyalty')], ['giftcards', 'card', msg('Gift cards')]]],
   ['menu', msg('Menu and stock'), msg('What the till sells, at what price, and what is left.'), [
-    ['menu', 'receipt', msg('Menu')], ['recipes', 'percent', msg('Recipes and costs')], ['stock', 'layers', msg('Stock')]]],
+    ['menu', 'receipt', msg('Menu')], ['recipes', 'percent', msg('Recipes and costs')], ['stock', 'layers', msg('Stock')], ['purchasing', 'send', msg('Low stock and orders')]]],
   ['setup', msg('Setup'), msg('Who does what, how customers pay, the bill\'s discounts and taxes, the floor and the kitchen screens.'), [
     ['people', 'people', msg('People')], ['roles', 'key', msg('What each role can do')], ['screens', 'layers', msg('Kitchen screens')], ['payments', 'cash', msg('Payments')],
-    ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['bill', 'percent', msg('Discounts, service and tax')], ['service', 'clock', msg('Courses, menu times and happy hours')], ['apps', 'send', msg('Delivery apps')], ['kiosk', 'receipt', msg('Self-order kiosk')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
+    ['map', 'map', msg('Floor map')], ['customers', 'owed', msg('Customers')], ['bill', 'percent', msg('Discounts, service and tax')], ['deals', 'spark', msg('Deals and promo codes')], ['service', 'clock', msg('Courses, menu times and happy hours')], ['apps', 'send', msg('Delivery apps')], ['kiosk', 'receipt', msg('Self-order kiosk')], ['receipts', 'receipt', msg('Receipts')], ['till', 'clock', msg('Till and kitchen')]]]
 ];
 
 function dayISO(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
@@ -41,6 +42,8 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
     ask('/pos/settings/tips', {}, 'tips', (d) => ({ total: d.total, owed: d.owed }));
     ask('/pos/settings/costs', { action: 'report' }, 'costs', (d) => d.totals);
     ask('/pos/settings/screens', { action: 'list' }, 'screens', (d) => ({ set: d.screens.length, online: d.screens.filter((s) => s.online).length, waiting: d.waiting.length }));
+    ask('/pos/settings/closeday', { action: 'preview' }, 'closeday', (d) => ({ closed: d.closed, net: d.live.sales.net, open: d.live.openOrders.count }));
+    ask('/pos/settings/purchasing', { action: 'list' }, 'purchasing', (d) => ({ sent: d.orders.filter((o) => o.status === 'sent').length, drafts: d.orders.filter((o) => o.status === 'draft').length }));
     return () => { on = false; };
   }, [token]);
 
@@ -59,6 +62,15 @@ export default function ManagerHome({ token, companyName, employeeName, logoUrl,
     if (k === 'disputes' && dp) return dp.open ? [String(dp.open), tr('open · {amount}', { amount: money(dp.openAmount) }), 'warn'] : [tr('None open'), tr('complaints, wrong charges, drawers short')];
     if (k === 'accounts' && ac) return [money(ac.owedNow), tr('owed · {amount} VIP money held', { amount: money(ac.vipHeld) }), ac.owedNow ? 'warn' : null];
     if (k === 'stock' && st) return st.low ? [String(st.low), tr('running low'), 'warn'] : [tr('All fine'), tr('{n} dishes counted', { n: st.items })];
+    if (k === 'closeday' && live.closeday) {
+      const c = live.closeday;
+      return c.closed ? ['✓ ' + tr('Closed'), new Date(c.closed.closedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })]
+        : [money(c.net), c.open ? tr('{n} orders still open', { n: c.open }) : tr('today, to close'), c.open ? 'warn' : null];
+    }
+    if (k === 'purchasing' && live.purchasing) {
+      const pu = live.purchasing;
+      return pu.drafts ? [String(pu.drafts), tr('draft orders to send'), 'warn'] : pu.sent ? [String(pu.sent), tr('orders on their way')] : null;
+    }
     if (k === 'screens' && sc) return sc.waiting ? [tr('{n} new', { n: sc.waiting }), tr('waiting to be set up'), 'warn'] : [tr('{n} of {m}', { n: sc.online, m: sc.set }), tr('online now')];
     return null;
   }

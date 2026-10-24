@@ -7,7 +7,9 @@ import { tr } from '../lib/i18n.jsx';
 import ItemSheet from './online/ItemSheet';
 import { DishAllergens, DishFlags, DishPrice } from './online/DishBits';
 import { lineKey, photo, tint } from './online/onlineShared';
-import { modsWords } from './till/tillBill';
+import { billOf, modsWords } from './till/tillBill';
+import { dealWords } from './till/promos';
+import PromoCodeDialog from './till/PromoCode';
 import './online/online.css';
 import './SelfOrder.css';
 
@@ -42,6 +44,8 @@ export default function SelfOrderPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null); // { ref, number, total, status, paid }
+  const [promo, setPromo] = useState(null); // a promo code typed and its deal (till/PromoCode.jsx)
+  const [promoOpen, setPromoOpen] = useState(false);
   const [payRef, setPayRef] = useState(returnedRef);
   const touched = useRef(Date.now());
 
@@ -75,7 +79,7 @@ export default function SelfOrderPage() {
   }, [view && view.paired, key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Untouched for a while: back to the welcome screen for the next customer.
-  function reset() { setStage('welcome'); setBasket([]); setName(''); setNote(''); setItem(null); setDone(null); setError(null); setCat(''); }
+  function reset() { setStage('welcome'); setBasket([]); setName(''); setNote(''); setItem(null); setDone(null); setError(null); setCat(''); setPromo(null); }
   useEffect(() => {
     const poke = () => { touched.current = Date.now(); };
     ['pointerdown', 'keydown'].forEach((e) => window.addEventListener(e, poke));
@@ -107,7 +111,15 @@ export default function SelfOrderPage() {
   }, [stage, payRef, key]);
 
   const count = basket.reduce((s, l) => s + l.qty, 0);
-  const subtotal = r2(basket.reduce((s, l) => s + l.qty * l.price, 0));
+  // The dishes with their happy hour and a deal (till/promos.js: by itself,
+  // or with the code typed); any service charge or tax goes on at the till.
+  const bill = useMemo(() => {
+    const cats = new Map(((menu && menu.items) || []).map((i) => [i.id, i.category]));
+    const deals = ((menu && menu.bill && menu.bill.promotions) || []).concat(promo ? [promo.deal] : []);
+    return billOf(basket.map((l) => ({ price: l.price, qty: l.qty, menuItemId: l.id, category: cats.get(l.id) || '', discountSpec: l.happy ? { kind: 'percent', value: l.happy.percent, name: l.happy.name } : null })),
+      { promoCode: promo ? promo.code : null }, { promotions: deals }, dining === 'here' ? 'dine_in' : 'pickup', { channel: 'kiosk' });
+  }, [basket, menu, promo, dining]);
+  const subtotal = r2(bill.total);
   function add(line) {
     setBasket((b) => {
       const k = lineKey(line);
@@ -125,7 +137,7 @@ export default function SelfOrderPage() {
     try {
       const r = await posFetch('POST', '/pos/kiosk/orders', key, {
         items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) })),
-        dining, name: name.trim(), note: note.trim() || undefined, pay, back: window.location.origin + window.location.pathname
+        dining, name: name.trim(), note: note.trim() || undefined, pay, back: window.location.origin + window.location.pathname, promoCode: promo ? promo.code : undefined
       });
       if (r.pay && r.pay.url) { window.location.href = r.pay.url; return; }
       setDone(r); setStage('done'); setBasket([]);
@@ -234,6 +246,10 @@ export default function SelfOrderPage() {
         {shown.map(([c]) => <button key={c} type="button" className={cat === c ? 'is-on' : ''} onClick={() => setCat(c)}>{c || tr('Other')}</button>)}
       </nav>
       <main className="so-menu">
+        {/* The deals on the kiosk now (backend restaurantPromos shown): they go on the order by themselves. */}
+        {((menu && menu.bill && menu.bill.promotions) || []).length > 0 && (
+          <div className="so-deals">{menu.bill.promotions.map((p) => <span key={p.id}><b>🎟️ {p.name}</b> {dealWords(p, tr, money)}</span>)}</div>
+        )}
         {!menu && <p className="so-loading">{tr('Loading the menu…')}</p>}
         {visible.map(([c, list]) => (
           <section key={c} className="so-sec">
@@ -273,6 +289,12 @@ export default function SelfOrderPage() {
             );
           })}
         </ul>
+        {bill.deal && <div className="so-deal-row"><span>🎟️ {bill.deal.name}</span><b>−{money(bill.deal.amount)}</b></div>}
+        {count > 0 && (
+          <button type="button" className={'so-promo' + (promo ? ' is-set' : '')} onClick={() => setPromoOpen(true)}>
+            🎟️ {promo ? tr('Code {code}', { code: promo.code }) + (bill.deal && bill.deal.code === promo.code ? '' : ' · ' + tr('not on this order')) : tr('Have a promo code?')}
+          </button>
+        )}
         {stage === 'checkout' ? (
           <div className="so-check">
             <label className="so-field"><span>{tr('Your name, to call you')}</span><input className="input" maxLength={40} value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder={tr('e.g. Ama')} /></label>
@@ -294,6 +316,11 @@ export default function SelfOrderPage() {
         )}
       </aside>
       {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={add} />}
+      {promoOpen && (
+        <PromoCodeDialog promotions={[]} channel="kiosk" current={promo ? promo.code : null}
+          lookup={(c) => posFetch('GET', '/pos/kiosk/promo?code=' + encodeURIComponent(c), key).then((x) => x.promo)}
+          onApply={(c, deal) => { setPromo(c ? { code: c, deal } : null); setPromoOpen(false); }} onClose={() => setPromoOpen(false)} />
+      )}
     </div>
   );
 }

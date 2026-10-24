@@ -9,6 +9,7 @@ var crmJobs = require('./jobs/crm');
 var mkRoutines = require('./jobs/mkRoutines');
 var onlineScheduled = require('./jobs/onlineScheduled');
 var guestCampaigns = require('./jobs/campaigns');
+var closeDayJob = require('./jobs/closeDay');
 
 app.listen(config.port, function () {
   console.log('Bamboo OS backend listening on port ' + config.port + ' (' + config.nodeEnv + ')');
@@ -21,5 +22,6 @@ app.listen(config.port, function () {
   mkRoutines.start();
   onlineScheduled.start();
   guestCampaigns.start();
+  closeDayJob.start();
   require('./services/whatsappAccess').load();
 });

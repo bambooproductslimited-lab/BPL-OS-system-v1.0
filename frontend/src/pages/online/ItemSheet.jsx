@@ -79,7 +79,7 @@ export default function ItemSheet({ item, onClose, onAdd }) {
             const need = (g.minPick || 0) > n;
             return (
               <fieldset key={g.id} className={'on-addons' + (need ? ' is-need' : '')}>
-                <legend><span>{g.name}</span><small>{ruleWords(g)}</small></legend>
+                <legend><span>{g.combo ? '🍱 ' : ''}{g.name}</span><small>{ruleWords(g)}</small></legend>
                 <div className="on-addon-opts">
                   {g.options.map((o) => {
                     const on = picked.some((m) => m.id === o.id);

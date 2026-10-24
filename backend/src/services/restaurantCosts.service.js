@@ -55,12 +55,26 @@ async function costsOf(db, companyId, itemIds) {
 
 // For a sale (restaurantPos.chargeOrder): each line's cost of one, and the
 // ingredients it draws.
+// A combo with no cost of its own costs what its dishes cost (restaurantTillCheck
+// comboParts), and draws their ingredients.
 async function forLines(db, companyId, lines) {
+  var check = require('./restaurantTillCheck.service');
   var ids = [];
-  lines.forEach(function (l) { if (l.menuItemId && ids.indexOf(l.menuItemId) < 0) ids.push(l.menuItemId); });
+  var add = function (id) { if (id && ids.indexOf(id) < 0) ids.push(id); };
+  lines.forEach(function (l) { add(l.menuItemId); check.comboParts(l.modifiers).forEach(function (c) { add(c.menuItemId); }); });
   var map = await costsOf(db, companyId, ids);
+  var of = function (itemId, variationId) { return map[keyOf(itemId, variationId)] || map[keyOf(itemId, null)] || null; };
   return lines.map(function (l) {
-    var c = l.menuItemId ? map[keyOf(l.menuItemId, l.variationId)] || map[keyOf(l.menuItemId, null)] : null;
+    var c = l.menuItemId ? of(l.menuItemId, l.variationId) : null;
+    var parts = check.comboParts(l.modifiers);
+    if (parts.length && (!c || c.cost == null)) {
+      var known = parts.map(function (p) { return { p: p, c: of(p.menuItemId, p.variationId) }; });
+      if (known.some(function (k) { return !k.c || k.c.cost == null; })) return { unitCost: null, lines: [] };
+      return {
+        unitCost: round4(known.reduce(function (a, k) { return a + k.c.cost * k.p.qty; }, 0)),
+        lines: [].concat.apply([], known.map(function (k) { return k.c.lines.map(function (r) { return Object.assign({}, r, { qty: r.qty * k.p.qty }); }); }))
+      };
+    }
     return c ? { unitCost: c.cost, lines: c.lines } : { unitCost: null, lines: [] };
   });
 }

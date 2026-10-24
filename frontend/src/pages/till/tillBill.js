@@ -1,4 +1,5 @@
 import { msg } from '../../lib/i18n.jsx';
+import { bestDeal, serviceFor } from './promos.js';
 // The bill as the till shows it while an order is taken: the same sums as
 // the server's (backend restaurantTillCheck compute) — add-ons priced into
 // each dish, discounts and dishes on the house, the bill-wide discount
@@ -22,12 +23,15 @@ export function modsWords(mods, tr) {
 export function serviceWords(name, tr) { return !name || name === 'Service charge' ? tr('Service charge') : name; }
 export function modsPrice(mods) { return r2((mods || []).reduce((a, m) => a + (m.how === 'no' ? 0 : Number(m.price || 0)), 0)); }
 
-// lines: [{ price (unit, with add-ons), qty, fee, discountSpec, comp }];
-// adjust: { discount, serviceOff }; settings: the till's (discounts,
-// serviceCharge, tax).
-export function billOf(lines, adjust, settings, fulfillment) {
+// lines: [{ price (unit, with add-ons), qty, fee, discountSpec, comp,
+// menuItemId, category }]; adjust: { discount, serviceOff, promoCode, promo
+// (a deal kept on the open order) }; settings: the till's (discounts,
+// serviceCharge, tax, promotions, partyService); opts: { guests, channel
+// ('till', 'kiosk', 'online', 'app': no deals), at }.
+export function billOf(lines, adjust, settings, fulfillment, opts) {
   adjust = adjust || {};
   settings = settings || {};
+  opts = opts || {};
   // The manager's ready-made discounts, and the happy hours (till/tillService.js).
   // And the loyalty rewards, paid with the customer's points (backend restaurantTillFront rewardPresets).
   const presets = (settings.discounts || []).concat((settings.happyHours || []).map((h) => ({ id: h.id, name: h.name, kind: 'percent', value: h.percent, open: true })),
@@ -45,6 +49,17 @@ export function billOf(lines, adjust, settings, fulfillment) {
     else if (d) discount = Math.min(gross, d.kind === 'percent' ? r2(gross * d.value / 100) : Number(d.value));
     return { ...l, gross, discount, net: r2(gross - discount) };
   });
+  // A deal (till/promos.js): the best one on for this bill, by itself or
+  // with its code; one kept on the open order stays.
+  const kept = adjust.promo || null;
+  const channel = opts.channel || adjust.channel || (kept && kept.channel) || 'till';
+  const deal = channel === 'app' ? null : bestDeal(out, settings.promotions, { channel, code: adjust.promoCode, at: opts.at, kept: kept && kept.id });
+  if (deal) {
+    out.forEach((l, i) => {
+      const s = deal.shares[i];
+      if (s) { l.discount = r2(l.discount + s); l.net = r2(l.net - s); l.dealName = deal.promo.name; }
+    });
+  }
   let billDiscount = 0;
   const bd = specOf(adjust.discount);
   if (bd) {
@@ -61,8 +76,10 @@ export function billOf(lines, adjust, settings, fulfillment) {
   const itemsGross = r2(out.reduce((a, l) => a + l.gross, 0));
   const subtotal = r2(out.reduce((a, l) => a + l.net, 0));
   const sc = settings.serviceCharge || {};
-  const scOn = !!(sc.on && sc.rate > 0 && (sc.types || {})[fulfillment || 'dine_in']);
-  const service = scOn && !adjust.serviceOff ? r2(out.filter((l) => !l.fee).reduce((a, l) => a + l.net, 0) * sc.rate / 100) : 0;
+  // The usual service charge, or a large party's (till settings partyService).
+  const svc = serviceFor(settings, fulfillment, opts.guests);
+  const scOn = svc.on;
+  const service = scOn && !adjust.serviceOff ? r2(out.filter((l) => !l.fee).reduce((a, l) => a + l.net, 0) * svc.rate / 100) : 0;
   const tx = settings.tax || { included: true, list: [] };
   const per = [];
   let running = 0;
@@ -74,7 +91,8 @@ export function billOf(lines, adjust, settings, fulfillment) {
   const taxTotal = tx.included ? 0 : taxSum;
   return {
     lines: out, itemsGross, discountTotal: r2(itemsGross - subtotal), billDiscount, billDiscountName: bd ? bd.name : null, subtotal,
-    serviceCharge: service, serviceName: sc.name || 'Service charge', serviceRate: service > 0 ? sc.rate : 0, serviceOn: scOn, serviceOff: scOn && !!adjust.serviceOff,
+    serviceCharge: service, serviceName: svc.name, serviceRate: service > 0 ? svc.rate : 0, serviceOn: scOn, serviceOff: scOn && !!adjust.serviceOff, partyService: svc.party,
+    deal: deal ? { id: deal.promo.id, name: deal.promo.name, amount: deal.amount, code: deal.promo.code || '' } : null,
     taxes, taxTotal, taxIncluded: tx.included ? taxSum : 0, total: r2(subtotal + service + taxTotal)
   };
 }

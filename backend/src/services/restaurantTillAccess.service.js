@@ -5,6 +5,7 @@ var pinAuth = require('../lib/pinAuth');
 var { buildContext } = require('./context.service');
 var activity = require('./restaurantActivity.service');
 var times = require('./restaurantTillTimes.service');
+var promos = require('./restaurantPromos.service');
 var front = require('./restaurantTillFront.service');
 
 // Who may do what on a restaurant's till and kitchen screen, and the
@@ -84,6 +85,13 @@ var DEFAULTS = {
   courses: { on: false, names: ['Starters', 'Mains', 'Desserts'], categories: {} },
   hours: { categories: {} },
   happyHours: [],
+  // Deals (restaurantPromos.service.js): automatic discounts and promo
+  // codes, and a large party's service charge at a table.
+  promotions: [],
+  partyService: { on: false, minGuests: 8, rate: 10, name: 'Large party service' },
+  // Closing the day (restaurantCloseDay.service.js): by itself at a time,
+  // emailed to some addresses, offered on WhatsApp to the owner's number.
+  closeDay: { auto: false, at: '23:30', emails: [], whatsapp: '' },
   // The guests themselves (restaurantTillFront.service.js): bookings and
   // the waitlist, tips, "your food is ready" texts, loyalty points, gift cards.
   bookings: front.DEFAULTS.bookings,
@@ -176,6 +184,15 @@ function merged(stored) {
   }
   if (s.hours && s.hours.categories && typeof s.hours.categories === 'object') out.hours.categories = s.hours.categories;
   if (Array.isArray(s.happyHours)) out.happyHours = s.happyHours.filter(function (h) { return h && h.id && h.name && Number(h.percent) > 0; });
+  if (Array.isArray(s.promotions)) out.promotions = s.promotions.filter(function (p) { return p && p.id && p.name && promos.KINDS.indexOf(p.kind) >= 0 && Number(p.value) > 0 && p.where; });
+  if (s.partyService && typeof s.partyService === 'object') {
+    var ps = s.partyService;
+    if (typeof ps.on === 'boolean') out.partyService.on = ps.on;
+    if (ps.minGuests >= 2 && ps.minGuests <= 200) out.partyService.minGuests = ps.minGuests;
+    if (ps.rate > 0 && ps.rate <= 30) out.partyService.rate = ps.rate;
+    if (typeof ps.name === 'string' && ps.name.trim()) out.partyService.name = ps.name;
+  }
+  if (s.closeDay) out.closeDay = require('./restaurantCloseDay.service').merge(s);
   return front.merge(out, s);
 }
 async function settingsOf(companyId, db) {
@@ -228,6 +245,7 @@ async function profile(token) {
       idleMinutes: a.settings.idleMinutes, requireWaiter: a.settings.requireWaiter, defaultFulfillment: a.settings.defaultFulfillment, kitchen: a.settings.kitchen,
       discounts: a.settings.discounts, serviceCharge: a.settings.serviceCharge, tax: a.settings.tax,
       courses: a.settings.courses, hours: a.settings.hours, happyHours: a.settings.happyHours,
+      promotions: a.settings.promotions, partyService: a.settings.partyService,
       tips: { on: a.settings.tips.on, percents: a.settings.tips.percents }, giftCards: a.settings.giftCards, loyalty: a.settings.loyalty, readyText: { on: a.settings.readyText.on },
       apps: a.settings.apps, kiosk: { on: a.settings.kiosk.on },
       card: { terminals: a.settings.card.terminals, paystack: a.settings.card.paystack && require('../config').paystack.configured },
@@ -442,6 +460,9 @@ function cleanSettings(p, base) {
   if (p.courses) out.courses = times.cleanCourses(p.courses, text);
   if (p.hours) out.hours = times.cleanHours(p.hours, text);
   if (p.happyHours !== undefined) out.happyHours = times.cleanHappyHours(p.happyHours, text);
+  if (p.promotions !== undefined) out.promotions = promos.cleanList(p.promotions);
+  if (p.partyService) out.partyService = promos.cleanParty(p.partyService);
+  if (p.closeDay) out.closeDay = require('./restaurantCloseDay.service').clean(p.closeDay);
   return front.clean(out, p, text);
 }
 
@@ -641,8 +662,24 @@ async function stock(token, p, ip) {
   else by = (await settingsManager(token, p.managerPin, ip)).manager;
   var tm = require('./restaurantTillMenu.service');
   if (p.action === 'history') return tm.history(session.posCompanyId, p.type, p.id);
+  // A barcode no dish has yet, given to one at the till (till/barcode.js).
+  if (p.action === 'barcode') return { linked: await tm.linkBarcode(session.posCompanyId, by, p) };
   var moved = p.action === 'move' ? await tm.move(session.posCompanyId, by, p) : null;
   return Object.assign(await tm.stock(session.posCompanyId), { moved: moved });
+}
+
+// Low stock, suppliers and purchase orders (restaurantPurchasing.service.js), by a manager.
+async function purchasing(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  return require('./restaurantPurchasing.service').tab(m.session.posCompanyId, m.manager, p);
+}
+
+// Closing the day (restaurantCloseDay.service.js), by a manager.
+async function closeDay(token, p, ip) {
+  p = p || {};
+  var m = await settingsManager(token, p.managerPin, ip);
+  return require('./restaurantCloseDay.service').tab(m.session.posCompanyId, m.manager, p);
 }
 
 // What customers owe and paid back, and VIP money (restaurantTillAccounts.service.js).
@@ -687,5 +724,5 @@ module.exports = {
   settingsOf: settingsOf, accessOf: accessOf, need: need, settingsManager: settingsManager, checkSignIn: checkSignIn, profile: profile, tableOut: tableOut,
   refundApprover: refundApprover, openSettings: openSettings, saveSettings: saveSettings, cleanSettings: cleanSettings,
   settingsCustomers: settingsCustomers, activityReport: activityReport, salesReport: salesReport, monthlyReport: monthlyReport, kitchenScreens: kitchenScreens,
-  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, staffOf: staffOf
+  drawers: drawers, disputes: disputes, accounts: accounts, menu: menu, stock: stock, purchasing: purchasing, closeDay: closeDay, staffOf: staffOf
 };

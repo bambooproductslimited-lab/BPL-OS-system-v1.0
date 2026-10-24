@@ -185,22 +185,28 @@ function itemRow(r) {
 async function menuForSession(token) {
   var session = await access.need(token, 'till');
   var res = await pool.query(
-    'SELECT id, name, category, price, photo_object_key, favorite, allergens FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
+    'SELECT id, name, category, price, photo_object_key, favorite, allergens, sku FROM restaurant_menu_items WHERE company_id = $1 AND active = true ORDER BY category, name',
     [session.posCompanyId]
   );
   var tiles = await attachVariationsToTiles(res.rows.map(rowToTile));
   // Each dish's add-on groups (restaurantTillCheck): a dish with any opens
   // its add-ons on the till.
   var groups = await check.groupsFor(pool, tiles.map(function (t) { return t.id; }));
-  tiles.forEach(function (t) { t.addOns = groups.get(t.id) || []; });
-  return tillMenu.tileStock(session.posCompanyId, tiles);
+  tiles.forEach(function (t) { t.addOns = groups.get(t.id) || []; t.combo = t.addOns.some(function (g) { return g.combo; }); });
+  await tillMenu.tileStock(session.posCompanyId, tiles);
+  // A combo's choice that is sold out shows so (its dish's own tile says).
+  var out = new Map(tiles.filter(function (t) { return t.stock && t.stock.soldOut; }).map(function (t) { return [t.id, true]; }));
+  tiles.forEach(function (t) { t.addOns.forEach(function (g) { if (g.combo) g.options.forEach(function (o) { if (out.get(o.menuItemId)) o.soldOut = true; }); }); });
+  return tiles;
 }
 
 function rowToTile(r) {
   return {
     id: r.id, name: r.name, category: r.category, price: Number(r.price),
     photoUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key),
-    favorite: r.favorite, variations: [], allergens: r.allergens || []
+    favorite: r.favorite, variations: [], allergens: r.allergens || [],
+    // Its barcode or SKU, for a scanner at the till (till/barcode.js).
+    sku: r.sku || ''
   };
 }
 
@@ -212,13 +218,13 @@ function rowToTile(r) {
 async function attachVariationsToTiles(tiles) {
   if (!tiles.length) return tiles;
   var res = await pool.query(
-    'SELECT id, menu_item_id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1) ORDER BY sort_order, created_at',
+    'SELECT id, menu_item_id, name, price, sku FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1) ORDER BY sort_order, created_at',
     [tiles.map(function (t) { return t.id; })]
   );
   var byItem = new Map();
   res.rows.forEach(function (r) {
     if (!byItem.has(r.menu_item_id)) byItem.set(r.menu_item_id, []);
-    byItem.get(r.menu_item_id).push({ id: r.id, name: r.name, price: Number(r.price) });
+    byItem.get(r.menu_item_id).push({ id: r.id, name: r.name, price: Number(r.price), sku: r.sku || '' });
   });
   tiles.forEach(function (t) { t.variations = byItem.get(t.id) || []; });
   return tiles;
@@ -598,8 +604,10 @@ async function chargeOrder(session, p, clientRef) {
     // The bill: discounts, dishes on the house, the service charge and the
     // taxes (restaurantTillCheck), allowed as an open order's were saved,
     // by the person's role or with a manager's approval.
+    // (A deal on the bill, restaurantPromos: not on a delivery app's order; a large party's service charge by how many sat down.)
     var bill = check.compute(priced.lines, p.adjust, tillSettings, type.fulfillment || 'dine_in',
-      { companyId: session.posCompanyId, name: await personName(client, session.posEmployeeId), can: session.access.can, before: tab ? { items: tab.items, adjust: tab.adjust || {} } : null });
+      { companyId: session.posCompanyId, name: await personName(client, session.posEmployeeId), can: session.access.can, before: tab ? { items: tab.items, adjust: tab.adjust || {} } : null,
+        channel: app ? 'app' : undefined, guests: guestsOf(p.guests) || (tab ? tab.guests : null), at: takenAt || undefined });
     var lines = bill.lines;
     var subtotal = bill.subtotal;
     // Some of an open order's dishes paid on their own (split by dish): the
@@ -817,6 +825,7 @@ function discountWords(b) {
     if (l.compReason) parts.push(l.name + ' on the house (' + l.compReason + ', ' + l.discountBy + ')');
     else if (l.discountAsked) parts.push(l.discountAsked.name + ' on ' + l.name + ' (' + l.discountAsked.by + ')');
   });
+  if (b.adjust.promo) parts.push('deal ' + b.adjust.promo.name + ' (' + Number(b.adjust.promo.amount).toFixed(2) + (b.adjust.promoCode ? ', code ' + b.adjust.promoCode : '') + ')');
   if (b.adjust.discount) parts.push(b.adjust.discount.name + ' on the bill (' + b.adjust.discount.by + ')');
   if (b.adjust.serviceOff) parts.push('service charge taken off (' + b.adjust.serviceOff.by + ')');
   return parts.length ? ' ' + parts.join('; ') + '.' : '';
@@ -854,7 +863,7 @@ async function tabRows(companyId, where, args) {
     }
     // Its discounts and service charge as they were given when it was saved.
     var bill;
-    try { bill = check.compute(priced, r.adjust, settings, r.fulfillment || 'dine_in', { companyId: companyId, name: null, can: {}, before: { items: r.items, adjust: r.adjust || {} } }); }
+    try { bill = check.compute(priced, r.adjust, settings, r.fulfillment || 'dine_in', { companyId: companyId, name: null, can: {}, before: { items: r.items, adjust: r.adjust || {} }, guests: r.guests }); }
     catch (e) { bill = check.compute(priced.map(function (l) { return Object.assign({}, l, { discount: null, comp: null }); }), {}, settings, r.fulfillment || 'dine_in', null); }
     var lines = bill.lines.map(lineOut);
     var total = bill.total;
@@ -900,7 +909,7 @@ async function listTabs(token) {
 // at the counter under the customer's name; a delivery keeps who, the
 // phone and where.
 async function saveTab(token, p) {
-  return saveTabFor(await access.need(token, 'keepOpen'), p);
+  return saveTabFor(await access.need(token, 'keepOpen'), Object.assign({}, p, { placed: undefined }));
 }
 // An open order saved and sent to the kitchen by whoever the session is: the
 // till (saveTab), or the delivery screen accepting a website order
@@ -935,8 +944,11 @@ async function keepTab(session, p, clientRef) {
   var stored = p.id ? (await pool.query('SELECT items, adjust, guests, allergy, fired_course FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2', [p.id, company])).rows[0] : null;
   // Not sent by whoever adds to it (a table's QR order): as it was.
   var adjustAsked = p.adjust !== undefined ? p.adjust : stored ? stored.adjust : {};
+  // A website or kiosk order's deal comes with it, as it was given there (placed: only from the server, never the till's own request).
+  var given = stored ? { items: stored.items, adjust: stored.adjust || {} } : p.placed ? { items: [], adjust: p.placed.adjust || {} } : null;
   var bill = check.compute(priced.lines, adjustAsked, session.access.settings, type.fulfillment || 'dine_in',
-    { companyId: company, name: session.posEmployeeId ? await personName(pool, session.posEmployeeId) : '', can: session.access.can || {}, before: stored ? { items: stored.items, adjust: stored.adjust || {} } : null });
+    { companyId: company, name: session.posEmployeeId ? await personName(pool, session.posEmployeeId) : '', can: session.access.can || {}, before: given,
+      guests: p.guests !== undefined ? guestsOf(p.guests) : stored ? stored.guests : null });
   var items = bill.lines.map(keptLine);
   var label = (typeof p.label === 'string' ? p.label.trim() : '').slice(0, 60);
   if (!label && type.fulfillment !== 'dine_in' && type.customerName) label = type.customerName.slice(0, 60);

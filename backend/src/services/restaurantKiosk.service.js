@@ -63,7 +63,14 @@ async function menu(key) {
   if (!d.company_id) fail('conflict', 'This kiosk is not on a till yet.');
   var m = await online().menuItems(d.company_id, false);
   var s = await access.settingsOf(d.company_id);
-  return { categories: m.categories, items: m.items, bill: online().billRules(s) };
+  return { categories: m.categories, items: m.items, bill: online().billRules(s, 'kiosk') };
+}
+// GET /api/pos/kiosk/promo?code= — a promo code's deal, for the basket to show (checked again with the order).
+async function promo(key, q, ip) {
+  online().promoThrottle(ip);
+  var d = await kioskOf(key);
+  if (!d.company_id) fail('conflict', 'This kiosk is not on a till yet.');
+  return { promo: online().promoByCode(await access.settingsOf(d.company_id), q && q.code, 'kiosk') };
 }
 
 // POST /api/pos/kiosk/orders { items, dining: 'here' | 'away', name, note, pay: 'counter' | 'here', back }
@@ -90,7 +97,8 @@ async function place(key, p, ip) {
   times.checkHours(s, priced.lines, null);
   times.applyHappy(s, priced.lines);
   // The bill as the till will charge it (service charge and taxes on top, if any).
-  var bill = check.compute(priced.lines, {}, s, dining === 'here' ? 'dine_in' : 'pickup', null);
+  // (A deal, restaurantPromos: on by itself, or with the code the customer typed.)
+  var bill = check.compute(priced.lines, { promoCode: p.promoCode || undefined }, s, dining === 'here' ? 'dine_in' : 'pickup', { can: {}, before: null, channel: 'kiosk' });
   orders().throttle(ip);
   var name = clean(p.name, 40);
   var row = await withTransaction(async function (client) {
@@ -98,9 +106,9 @@ async function place(key, p, ip) {
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_table_orders WHERE company_id = $1', [d.company_id])).rows[0].n;
     var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}); });
     var r = (await client.query(
-      "INSERT INTO restaurant_table_orders (company_id, table_id, kind, kiosk_id, dining, number, token_hash, customer_name, note, items, subtotal, ip, status) VALUES ($1,NULL,'kiosk',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
+      "INSERT INTO restaurant_table_orders (company_id, table_id, kind, kiosk_id, dining, number, token_hash, customer_name, note, items, subtotal, ip, status, adjust) VALUES ($1,NULL,'kiosk',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *",
       [d.company_id, d.id, dining, number, crypto.createHash('sha256').update(crypto.randomBytes(24)).digest('hex'), name, clean(p.note, 200), JSON.stringify(lines), priced.subtotal,
-        String(ip || '').slice(0, 60), payHere ? 'unpaid' : 'pending'])).rows[0];
+        String(ip || '').slice(0, 60), payHere ? 'unpaid' : 'pending', JSON.stringify(bill.adjust || {})])).rows[0];
     await activity.log(client, { companyId: d.company_id, employeeId: null, app: 'kiosk', action: 'kiosk.ordered',
       summary: orders().refOf(r) + ' ordered on the kiosk' + (name ? ' (' + name + ')' : '') + ', ' + (dining === 'here' ? 'eat here' : 'take away') + ': ' +
         lines.map(function (l) { return l.qty + '× ' + l.name; }).join(', ') + ', ' + round2(bill.total).toFixed(2) + (payHere ? ', paying on the kiosk.' : ', to pay at the counter.'),
@@ -191,4 +199,4 @@ async function unpair(token, id) {
   return list(token);
 }
 
-module.exports = { hello: hello, view: view, menu: menu, place: place, payStatus: payStatus, list: list, pair: pair, unpair: unpair, backUrl: backUrl };
+module.exports = { hello: hello, view: view, menu: menu, promo: promo, place: place, payStatus: payStatus, list: list, pair: pair, unpair: unpair, backUrl: backUrl };

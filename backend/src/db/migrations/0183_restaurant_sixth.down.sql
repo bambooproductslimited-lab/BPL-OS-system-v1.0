@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS restaurant_day_closes;
+DROP TABLE IF EXISTS restaurant_purchase_order_lines;
+DROP TABLE IF EXISTS restaurant_purchase_orders;
+ALTER TABLE restaurant_supplies DROP COLUMN IF EXISTS supplier_id;
+ALTER TABLE restaurant_ingredients DROP COLUMN IF EXISTS supplier_id;
+ALTER TABLE restaurant_menu_items DROP COLUMN IF EXISTS supplier_id;
+DROP TABLE IF EXISTS restaurant_suppliers;
+ALTER TABLE restaurant_table_orders DROP COLUMN IF EXISTS adjust;
+ALTER TABLE restaurant_online_orders DROP COLUMN IF EXISTS adjust;
+DROP TABLE IF EXISTS restaurant_combo_options;
+DROP TABLE IF EXISTS restaurant_combo_slots;

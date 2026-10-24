@@ -104,6 +104,7 @@ router.post('/settings/insights', h(async function (req) {
 router.post('/kiosk/hello', h(function (req) { return kiosk.hello(body(req).key, req.ip, req.headers['user-agent']); }));
 router.get('/kiosk', h(function (req) { return kiosk.view(posToken(req)); }));
 router.get('/kiosk/menu', h(function (req) { return kiosk.menu(posToken(req)); }));
+router.get('/kiosk/promo', h(function (req) { return kiosk.promo(posToken(req), req.query, req.ip); }));
 router.post('/kiosk/orders', h(function (req) { return kiosk.place(posToken(req), body(req), req.ip); }));
 router.get('/kiosk/pay/:reference', h(function (req) { return kiosk.payStatus(posToken(req), req.params.reference); }));
 router.get('/kiosks', h(function (req) { return kiosk.list(posToken(req)); }));

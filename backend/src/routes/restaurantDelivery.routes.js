@@ -55,6 +55,7 @@ router.post('/rider/:token/status', h(function (req) { return delivery.riderStat
 
 // ── the website ──
 router.get('/online/:code/menu', h(function (req) { return online.menu(req.params.code); }));
+router.get('/online/:code/promo', h(function (req) { return online.promo(req.params.code, req.query, req.ip); }));
 router.post('/online/:code/orders', h(function (req) { return online.place(req.params.code, body(req), req.ip, posToken(req)); }));
 router.get('/online/track/:token', h(function (req) { return online.track(req.params.token); }));
 router.post('/online/track/:token/cancel', h(function (req) { return online.cancel(req.params.token); }));

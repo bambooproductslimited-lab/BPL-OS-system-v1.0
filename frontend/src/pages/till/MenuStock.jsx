@@ -4,6 +4,8 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import AddOnGroups from './AddOnGroups';
+import ComboEditor from './Combos';
+import { comboBodyOf, comboDraftOf } from './comboDraft';
 import { ALLERGENS, allergenIcon } from './tillService';
 import { saveFile } from '../../lib/saveFile';
 
@@ -15,7 +17,7 @@ import { saveFile } from '../../lib/saveFile';
 // thrown away, with each one's history. StockTab also opens from the till
 // for whoever's role may count the stock (no manager PIN then).
 
-function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [], sku: '', description: '', itemType: 'Prepared food and beverage', containsAlcohol: null }; }
+function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [], sku: '', description: '', itemType: 'Prepared food and beverage', containsAlcohol: null, combo: [] }; }
 // Square's item types (backend restaurantTillMenu ITEM_TYPES): the item library downloads in its layout.
 const ITEM_TYPES = [['Prepared food and beverage', msg('Prepared food and drink')], ['Physical good', msg('Physical good')], ['Service', msg('Service')], ['Digital', msg('Digital')], ['Event', msg('Event')], ['Donation', msg('Donation')], ['Membership', msg('Membership')]];
 
@@ -36,13 +38,13 @@ export function MenuTab({ token, pin, onFail }) {
   }, [data, q, cat]);
   function open(i) {
     setFlash(null);
-    setEdit(i ? { ...i, price: String(i.price), stockQty: '', lowStock: i.trackStock ? String(i.lowStock) : '', variations: i.variations.map((v) => ({ ...v, price: String(v.price) })) } : emptyItem(cat));
+    setEdit(i ? { ...i, price: String(i.price), stockQty: '', lowStock: i.trackStock ? String(i.lowStock) : '', variations: i.variations.map((v) => ({ ...v, price: String(v.price) })), combo: comboDraftOf(i.combo) } : emptyItem(cat));
   }
   async function save(e) {
     e.preventDefault();
     setBusy(true);
     try {
-      const d = await call({ action: 'save', item: { ...edit, price: Number(edit.price), lowStock: edit.lowStock === '' ? 0 : Number(edit.lowStock), stockQty: edit.stockQty === '' ? undefined : Number(edit.stockQty) } });
+      const d = await call({ action: 'save', item: { ...edit, price: Number(edit.price), lowStock: edit.lowStock === '' ? 0 : Number(edit.lowStock), stockQty: edit.stockQty === '' ? undefined : Number(edit.stockQty), combo: comboBodyOf(edit.combo) } });
       setData(d); setEdit(null); setFlash(edit.id ? tr('{name} saved. The till shows it now.', { name: edit.name }) : tr('{name} added to the menu.', { name: edit.name }));
     } catch (err) { onFail(err); } finally { setBusy(false); }
   }
@@ -124,6 +126,10 @@ export function MenuTab({ token, pin, onFail }) {
           ))}
           <button type="button" className="pos-link" onClick={() => setEdit({ ...edit, variations: edit.variations.concat([{ name: '', price: edit.price }]) })}>+ {tr('Add a size')}</button>
         </div>
+        {/* A dish that is a choice in another combo cannot be one itself. */}
+        {!data.items.some((i) => (i.combo || []).some((s) => s.options.some((o) => o.menuItemId === edit.id))) && (
+          <ComboEditor slots={edit.combo || []} onChange={(combo) => setEdit({ ...edit, combo })} items={data.items} selfId={edit.id} price={edit.price} />
+        )}
         <div className="ts-mn-allergens">
           <span className="ts-label">{tr('Allergens')}</span>
           <small className="dk-muted">{tr('What it has. The till warns before adding it to an order with an allergy alert; the kitchen and the website show it.')}</small>
@@ -178,7 +184,7 @@ export function MenuTab({ token, pin, onFail }) {
               <button type="button" className="ts-mn-row" onClick={() => open(i)}>
                 <span className="ts-mn-pic" aria-hidden="true">{i.thumbUrl ? <img src={i.thumbUrl} alt="" loading="lazy" /> : i.name.replace(/^zq\s+/i, '').slice(0, 1).toUpperCase()}</span>
                 <span className="ts-mn-main">
-                  <strong>{i.name}</strong>
+                  <strong>{i.name}{(i.combo || []).length > 0 && <span className="cb-tag">🍱 {tr('Combo')}</span>}</strong>
                   <small>{[i.category, i.sku ? tr('SKU {sku}', { sku: i.sku }) : null, i.variations.length ? tr('{n} sizes', { n: i.variations.length }) : null, i.sold30 ? tr('{n} sold in 30 days', { n: i.sold30 }) : null, !i.active ? tr('off the till') : null].filter(Boolean).join(' · ')}</small>
                 </span>
                 {i.trackStock && <span className={'ts-mn-stock' + (i.stockQty <= 0 ? ' is-out' : i.stockQty <= i.lowStock ? ' is-low' : '')}>{i.stockQty <= 0 ? tr('None left') : tr('{n} left', { n: i.stockQty })}</span>}

@@ -2,6 +2,7 @@ var jwt = require('jsonwebtoken');
 var { fail } = require('../utils/errors');
 var config = require('../config');
 var times = require('./restaurantTillTimes.service');
+var promos = require('./restaurantPromos.service');
 
 // The bill on the till (migration 0168), beyond the dishes and their prices
 // (restaurantPos priceLines):
@@ -36,9 +37,13 @@ function text(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').t
 var HOWS = ['add', 'no', 'extra', 'side'];
 // The active add-on groups of these dishes, with their active choices:
 // Map(menuItemId → [{ id, name, minPick, maxPick, options: [{ id, name, price }] }]).
+// A combo's slots come first (migration 0183): each a group whose choices
+// are other dishes on the menu (combo: true; a choice's menuItemId and
+// variationId say which, and its price is what it adds to the combo's).
 async function groupsFor(db, itemIds) {
   var out = new Map();
   if (!itemIds.length) return out;
+  await comboGroups(db, itemIds, out);
   var rows = (await db.query(
     'SELECT mg.menu_item_id, g.id, g.name, g.min_pick, g.max_pick FROM restaurant_menu_item_modifier_groups mg ' +
     'JOIN restaurant_modifier_groups g ON g.id = mg.group_id WHERE mg.menu_item_id = ANY($1::uuid[]) AND g.active ORDER BY mg.sort_order, g.sort_order, g.name',
@@ -56,8 +61,27 @@ async function groupsFor(db, itemIds) {
   return out;
 }
 
+async function comboGroups(db, itemIds, out) {
+  var slots = (await db.query('SELECT id, menu_item_id, name, min_pick, max_pick FROM restaurant_combo_slots WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order, name', [itemIds])).rows;
+  if (!slots.length) return;
+  var opts = (await db.query(
+    "SELECT o.id, o.slot_id, o.menu_item_id, o.variation_id, o.extra, m.name AS item, v.name AS size FROM restaurant_combo_options o " +
+    'JOIN restaurant_menu_items m ON m.id = o.menu_item_id AND m.active LEFT JOIN restaurant_menu_item_variations v ON v.id = o.variation_id ' +
+    'WHERE o.slot_id = ANY($1::uuid[]) ORDER BY o.sort_order, m.name', [slots.map(function (s) { return s.id; })])).rows;
+  slots.forEach(function (s) {
+    if (!out.has(s.menu_item_id)) out.set(s.menu_item_id, []);
+    out.get(s.menu_item_id).push({
+      id: s.id, name: s.name, minPick: s.min_pick, maxPick: s.max_pick, combo: true,
+      options: opts.filter(function (o) { return o.slot_id === s.id; }).map(function (o) {
+        return { id: o.id, name: o.size ? o.item + ' — ' + o.size : o.item, price: Number(o.extra), menuItemId: o.menu_item_id, variationId: o.variation_id || null };
+      })
+    });
+  });
+}
+
 // What was picked for a dish, checked against its groups: [{ id, groupId,
-// group, name, how, price }] in the menu's order. A group's "at least" and
+// group, name, how, price }] in the menu's order (a combo's pick also
+// with the dish it is: menuItemId, variationId). A group's "at least" and
 // "at most" count what was added (not "no …").
 function pickMods(dishName, groups, asked) {
   asked = Array.isArray(asked) ? asked : [];
@@ -73,7 +97,9 @@ function pickMods(dishName, groups, asked) {
     var key = opt.id + ':' + how;
     if (seen.has(key)) return;
     seen.add(key);
-    picked.push({ id: opt.id, groupId: grp.id, group: grp.name, name: opt.name, how: how, price: how === 'no' ? 0 : round2(opt.price) });
+    if (grp.combo && how !== 'add') fail('invalid', dishName + ': ' + opt.name + ' is one of the combo\'s choices, picked or not.');
+    picked.push(Object.assign({ id: opt.id, groupId: grp.id, group: grp.name, name: opt.name, how: how, price: how === 'no' ? 0 : round2(opt.price) },
+      opt.menuItemId ? { menuItemId: opt.menuItemId, variationId: opt.variationId || null, combo: true } : {}));
   });
   groups.forEach(function (g) {
     var n = picked.filter(function (p) { return p.groupId === g.id && p.how === 'add'; }).length;
@@ -99,6 +125,16 @@ function modsText(mods) {
 }
 // What a line keeps of its add-ons on an open order: the ids and how.
 function modsAsked(mods) { return (mods || []).map(function (m) { return m.how && m.how !== 'add' ? { id: m.id, how: m.how } : { id: m.id }; }); }
+// The dishes a line's combo is made of: [{ menuItemId, variationId, qty }] (qty per combo).
+function comboParts(mods) {
+  var out = [];
+  (mods || []).forEach(function (m) {
+    if (!m.menuItemId || m.how === 'no') return;
+    var had = out.find(function (x) { return x.menuItemId === m.menuItemId && x.variationId === (m.variationId || null); });
+    if (had) had.qty += 1; else out.push({ menuItemId: m.menuItemId, variationId: m.variationId || null, qty: 1 });
+  });
+  return out;
+}
 
 // ── approvals ──
 
@@ -213,8 +249,31 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
     return o;
   });
 
-  // The whole bill's discount, shared over its dishes (not a delivery fee).
+  // A deal (restaurantPromos): the best one on for this bill, by itself or
+  // with its code; one given on an open order stays (kept). Not on a
+  // delivery app's order (its own prices).
   var keep = {};
+  var keptPromo = before.adjust && before.adjust.promo ? before.adjust.promo : null;
+  var channel = ctx.channel || (before.adjust && before.adjust.channel) || (keptPromo && keptPromo.channel) || 'till';
+  var promoAmount = 0;
+  // (A website or kiosk order on the till keeps its own deals.)
+  if (channel === 'online' || channel === 'kiosk') keep.channel = channel;
+  if (channel !== 'app') {
+    var deal = promos.best(out, settings.promotions, { channel: channel, code: adjust.promoCode, keptCode: before.adjust && before.adjust.promoCode, at: ctx.at, kept: keptPromo && keptPromo.id });
+    if (adjust.promoCode) keep.promoCode = promos.codeOf(adjust.promoCode);
+    if (deal) {
+      out.forEach(function (l, i) {
+        var s = deal.shares[i];
+        if (!s) return;
+        l.discount = round2(l.discount + s); l.lineTotal = round2(l.lineTotal - s);
+        if (!l.discountName) l.discountName = deal.promo.name;
+      });
+      promoAmount = deal.amount;
+      keep.promo = { id: deal.promo.id, name: deal.promo.name, amount: deal.amount, channel: channel };
+    }
+  }
+
+  // The whole bill's discount, shared over its dishes (not a delivery fee).
   var billDisc = cleanDiscount(adjust.discount, settings);
   var billDiscount = 0;
   if (billDisc && billDisc.happy && !(before.adjust && before.adjust.discount) && !times.isOn(billDisc.happy, ctx.at)) fail('conflict', billDisc.name + ' is not on now (' + billDisc.happy.from + '–' + billDisc.happy.to + ').');
@@ -239,10 +298,11 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
   var subtotal = round2(out.reduce(function (a, l) { return a + l.lineTotal; }, 0));
   var discountTotal = round2(itemsGross - subtotal);
 
-  // The service charge, on this kind of order, unless taken off.
+  // The service charge, on this kind of order (or a large party's), unless taken off.
   var sc = settings.serviceCharge || {};
+  var svc = promos.serviceFor(settings, fulfillment, ctx.guests);
   var service = 0;
-  var serviceOn = !!(sc.on && sc.rate > 0 && (sc.types || {})[fulfillment || 'dine_in']);
+  var serviceOn = svc.on;
   if (serviceOn && adjust.serviceOff) {
     var wasOff = before.adjust && before.adjust.serviceOff ? before.adjust.serviceOff.by : null;
     var sby = allow(ctx, 'service', 'service-off', adjust.serviceOff.approval, wasOff, 'Taking the service charge off');
@@ -252,7 +312,7 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
   }
   if (serviceOn) {
     var serviceBase = round2(out.filter(function (l) { return !l.fee; }).reduce(function (a, l) { return a + l.lineTotal; }, 0));
-    service = round2(serviceBase * sc.rate / 100);
+    service = round2(serviceBase * svc.rate / 100);
   }
 
   // Taxes: per cedi of what they are charged on, then on the bill.
@@ -272,7 +332,8 @@ function compute(lines, adjust, settings, fulfillment, ctx) {
 
   return {
     lines: out, itemsGross: itemsGross, discountTotal: discountTotal, billDiscount: billDiscount, subtotal: subtotal,
-    serviceCharge: service, serviceName: sc.name || 'Service charge', serviceRate: service > 0 ? sc.rate : 0, serviceOff: !!keep.serviceOff,
+    serviceCharge: service, serviceName: svc.name, serviceRate: service > 0 ? svc.rate : 0, serviceOff: !!keep.serviceOff, partyService: service > 0 && svc.party,
+    promo: keep.promo || null, promoDiscount: promoAmount,
     taxes: taxes, taxTotal: taxAdded, taxIncluded: tx.included ? taxSum : 0,
     total: round2(subtotal + service + taxAdded),
     adjust: keep, approvals: Array.from(new Set(approvals))
@@ -315,6 +376,6 @@ function saleColumns(c) {
 }
 
 module.exports = {
-  HOWS: HOWS, KINDS: KINDS, groupsFor: groupsFor, pickMods: pickMods, modsPrice: modsPrice, modsKey: modsKey, modsText: modsText, modsAsked: modsAsked,
+  HOWS: HOWS, KINDS: KINDS, groupsFor: groupsFor, pickMods: pickMods, modsPrice: modsPrice, modsKey: modsKey, modsText: modsText, modsAsked: modsAsked, comboParts: comboParts,
   identity: identity, cleanDiscount: cleanDiscount, compute: compute, keepOnTab: keepOnTab, approval: approval, approvedBy: approvedBy, saleColumns: saleColumns
 };

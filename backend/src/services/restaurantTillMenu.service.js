@@ -54,17 +54,27 @@ async function tileStock(companyId, tiles) {
   return tiles;
 }
 
+// How many of each dish some lines take: the dishes themselves, and a
+// combo's dishes (restaurantTillCheck comboParts) as many times as the combo.
+function dishesOf(lines) {
+  var want = new Map();
+  (lines || []).forEach(function (l) {
+    if (l.menuItemId) want.set(l.menuItemId, (want.get(l.menuItemId) || 0) + Number(l.qty));
+    check().comboParts(l.modifiers).forEach(function (c) { want.set(c.menuItemId, (want.get(c.menuItemId) || 0) + c.qty * Number(l.qty)); });
+  });
+  return want;
+}
+function check() { return require('./restaurantTillCheck.service'); }
+
 // Nobody orders more of a counted dish than is left: a new sale, or what an
 // open order adds (tabId: the open order; before: what it held already).
 async function checkOrder(db, companyId, lines, tabId, before) {
-  var want = new Map();
-  lines.forEach(function (l) { if (l.menuItemId) want.set(l.menuItemId, (want.get(l.menuItemId) || 0) + Number(l.qty)); });
+  var want = dishesOf(lines);
   if (!want.size) return;
   var rows = (await db.query('SELECT id, name, stock_qty FROM restaurant_menu_items WHERE id = ANY($1::uuid[]) AND track_stock', [Array.from(want.keys())])).rows;
   if (!rows.length) return;
   var held = await heldOnTabs(db, companyId, tabId);
-  var had = new Map();
-  (before || []).forEach(function (l) { if (l.menuItemId) had.set(l.menuItemId, (had.get(l.menuItemId) || 0) + Number(l.qty)); });
+  var had = dishesOf(before);
   rows.forEach(function (r) {
     var need = want.get(r.id);
     var left = round2(Number(r.stock_qty) - (held.get(r.id) || 0));
@@ -80,23 +90,27 @@ async function logMove(db, m) {
     [m.companyId, m.type, m.id, m.kind, round2(m.delta), round2(m.after), round2(m.unitCost || 0), m.note || '', m.by || null, m.orderId || null]);
 }
 
-// A sale takes its counted dishes off the stock, in the sale's transaction.
+// A sale takes its counted dishes off the stock, in the sale's transaction;
+// one that goes under its "low" figure tells the managers (restaurantPurchasing).
 async function deductForSale(client, companyId, orderId, cashierId, lines) {
-  var by = new Map();
-  lines.forEach(function (l) { if (l.menuItemId) by.set(l.menuItemId, (by.get(l.menuItemId) || 0) + Number(l.qty)); });
+  var by = dishesOf(lines);
+  var low = [];
   for (var e of by) {
     var r = (await client.query(
-      'UPDATE restaurant_menu_items SET stock_qty = stock_qty - $2, updated_at = now() WHERE id = $1 AND company_id = $3 AND track_stock RETURNING stock_qty',
+      'UPDATE restaurant_menu_items SET stock_qty = stock_qty - $2, updated_at = now() WHERE id = $1 AND company_id = $3 AND track_stock RETURNING name, stock_qty, low_stock',
       [e[0], e[1], companyId])).rows[0];
-    if (r) await logMove(client, { companyId: companyId, type: 'menu', id: e[0], kind: 'sold', delta: -e[1], after: r.stock_qty, by: cashierId, orderId: orderId });
+    if (!r) continue;
+    await logMove(client, { companyId: companyId, type: 'menu', id: e[0], kind: 'sold', delta: -e[1], after: r.stock_qty, by: cashierId, orderId: orderId });
+    low.push({ name: r.name, unit: 'each', before: Number(r.stock_qty) + e[1], after: Number(r.stock_qty), level: Number(r.low_stock) });
   }
+  await require('./restaurantPurchasing.service').tellLow(client, companyId, low);
 }
 
 // A voided sale puts its counted dishes back.
 async function returnForVoid(client, order) {
+  // What the sale took off (its own dishes and its combos' dishes), as its stock moves say.
   var rows = (await client.query(
-    'SELECT oi.menu_item_id AS id, sum(oi.qty) AS qty FROM restaurant_order_items oi JOIN restaurant_menu_items m ON m.id = oi.menu_item_id AND m.track_stock ' +
-    'WHERE oi.order_id = $1 GROUP BY 1', [order.id])).rows;
+    "SELECT item_id AS id, -sum(delta) AS qty FROM restaurant_stock_moves WHERE order_id = $1 AND item_type = 'menu' AND kind = 'sold' GROUP BY 1", [order.id])).rows;
   for (var i = 0; i < rows.length; i++) {
     var r = (await client.query('UPDATE restaurant_menu_items SET stock_qty = stock_qty + $2, updated_at = now() WHERE id = $1 RETURNING stock_qty', [rows[i].id, Number(rows[i].qty)])).rows[0];
     await logMove(client, { companyId: order.company_id, type: 'menu', id: rows[i].id, kind: 'voided', delta: Number(rows[i].qty), after: r.stock_qty, note: 'Sale ' + order.order_no + ' voided', orderId: order.id });
@@ -127,7 +141,8 @@ async function menu(companyId) {
     [rows.map(function (r) { return r.id; })])).rows : [];
   var byItem = new Map();
   vars.forEach(function (v) { if (!byItem.has(v.menu_item_id)) byItem.set(v.menu_item_id, []); byItem.get(v.menu_item_id).push({ id: v.id, name: v.name, price: Number(v.price), sku: v.sku || '' }); });
-  var items = rows.map(function (r) { return itemOut(r, byItem.get(r.id)); });
+  var combos = await combosOf(rows.map(function (r) { return r.id; }));
+  var items = rows.map(function (r) { return Object.assign(itemOut(r, byItem.get(r.id)), { combo: combos.get(r.id) || [], supplierId: r.supplier_id || null }); });
   var categories = Array.from(new Set(items.map(function (i) { return i.category; }))).sort();
   return { items: items, categories: categories, groups: await groups(companyId) };
 }
@@ -268,11 +283,65 @@ async function saveItem(companyId, manager, p) {
       if (v.id) await client.query('UPDATE restaurant_menu_item_variations SET name = $3, price = $4, sort_order = $5, sku = coalesce($6, sku) WHERE id = $1 AND menu_item_id = $2', [v.id, row.id, vname, vprice, i, vsku === undefined ? null : vsku]);
       else await client.query('INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order, sku) VALUES ($1,$2,$3,$4,$5)', [row.id, vname, vprice, i, vsku || '']);
     }
+    // A combo's slots (migration 0183), replaced when sent; who it is bought from (purchase orders).
+    if (p.combo !== undefined) await saveCombo(client, companyId, row, p.combo);
+    if (p.supplierId !== undefined) await client.query('UPDATE restaurant_menu_items SET supplier_id = (SELECT id FROM restaurant_suppliers WHERE id = $2 AND company_id = $3) WHERE id = $1',
+      [row.id, p.supplierId || null, companyId]);
     var what = !before ? 'Added ' + name + ' to the menu' : Number(before.price) !== price ? 'Changed ' + name + ': price ' + Number(before.price).toFixed(2) + ' → ' + price.toFixed(2) : 'Changed ' + name;
     await audit(client, who(manager), before ? 'restaurant.menu.update' : 'restaurant.menu.create', 'restaurant_menu_item', row.id, what + '.');
     await activity.log(client, { companyId: companyId, employeeId: manager.id, app: 'settings', action: 'settings.menu', summary: what + '.', refType: 'menu_item', refId: row.id });
     return row.id;
   });
+}
+
+// A combo: its slots, each with the dishes to pick from and what each adds
+// to the price — [{ name, minPick, maxPick, options: [{ menuItemId,
+// variationId, extra }] }]; none, and it is a dish like any other.
+async function saveCombo(client, companyId, row, slots) {
+  var list = Array.isArray(slots) ? slots : [];
+  if (list.length > 8) fail('invalid', 'A combo has at most 8 parts.');
+  if (list.length && (await client.query('SELECT 1 FROM restaurant_combo_options WHERE menu_item_id = $1 LIMIT 1', [row.id])).rows[0]) {
+    fail('invalid', row.name + ' is a choice in another combo, so it cannot be a combo itself.');
+  }
+  await client.query('DELETE FROM restaurant_combo_slots WHERE menu_item_id = $1', [row.id]);
+  for (var i = 0; i < list.length; i++) {
+    var s = list[i] || {};
+    var name = text(s.name, 40);
+    if (!name) fail('invalid', 'Give each part of the combo a name, e.g. A main.');
+    var max = Math.round(Number(s.maxPick) || 1), min = s.minPick === undefined ? 1 : Math.round(Number(s.minPick));
+    if (!(max >= 1 && max <= 10) || !(min >= 0 && min <= max)) fail('invalid', name + ': pick between 0 and 10, and at least no more than at most.');
+    var opts = Array.isArray(s.options) ? s.options : [];
+    if (!opts.length) fail('invalid', name + ': add the dishes to pick from.');
+    if (opts.length > 40) fail('invalid', name + ': at most 40 dishes to pick from.');
+    var slot = (await client.query('INSERT INTO restaurant_combo_slots (menu_item_id, name, min_pick, max_pick, sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING id', [row.id, name, min, max, i])).rows[0].id;
+    for (var j = 0; j < opts.length; j++) {
+      var o = opts[j] || {};
+      var dish = (await client.query('SELECT id, name, (SELECT count(*) FROM restaurant_combo_slots s WHERE s.menu_item_id = m.id)::int AS slots FROM restaurant_menu_items m WHERE id = $1 AND company_id = $2', [o.menuItemId, companyId])).rows[0];
+      if (!dish) fail('invalid', name + ': one of its dishes is not on this menu.');
+      if (dish.id === row.id || dish.slots > 0) fail('invalid', name + ': a combo is made of dishes, not of combos.');
+      var vid = o.variationId || null;
+      if (vid && !(await client.query('SELECT 1 FROM restaurant_menu_item_variations WHERE id = $1 AND menu_item_id = $2', [vid, dish.id])).rows[0]) fail('invalid', name + ': ' + dish.name + ' has no such size.');
+      var extra = Math.round(Number(o.extra || 0) * 100) / 100;
+      if (!(extra >= 0 && extra < 100000)) fail('invalid', name + ': what ' + dish.name + ' adds to the price is out of range.');
+      await client.query('INSERT INTO restaurant_combo_options (slot_id, menu_item_id, variation_id, extra, sort_order) VALUES ($1,$2,$3,$4,$5)', [slot, dish.id, vid, extra, j]);
+    }
+  }
+}
+// Each combo's slots, for the menu editor: Map(menuItemId → [{ id, name, minPick, maxPick, options }]).
+async function combosOf(itemIds) {
+  var out = new Map();
+  if (!itemIds.length) return out;
+  var slots = (await pool.query('SELECT * FROM restaurant_combo_slots WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order', [itemIds])).rows;
+  if (!slots.length) return out;
+  var opts = (await pool.query(
+    'SELECT o.*, m.name AS item, v.name AS size FROM restaurant_combo_options o JOIN restaurant_menu_items m ON m.id = o.menu_item_id ' +
+    'LEFT JOIN restaurant_menu_item_variations v ON v.id = o.variation_id WHERE o.slot_id = ANY($1::uuid[]) ORDER BY o.sort_order', [slots.map(function (s) { return s.id; })])).rows;
+  slots.forEach(function (s) {
+    if (!out.has(s.menu_item_id)) out.set(s.menu_item_id, []);
+    out.get(s.menu_item_id).push({ id: s.id, name: s.name, minPick: s.min_pick, maxPick: s.max_pick,
+      options: opts.filter(function (o) { return o.slot_id === s.id; }).map(function (o) { return { menuItemId: o.menu_item_id, variationId: o.variation_id, extra: Number(o.extra), name: o.size ? o.item + ' — ' + o.size : o.item }; }) });
+  });
+  return out;
 }
 
 // Off the menu for good: past sales keep its name.
@@ -334,11 +403,40 @@ async function move(companyId, by, p) {
     if (after < 0 && p.type !== 'menu') fail('invalid', 'Only ' + Number(cur.stock_qty) + ' ' + (cur.unit || '') + ' of ' + cur.name + ' in stock.');
     await client.query('UPDATE ' + table + ' SET stock_qty = $2, updated_at = now() WHERE id = $1', [cur.id, after]);
     await logMove(client, { companyId: companyId, type: p.type, id: cur.id, kind: p.kind, delta: delta, after: after, unitCost: cur.unit_cost, note: note, by: by.id });
+    await require('./restaurantPurchasing.service').tellLow(client, companyId, [{ name: cur.name, unit: cur.unit || 'each', before: Number(cur.stock_qty), after: after, level: Number(p.type === 'menu' ? cur.low_stock : cur.reorder_level) }]);
     var summary = { count: 'Counted ', received: 'Stock came in: ', wasted: 'Thrown away: ', used: 'Used: ' }[p.kind] + cur.name + ' ' +
       (p.kind === 'count' ? after : (delta > 0 ? '+' : '') + round2(delta) + ' (now ' + after + ')') + (note ? ' · ' + note : '') + '.';
     await audit(client, who(by), 'restaurant.' + p.type + '.stock', 'restaurant_' + (p.type === 'menu' ? 'menu_item' : p.type), cur.id, summary);
     await activity.log(client, { companyId: companyId, employeeId: by.id, app: 'till', action: 'till.stock', summary: summary, refType: p.type, refId: cur.id });
     return { id: cur.id, qty: after };
+  });
+}
+
+// A barcode scanned at the till that no dish has yet, given to one (or one
+// of its sizes): { code, menuItemId, variationId }. Its SKU from now on.
+var BARCODE = /^[A-Za-z0-9._\-]{3,64}$/;
+async function linkBarcode(companyId, by, p) {
+  p = p || {};
+  var code = String(p.code || '').trim();
+  if (!BARCODE.test(code)) fail('invalid', 'That barcode cannot be read: scan it again.');
+  return withTransaction(async function (client) {
+    var dish = await itemOfCompany(client, companyId, p.menuItemId);
+    var on = (await client.query(
+      "SELECT m.name, v.name AS size FROM restaurant_menu_items m LEFT JOIN restaurant_menu_item_variations v ON v.menu_item_id = m.id AND lower(v.sku) = lower($2) " +
+      'WHERE m.company_id = $1 AND (lower(m.sku) = lower($2) OR v.id IS NOT NULL) LIMIT 1', [companyId, code])).rows[0];
+    if (on) fail('conflict', 'That barcode is on ' + on.name + (on.size ? ' — ' + on.size : '') + ' already.');
+    var what = dish.name;
+    if (p.variationId) {
+      var v = (await client.query('UPDATE restaurant_menu_item_variations SET sku = $3 WHERE id = $1 AND menu_item_id = $2 RETURNING name', [p.variationId, dish.id, code])).rows[0];
+      if (!v) fail('invalid', dish.name + ' has no such size.');
+      what += ' — ' + v.name;
+    } else {
+      await client.query('UPDATE restaurant_menu_items SET sku = $2, updated_at = now() WHERE id = $1', [dish.id, code]);
+    }
+    var summary = 'Barcode ' + code + ' given to ' + what + '.';
+    await audit(client, who(by), 'restaurant.menu.barcode', 'restaurant_menu_item', dish.id, summary);
+    await activity.log(client, { companyId: companyId, employeeId: by.id, app: 'till', action: 'till.barcode', summary: summary, refType: 'menu_item', refId: dish.id });
+    return { menuItemId: dish.id, variationId: p.variationId || null, code: code };
   });
 }
 
@@ -356,5 +454,5 @@ async function history(companyId, type, id) {
 module.exports = {
   groups: groups, saveGroup: saveGroup, removeGroup: removeGroup,
   heldOnTabs: heldOnTabs, tileStock: tileStock, checkOrder: checkOrder, deductForSale: deductForSale, returnForVoid: returnForVoid,
-  menu: menu, saveItem: saveItem, removeItem: removeItem, stock: stock, move: move, history: history, ITEM_TYPES: ITEM_TYPES
+  menu: menu, saveItem: saveItem, removeItem: removeItem, stock: stock, move: move, history: history, linkBarcode: linkBarcode, logMove: logMove, ITEM_TYPES: ITEM_TYPES
 };

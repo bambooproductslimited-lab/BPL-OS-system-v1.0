@@ -261,6 +261,7 @@ async function acceptKiosk(o, session) {
   var t;
   try {
     t = await pos().saveTabFor(session, { fulfillment: claimed.dining === 'here' ? 'dine_in' : 'pickup', kioskOrder: true, label: label.slice(0, 60), customerName: claimed.customer_name || '',
+      adjust: claimed.adjust || {}, placed: { adjust: claimed.adjust || {} },
       items: add, kitchenNote: [refOf(claimed) + (claimed.dining === 'here' ? ' (kiosk, eat here)' : ' (kiosk, take away)'), claimed.paystack_ref ? 'PAID on the kiosk' : '', claimed.note].filter(Boolean).join(' · '),
       paystackRef: claimed.paystack_ref || undefined });
   } catch (err) {

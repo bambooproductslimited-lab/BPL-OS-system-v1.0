@@ -4,6 +4,7 @@ import { money } from '../../lib/currency';
 import { msg, tr } from '../../lib/i18n.jsx';
 import { lineBody } from './tillShared';
 import { modsPrice, modsWords, r2, serviceWords } from './tillBill';
+import './sixth.css';
 
 // The bill's dialogs on the till (RestaurantPosPage.jsx; backend
 // restaurantTillCheck): a dish's add-ons, picked when it is added or
@@ -27,8 +28,12 @@ function ruleText(g) {
 // or — after picking No, Extra or On the side above — to ask for it that
 // way. base: the dish's price (or its size's); picked: what a line has
 // already, when it is changed.
+// A combo's parts (backend restaurantTillCheck comboGroups) are groups
+// too, their choices other dishes: picked as they are (no No or Extra), one
+// sold out greyed.
 export function AddOnsDialog({ item, variation, base, picked, qty: qty0, editing, onSave, onClose }) {
   const groups = item.addOns || [];
+  const comboOnly = groups.length > 0 && groups.every((g) => g.combo);
   const [mods, setMods] = useState(() => (picked || []).map((m) => ({ ...m })));
   const [how, setHow] = useState('add');
   const [qty, setQty] = useState(qty0 || 1);
@@ -36,12 +41,14 @@ export function AddOnsDialog({ item, variation, base, picked, qty: qty0, editing
   const count = (g) => mods.filter((m) => m.groupId === g.id && (m.how || 'add') === 'add').length;
   function tap(g, o) {
     setHint(null);
-    const key = (m) => m.id === o.id && (m.how || 'add') === how;
+    const way = g.combo ? 'add' : how;
+    const key = (m) => m.id === o.id && (m.how || 'add') === way;
     if (mods.some(key)) { setMods(mods.filter((m) => !key(m))); return; }
-    const pick = { id: o.id, groupId: g.id, group: g.name, name: o.name, how, price: how === 'no' ? 0 : o.price };
+    if (o.soldOut) { setHint(tr('{name} is sold out.', { name: o.name })); return; }
+    const pick = { id: o.id, groupId: g.id, group: g.name, name: o.name, how: way, price: way === 'no' ? 0 : o.price, ...(g.combo ? { menuItemId: o.menuItemId, variationId: o.variationId || null, combo: true } : {}) };
     // One way at a time for a choice: "No rice" takes rice off, and so on.
     const rest = mods.filter((m) => m.id !== o.id);
-    if (how === 'add') {
+    if (way === 'add') {
       if (g.maxPick === 1) { setMods(rest.filter((m) => !(m.groupId === g.id && (m.how || 'add') === 'add')).concat([pick])); return; }
       if (g.maxPick && rest.filter((m) => m.groupId === g.id && (m.how || 'add') === 'add').length >= g.maxPick) { setHint(tr('{group}: up to {n}. Take one off first.', { group: g.name, n: g.maxPick })); return; }
     }
@@ -59,33 +66,35 @@ export function AddOnsDialog({ item, variation, base, picked, qty: qty0, editing
     <div className="dialog-backdrop" onClick={onClose}>
       <form className="dialog tl-dialog tl-addons" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (!missing.length) onSave(ordered, qty); }}>
         <div className="tl-addons-head">
-          <span className="tl-dialog-ico is-addons" aria-hidden="true">✚</span>
+          <span className={'tl-dialog-ico ' + (item.combo ? 'is-combo' : 'is-addons')} aria-hidden="true">{item.combo ? '🍱' : '✚'}</span>
           <div>
             <h2>{item.name}{variation ? ' — ' + variation.name : ''}</h2>
-            <p className="dk-muted">{tr('Pick its add-ons. Tap No, Extra or On the side first to ask for one that way.')}</p>
+            <p className="dk-muted">{comboOnly ? tr('Pick one of each part of the combo. Each dish picked goes to the kitchen with it.') : tr('Pick its add-ons. Tap No, Extra or On the side first to ask for one that way.')}</p>
           </div>
         </div>
-        <div className="tl-addons-how" role="radiogroup" aria-label={tr('How')}>
-          {HOWS.map(([k, label]) => (
-            <button key={k} type="button" role="radio" aria-checked={how === k} className={'is-' + k + (how === k ? ' is-on' : '')} onClick={() => setHow(k)}>{tr(label)}</button>
-          ))}
-        </div>
+        {!comboOnly && (
+          <div className="tl-addons-how" role="radiogroup" aria-label={tr('How')}>
+            {HOWS.map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={how === k} className={'is-' + k + (how === k ? ' is-on' : '')} onClick={() => setHow(k)}>{tr(label)}</button>
+            ))}
+          </div>
+        )}
         <div className="tl-addons-groups">
           {groups.map((g, gi) => {
             const n = count(g);
             const short = n < (g.minPick || 0);
             return (
-              <section key={g.id} className={'tl-addons-group' + (short ? ' is-short' : '')} style={{ '--gi': gi }}>
-                <header><strong>{g.name}</strong><span className={'tl-addons-rule' + (short ? ' is-needed' : n ? ' is-done' : '')}>{short ? ruleText(g) : n ? '✓ ' + ruleText(g) : ruleText(g)}</span></header>
+              <section key={g.id} className={'tl-addons-group' + (short ? ' is-short' : '') + (g.combo ? ' is-combo' : '')} style={{ '--gi': gi }}>
+                <header><strong>{g.combo && <span className="tl-combo-n" aria-hidden="true">{gi + 1}</span>}{g.name}</strong><span className={'tl-addons-rule' + (short ? ' is-needed' : n ? ' is-done' : '')}>{short ? ruleText(g) : n ? '✓ ' + ruleText(g) : ruleText(g)}</span></header>
                 <div className="tl-addons-opts">
                   {g.options.map((o) => {
                     const mine = mods.filter((m) => m.id === o.id);
                     const on = mine.some((m) => (m.how || 'add') === 'add');
                     return (
-                      <button key={o.id} type="button" className={'tl-addon' + (on ? ' is-on' : '') + (mine.length ? ' has-' + mine.map((m) => m.how || 'add').join(' has-') : '')}
-                        aria-pressed={mine.some((m) => (m.how || 'add') === how)} onClick={() => tap(g, o)}>
+                      <button key={o.id} type="button" className={'tl-addon' + (on ? ' is-on' : '') + (o.soldOut && !on ? ' is-out' : '') + (mine.length ? ' has-' + mine.map((m) => m.how || 'add').join(' has-') : '')}
+                        aria-pressed={mine.some((m) => (m.how || 'add') === (g.combo ? 'add' : how))} aria-disabled={o.soldOut && !on ? 'true' : undefined} onClick={() => tap(g, o)}>
                         <span className="tl-addon-name">{o.name}</span>
-                        <span className="tl-addon-price">{o.price > 0 ? '+' + money(o.price) : tr('free')}</span>
+                        <span className="tl-addon-price">{o.soldOut && !on ? tr('Sold out') : o.price > 0 ? '+' + money(o.price) : g.combo ? tr('included') : tr('free')}</span>
                         {mine.filter((m) => m.how && m.how !== 'add').map((m) => <b key={m.how} className={'tl-addon-how is-' + m.how}>{m.how === 'no' ? tr('No') : m.how === 'extra' ? tr('Extra') : tr('Side')}</b>)}
                         {on && <i className="tl-addon-tick" aria-hidden="true">✓</i>}
                       </button>

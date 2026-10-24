@@ -130,3 +130,13 @@
   .so .on-sheet .on-go { min-height: 64px; font-size: 19px; border-radius: 20px; }
 }
 @media (min-width: 700px) and (orientation: landscape) { .so .on-sheet-pic { aspect-ratio: auto; height: 30vh; } }
+
+/* Deals on the kiosk (backend restaurantPromos): today's, and the one on the order. */
+.so-deals { display: flex; gap: 8px; padding: 0 0 12px; overflow-x: auto; scrollbar-width: none; }
+.so-deals span { flex: none; padding: 8px 14px; font-size: 14px; border-radius: 16px; color: #831843; background: linear-gradient(120deg, #fce7f3, #fef3c7); border: 1px dashed #f472b6; }
+:root[data-theme='dark'] .so-deals span { color: #fbcfe8; background: linear-gradient(120deg, rgba(236, 72, 153, .18), rgba(245, 158, 11, .14)); }
+.so-deal-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-weight: 800; color: #be185d; }
+:root[data-theme='dark'] .so-deal-row { color: #f9a8d4; }
+.so-promo { align-self: flex-start; margin: 2px 0 8px; padding: 8px 14px; font: inherit; font-size: 14px; font-weight: 800; color: #be185d; cursor: pointer; border-radius: 999px; border: 1px dashed #f472b6; background: none; }
+.so-promo.is-set { font-family: ui-monospace, monospace; background: rgba(236, 72, 153, .08); }
+:root[data-theme='dark'] .so-promo { color: #f9a8d4; }
