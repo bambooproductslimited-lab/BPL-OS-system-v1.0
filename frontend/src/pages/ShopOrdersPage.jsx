@@ -5,6 +5,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { money } from '../lib/currency';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
+import { QuoteRequestsDialog, ReviewsDialog } from './ShopAsks';
 import './ShopOrdersPage.css';
 
 // Online shop (Quotations & Invoicing → Online shop; backend
@@ -12,8 +13,10 @@ import './ShopOrdersPage.css';
 // with its invoice and whether it is paid; marked ready (the customer is
 // texted when texts are set up), done, or cancelled. The shop's own
 // settings: open or closed, its words, which categories are on it, delivery
-// and pickup, and its discount codes; and the days each item takes to make
-// (made to order), which the customer sees before ordering.
+// and pickup, its discount codes, the reminder to checkouts not paid, and
+// reviews; the days each item takes to make (made to order), which the
+// customer sees before ordering; and what customers ask besides orders
+// (ShopAsks.jsx): reviews to show or hide, and requests for a quote.
 
 const STATUS = {
   unpaid: ['💳', () => tr('Not paid yet')], new: ['🆕', () => tr('New')], making: ['🛠️', () => tr('Being made')], ready: ['📦', () => tr('Ready')], out: ['🚚', () => tr('On its way')], done: ['✅', () => tr('Done')], cancelled: ['✕', () => tr('Cancelled')]
@@ -21,6 +24,7 @@ const STATUS = {
 const FILTERS = [['', () => tr('All')], ['new', () => tr('New')], ['making', () => tr('Being made')], ['ready', () => tr('Ready')], ['out', () => tr('On its way')], ['done', () => tr('Done')], ['unpaid', () => tr('Not paid yet')], ['cancelled', () => tr('Cancelled')]];
 function dayWords(day) { return new Date(day + 'T12:00:00').toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }); }
 const NEW_CODE = { code: '', kind: 'percent', value: 10, minTotal: 0, endsOn: null, maxUses: 0, on: true };
+const REMIND_HOURS = [0, 1, 3, 6, 12, 24];
 
 // The discount codes: what each takes off, from what order, until when, how
 // many times; and how often each was used.
@@ -160,6 +164,20 @@ function SettingsDialog({ onClose, onSaved }) {
             )}
             {s.delivery && <label className="sho-field">{tr('About delivery')}<input className="input" maxLength={300} value={s.deliveryNote} onChange={(e) => setS({ ...s, deliveryNote: e.target.value })} placeholder={tr('e.g. Delivery fee agreed on the phone; 2–5 days.')} /></label>}
             <CodesEditor codes={s.codes || []} uses={d.codeUses || {}} onChange={(codes) => setS({ ...s, codes })} />
+            <fieldset className="sho-fs">
+              <legend>🔔 {tr('Checkouts not paid')}</legend>
+              <p className="muted">{tr('One reminder by email and text, with the link to pay. Not paid in two days: cancelled.')}</p>
+              <label className="sho-field">{tr('Remind them')}
+                <select className="input" value={s.remindAfter} onChange={(e) => setS({ ...s, remindAfter: Number(e.target.value) })}>
+                  {REMIND_HOURS.map((h) => <option key={h} value={h}>{h === 0 ? tr('Never') : h === 1 ? tr('1 hour after checkout') : tr('{n} hours after checkout', { n: h })}</option>)}
+                </select></label>
+            </fieldset>
+            <fieldset className="sho-fs">
+              <legend>⭐ {tr('Reviews')}</legend>
+              <p className="muted">{tr('Once an order is done, the customer is asked to rate what they bought. Reviews show on the shop with the first name only.')}</p>
+              <label className="sho-check"><input type="checkbox" checked={s.reviews.on} onChange={(e) => setS({ ...s, reviews: { ...s.reviews, on: e.target.checked } })} />{tr('Ask customers for reviews')}</label>
+              {s.reviews.on && <label className="sho-check"><input type="checkbox" checked={s.reviews.autoShow} onChange={(e) => setS({ ...s, reviews: { ...s.reviews, autoShow: e.target.checked } })} />{tr('Show 4 and 5 stars at once; the rest wait for you')}</label>}
+            </fieldset>
             <p className={'sho-pay' + (d.payOnline ? ' is-on' : '')}>{d.payOnline ? '💳 ' + tr('Customers pay their invoice online by card or Mobile Money.') : '🏦 ' + tr('Online payments are not set up (PAYSTACK_BPL_SECRET_KEY on the server): customers pay by the bank details on the invoice.')}</p>
             {error && <div className="error-banner" role="alert">{error}</div>}
             <div className="dialog-actions">
@@ -183,6 +201,8 @@ export default function ShopOrdersPage() {
   const [toast, setToast] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [makeOpen, setMakeOpen] = useState(false);
+  const [reviewsOpen, setReviewsOpen] = useState(() => params.get('reviews') === '1');
+  const [quotesOpen, setQuotesOpen] = useState(() => params.get('quotes') === '1');
   const openId = params.get('open');
   const load = useCallback(() => api.get('/shop-orders' + (filter ? '?status=' + filter : '')).then(setData).catch((e) => setError(e.message)), [filter]);
   useEffect(() => { load(); }, [load]);
@@ -199,6 +219,14 @@ export default function ShopOrdersPage() {
     try {
       const r = await api.patch('/shop-orders/' + o.id, { status });
       setToast((status === 'ready' || status === 'out') && r.texted ? tr('{no}: {name} was texted.', { no: o.orderNo, name: o.name }) : r.emailed ? tr('{no}: {name} was emailed.', { no: o.orderNo, name: o.name }) : tr('{no} updated.', { no: o.orderNo }));
+      load();
+    } catch (e) { setToast(e.message); } finally { setBusy(null); }
+  }
+  async function remind(o) {
+    setBusy(o.id);
+    try {
+      const r = await api.post('/shop-orders/' + o.id + '/remind');
+      setToast(r.emailed && r.texted ? tr('{no}: {name} was emailed and texted a reminder.', { no: o.orderNo, name: o.name }) : r.emailed ? tr('{no}: {name} was emailed a reminder.', { no: o.orderNo, name: o.name }) : tr('{no}: {name} was texted a reminder.', { no: o.orderNo, name: o.name }));
       load();
     } catch (e) { setToast(e.message); } finally { setBusy(null); }
   }
@@ -228,6 +256,19 @@ export default function ShopOrdersPage() {
         <div className="sho-stat"><small>{tr('Ready')}</small><strong>{t.ready}</strong><span>{t.out ? tr('{n} on its way', { n: t.out }) : tr('waiting to go out')}</span></div>
         <div className="sho-stat"><small>{tr('This month')}</small><strong>{money(t.month)}</strong><span>{t.monthCount === 1 ? tr('1 order') : tr('{n} orders', { n: t.monthCount })}</span></div>
         <div className="sho-stat"><small>{tr('Paid this month')}</small><strong>{t.monthPaid}</strong><span>{data.payOnline ? tr('card and Mobile Money online') : tr('online payments off')}</span></div>
+      </div>
+
+      <div className="sho-asks">
+        <button type="button" className={'sho-ask is-reviews' + (t.reviews ? ' is-hot' : '')} onClick={() => setReviewsOpen(true)}>
+          <span className="sho-ask-art" aria-hidden="true">⭐</span>
+          <span><strong>{tr('Reviews')}</strong><small>{t.reviews ? (t.reviews === 1 ? tr('1 to look at') : tr('{n} to look at', { n: t.reviews })) : data.settings.reviews.on ? tr('All looked at') : tr('Off in the shop settings')}</small></span>
+          {t.reviews > 0 && <em className="sho-count">{t.reviews}</em>}
+        </button>
+        <button type="button" className={'sho-ask is-quotes' + (t.quotes ? ' is-hot' : '')} onClick={() => setQuotesOpen(true)}>
+          <span className="sho-ask-art" aria-hidden="true">📐</span>
+          <span><strong>{tr('Quote requests')}</strong><small>{t.quotes ? (t.quotes === 1 ? tr('1 new to price') : tr('{n} new to price', { n: t.quotes })) : tr('None waiting')}</small></span>
+          {t.quotes > 0 && <em className="sho-count">{t.quotes}</em>}
+        </button>
       </div>
 
       <div className="sho-filters" role="tablist" aria-label={tr('Which orders')}>
@@ -265,7 +306,7 @@ export default function ShopOrdersPage() {
                   </div>
                 )}
                 {o.note && <p className="sho-o-note">“{o.note}”</p>}
-                {o.status === 'unpaid' && <p className="sho-o-wait">⏳ {tr('Waiting for the customer to pay. It is placed once its invoice is paid: record a payment on the invoice if they paid you another way.')}</p>}
+                {o.status === 'unpaid' && <p className="sho-o-wait">⏳ {tr('Waiting for the customer to pay. It is placed once its invoice is paid: record a payment on the invoice if they paid you another way.')}{o.remindedAt && <small className="sho-reminded">🔔 {tr('Reminded {when}', { when: when(o.remindedAt) })}</small>}</p>}
                 <div className="sho-o-foot">
                   {o.trackUrl && <a className="sho-track" href={o.trackUrl} target="_blank" rel="noreferrer">🔗 {tr('Their page')}</a>}
                   {o.invoice && (
@@ -280,6 +321,7 @@ export default function ShopOrdersPage() {
                       {o.status === 'ready' && o.fulfilment === 'delivery' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'out')}>🚚 {tr('Out for delivery')}</button>}
                       {o.status === 'ready' && o.fulfilment === 'pickup' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'done')}>🤝 {tr('Collected')}</button>}
                       {o.status === 'out' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => mark(o, 'done')}>🏡 {tr('Delivered')}</button>}
+                      {o.status === 'unpaid' && <button type="button" className="btn btn-primary" disabled={busy === o.id} onClick={() => remind(o)}>🔔 {tr('Remind to pay')}</button>}
                       {['unpaid', 'new', 'making', 'ready'].includes(o.status) && <button type="button" className="btn btn-secondary" disabled={busy === o.id} onClick={() => mark(o, 'cancelled')}>{tr('Cancel')}</button>}
                     </span>
                   )}
@@ -290,6 +332,8 @@ export default function ShopOrdersPage() {
         </ul>
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onSaved={() => { setSettingsOpen(false); setToast(tr('Shop settings saved.')); load(); }} />}
+      {reviewsOpen && <ReviewsDialog onClose={() => setReviewsOpen(false)} onChanged={load} />}
+      {quotesOpen && <QuoteRequestsDialog openId={params.get('quotes') === '1' ? openId : null} onClose={() => setQuotesOpen(false)} onChanged={load} />}
       {makeOpen && <MakeDaysDialog onClose={() => setMakeOpen(false)} onSaved={(n) => { setMakeOpen(false); setToast(tr('Days to make saved for {n} items.', { n })); }} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>

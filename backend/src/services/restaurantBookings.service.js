@@ -20,6 +20,13 @@ var activity = require('./restaurantActivity.service');
 // Texts go by SMS when the server has it (sms.service); otherwise the till
 // is handed a WhatsApp link to send the same words itself. The restaurant's
 // clock is Ghana's: GMT, all year.
+//
+// Deposits (migration 0192; till settings bookings.deposit): a website
+// booking for a big party is paid in advance online, so much a guest. It is
+// held once paid (texted then), taken off the bill when the party is seated
+// at its table (restaurantPos tabRows, restaurantPaystack markUsed), kept on
+// a no-show or a late cancellation, and given back when cancelled in time
+// or turned down. Not paid within DEPOSIT_MINUTES, the booking is cancelled.
 
 var STATUSES = ['requested', 'booked', 'waiting', 'called', 'seated', 'cancelled', 'no_show', 'declined'];
 // Still to come, holding their table.
@@ -28,6 +35,10 @@ var QUOTES = [0, 5, 10, 15, 20, 30, 45, 60, 90];
 var DAY = /^\d{4}-\d{2}-\d{2}$/;
 var MAX_ACTIVE_PER_PHONE = 3, PER_IP_HOUR = 10;
 var askedBy = new Map(); // address -> [times]
+var DEPOSIT_MINUTES = 30;
+function paystack() { return require('./restaurantPaystack.service'); }
+function round2(n) { return Math.round(Number(n) * 100) / 100; }
+function depositWords(r) { return r.deposit_status && r.deposit_status !== 'none' ? { amount: round2(r.deposit_amount), status: r.deposit_status } : null; }
 
 function sms() { return require('./sms.service'); }
 function online() { return require('./restaurantOnline.service'); }
@@ -46,7 +57,7 @@ function rowOut(r) {
   return {
     id: r.id, kind: r.kind, status: r.status, name: r.name, phone: r.phone || '', party: r.party, at: r.at, minutes: r.minutes,
     quotedMinutes: r.quoted_minutes, waited: waited, tableId: r.table_id || null, tableName: r.table_name || null, note: r.note || '',
-    source: r.source, texted: r.texted || [], calledAt: r.called_at || null, seatedAt: r.seated_at || null,
+    source: r.source, texted: r.texted || [], calledAt: r.called_at || null, seatedAt: r.seated_at || null, deposit: depositWords(r),
     createdBy: r.by_first ? r.by_first + ' ' + r.by_last : null, createdAt: r.created_at
   };
 }
@@ -192,6 +203,19 @@ async function act(token, id, action, p) {
   var company = session.posCompanyId;
   if (ACTIONS.indexOf(action) < 0) fail('invalid', 'Unknown action.');
   p = p || {};
+  var out = await actIn(session, company, id, action, p);
+  // A deposit: kept on a no-show (back to paid if undone); given back when
+  // the restaurant cancels or turns the booking down.
+  var dep = out.booking.deposit;
+  if (dep && (dep.status === 'paid' || dep.status === 'kept')) {
+    if (action === 'noShow' && dep.status === 'paid') await pool.query("UPDATE restaurant_bookings SET deposit_status = 'kept' WHERE id = $1", [id]);
+    else if (action === 'undo' && dep.status === 'kept' && out.booking.status !== 'cancelled') await pool.query("UPDATE restaurant_bookings SET deposit_status = 'paid' WHERE id = $1", [id]);
+    else if ((action === 'cancel' || action === 'decline') && dep.status === 'paid') out.refund = await refundDeposit(id, action === 'decline' ? 'Booking turned down.' : 'Booking cancelled by the restaurant.').then(function (r) { return r ? { status: r.refund_status, note: r.refund_note || '' } : null; });
+    out.booking = rowOut((await pool.query(SELECT + 'WHERE b.id = $1', [id])).rows[0]);
+  }
+  return out;
+}
+function actIn(session, company, id, action, p) {
   return withTransaction(async function (client) {
     var b = (await client.query('SELECT * FROM restaurant_bookings WHERE id = $1 AND company_id = $2 FOR UPDATE', [id, company])).rows[0];
     if (!b) fail('notfound', 'That booking is no longer there.');
@@ -279,15 +303,86 @@ async function onlineOptions(code, q) {
   }
   return {
     on: true, restaurant: { code: co.code, name: co.name, phone: co.settings.phone || '' }, maxParty: b.maxParty, autoConfirm: b.autoConfirm,
+    deposit: depositOn(settings) ? { fromParty: b.deposit.fromParty, perGuest: b.deposit.perGuest, refundHours: b.deposit.refundHours } : null,
     days: days, date: day, slots: day ? await slotsFor(co.id, settings, day) : []
   };
 }
 
 function bookingOut(r, co) {
+  var dep = depositWords(r);
+  if (dep) {
+    dep.refundUntil = r.refund_hours != null ? new Date(new Date(r.at).getTime() - r.refund_hours * 3600000).toISOString() : null;
+    dep.payBy = r.deposit_status === 'due' ? new Date(new Date(r.updated_at).getTime() + DEPOSIT_MINUTES * 60000).toISOString() : null;
+  }
   return {
     token: r.token, status: r.status, name: r.name, party: r.party, at: r.at, note: r.note || '', restaurant: { code: co.code, name: co.name, phone: co.phone || '' },
-    canCancel: (r.status === 'requested' || r.status === 'booked') && new Date(r.at).getTime() > Date.now()
+    canCancel: (r.status === 'requested' || r.status === 'booked') && new Date(r.at).getTime() > Date.now(), deposit: dep
   };
+}
+// Deposits taken on the website: on in the settings, and Paystack on for the restaurant.
+function depositOn(settings) { return !!settings.bookings.deposit.on && paystack().onFor(settings); }
+
+// ── deposits (migration 0192) ──
+
+async function depositRow(bookingId) {
+  return (await pool.query("SELECT * FROM restaurant_paystack_payments WHERE booking_id = $1 AND purpose = 'deposit' ORDER BY (status = 'success') DESC, created_at DESC LIMIT 1", [bookingId])).rows[0] || null;
+}
+// Paid: the booking holds, and the guest is texted as a booking is — once,
+// from the guest back on its page or Paystack's webhook.
+async function settleDeposit(row) {
+  if (!row || row.status !== 'success' || !row.booking_id) return null;
+  var b = (await pool.query("UPDATE restaurant_bookings SET deposit_status = 'paid', updated_at = now() WHERE id = $1 AND deposit_status = 'due' AND status IN ('requested', 'booked') RETURNING *", [row.booking_id])).rows[0];
+  if (!b) {
+    var now = (await pool.query('SELECT status, deposit_status FROM restaurant_bookings WHERE id = $1', [row.booking_id])).rows[0];
+    // Paid after the booking was cancelled (too late): given back.
+    if (now && (now.status === 'cancelled' || now.status === 'declined') && now.deposit_status !== 'paid') await refundDeposit(row.booking_id, 'The booking was cancelled before the deposit was paid.');
+    return null;
+  }
+  await activity.log(pool, { companyId: b.company_id, employeeId: null, app: 'online', action: 'online.booking_deposit',
+    summary: b.name + ' paid a deposit of ' + round2(row.amount).toFixed(2) + ' for their table for ' + b.party + ' on ' + whenText(b.at) + '.', amount: round2(row.amount), refType: 'booking', refId: b.id });
+  try { await tell(pool, b, b.status === 'booked' ? 'confirmed' : 'received'); } catch (e) { console.error('Booking text not sent:', e.message); }
+  return b;
+}
+async function checkDeposit(r) {
+  if (r.deposit_status !== 'due') return r;
+  var row = await depositRow(r.id);
+  if (row && row.status === 'pending') row = await paystack().check(row, false);
+  if (row && row.status === 'success') await settleDeposit(row);
+  return byToken(r.token);
+}
+// Given back (cancelled in time, turned down, cancelled by the restaurant):
+// refunded, or for a manager to give back by hand if Paystack could not.
+async function refundDeposit(bookingId, reason) {
+  var row = await depositRow(bookingId);
+  if (!row) return null;
+  if (row.status === 'pending') row = await paystack().check(row, true);
+  if (row.status !== 'success') return null;
+  row = await paystack().refund(row, reason);
+  var st = row.refund_status === 'failed' ? 'refund_failed' : row.refund_status ? 'refunded' : null;
+  if (st) await pool.query("UPDATE restaurant_bookings SET deposit_status = $2, updated_at = now() WHERE id = $1 AND deposit_status IN ('paid', 'due')", [bookingId, st]);
+  return row;
+}
+// POST /api/pos/online/bookings/:token/pay — the deposit paid (again).
+async function payDeposit(token) {
+  var r = await checkDeposit(await byToken(token));
+  if (r.deposit_status !== 'due') fail('conflict', r.deposit_status === 'paid' ? 'The deposit is paid. Thank you!' : 'There is no deposit to pay for this booking.');
+  if (['requested', 'booked'].indexOf(r.status) < 0) fail('conflict', 'This booking was cancelled: book again.');
+  var started = await paystack().begin(r.company_id, round2(r.deposit_amount), 'deposit', null, null, bookingLink(r.company_code, r.token), { bookingId: r.id, payer: r.name });
+  await pool.query('UPDATE restaurant_bookings SET updated_at = now() WHERE id = $1', [r.id]);
+  return { url: started.url };
+}
+// Deposits never paid: the booking is cancelled after DEPOSIT_MINUTES (jobs/onlineScheduled.js).
+async function sweepDeposits() {
+  var rows = (await pool.query("SELECT b.*, c.code AS company_code FROM restaurant_bookings b JOIN companies c ON c.id = b.company_id WHERE b.deposit_status = 'due' AND b.status IN ('requested', 'booked') " +
+    'AND b.updated_at < now() - make_interval(mins => $1) LIMIT 100', [DEPOSIT_MINUTES])).rows;
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = await checkDeposit(rows[i]);
+    if (r.deposit_status !== 'due') continue;
+    var up = await pool.query("UPDATE restaurant_bookings SET status = 'cancelled', deposit_status = 'none', note = trim(note || ' (deposit not paid)'), updated_at = now() WHERE id = $1 AND deposit_status = 'due'", [r.id]);
+    if (up.rowCount) n++;
+  }
+  return n;
 }
 
 // POST /api/pos/online/:code/book { name, phone, party, date, time, note }
@@ -319,20 +414,32 @@ async function onlineBook(code, p, ip, accountToken) {
   tries.push(now); askedBy.set(key, tries);
   if (askedBy.size > 5000) askedBy.clear();
   var token = crypto.randomBytes(18).toString('base64url');
-  return withTransaction(async function (client) {
+  // A big party pays a deposit first: texted once it is paid (settleDeposit).
+  var deposit = depositOn(settings) && party >= b.deposit.fromParty ? round2(b.deposit.perGuest * party) : 0;
+  var made = await withTransaction(async function (client) {
     var row = (await client.query(
-      "INSERT INTO restaurant_bookings (company_id, kind, status, name, phone, party, at, minutes, note, source, token, account_id) VALUES ($1,'booking',$2,$3,$4,$5,$6,$7,$8,'website',$9,$10) RETURNING *",
-      [co.id, b.autoConfirm ? 'booked' : 'requested', name, '+' + digits, party, new Date(p.date + 'T' + p.time + ':00Z'), b.minutes, cleanText(p.note, 300), token, account ? account.id : null])).rows[0];
+      "INSERT INTO restaurant_bookings (company_id, kind, status, name, phone, party, at, minutes, note, source, token, account_id, deposit_amount, deposit_status) VALUES ($1,'booking',$2,$3,$4,$5,$6,$7,$8,'website',$9,$10,$11,$12) RETURNING *",
+      [co.id, b.autoConfirm ? 'booked' : 'requested', name, '+' + digits, party, new Date(p.date + 'T' + p.time + ':00Z'), b.minutes, cleanText(p.note, 300), token, account ? account.id : null,
+        deposit, deposit ? 'due' : 'none'])).rows[0];
     await activity.log(client, { companyId: co.id, employeeId: null, app: 'online', action: 'online.booking',
-      summary: name + ' ' + (b.autoConfirm ? 'booked' : 'asked for') + ' a table for ' + party + ' on ' + whenText(row.at) + ' on the website.', refType: 'booking', refId: row.id });
-    var text = await tell(client, row, b.autoConfirm ? 'confirmed' : 'received');
-    return Object.assign(bookingOut(row, { code: co.code, name: co.name, phone: co.settings.phone }), { texted: text.sent, link: bookingLink(co.code, token) });
+      summary: name + ' ' + (b.autoConfirm ? 'booked' : 'asked for') + ' a table for ' + party + ' on ' + whenText(row.at) + ' on the website' + (deposit ? ', with a deposit of ' + deposit.toFixed(2) + ' to pay' : '') + '.', refType: 'booking', refId: row.id });
+    var text = deposit ? { sent: false } : await tell(client, row, b.autoConfirm ? 'confirmed' : 'received');
+    return { row: row, out: Object.assign(bookingOut(Object.assign({ refund_hours: b.deposit.refundHours }, row), { code: co.code, name: co.name, phone: co.settings.phone }), { texted: text.sent, link: bookingLink(co.code, token) }) };
   });
+  if (deposit) {
+    try { made.out.payUrl = (await paystack().begin(co.id, deposit, 'deposit', null, null, bookingLink(co.code, token), { bookingId: made.row.id, payer: name })).url; }
+    catch (e) {
+      await pool.query("UPDATE restaurant_bookings SET status = 'cancelled', deposit_status = 'none', updated_at = now() WHERE id = $1", [made.row.id]);
+      fail('unavailable', 'Paying the deposit online is not working just now. Call the restaurant to book.');
+    }
+  }
+  return made.out;
 }
 
 async function byToken(token) {
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(String(token || ''))) fail('notfound', 'This booking link is not right.');
-  var r = (await pool.query('SELECT b.*, c.code AS company_code, c.name AS company_name FROM restaurant_bookings b JOIN companies c ON c.id = b.company_id WHERE b.token = $1', [token])).rows[0];
+  var r = (await pool.query("SELECT b.*, c.code AS company_code, c.name AS company_name, coalesce((ts.settings #>> '{bookings,deposit,refundHours}')::int, 24) AS refund_hours FROM restaurant_bookings b " +
+    'JOIN companies c ON c.id = b.company_id LEFT JOIN restaurant_till_settings ts ON ts.company_id = b.company_id WHERE b.token = $1', [token])).rows[0];
   if (!r) fail('notfound', 'This booking link is not right, or the booking is no longer there.');
   return r;
 }
@@ -341,15 +448,21 @@ async function coOf(r) {
   return { code: r.company_code, name: r.company_name, phone: s && s.settings ? s.settings.phone || '' : '' };
 }
 // GET /api/pos/online/bookings/:token — a guest's own booking.
-async function onlineMine(token) { var r = await byToken(token); return bookingOut(r, await coOf(r)); }
+async function onlineMine(token) { var r = await checkDeposit(await byToken(token)); return bookingOut(r, await coOf(r)); }
 // POST /api/pos/online/bookings/:token/cancel — a guest cancels before it starts.
 async function onlineCancel(token) {
   var r = await byToken(token);
   if (!((r.status === 'requested' || r.status === 'booked') && new Date(r.at).getTime() > Date.now())) fail('conflict', 'This booking can no longer be cancelled here. Call the restaurant.');
-  await pool.query("UPDATE restaurant_bookings SET status = 'cancelled', updated_at = now() WHERE id = $1", [r.id]);
+  await pool.query("UPDATE restaurant_bookings SET status = 'cancelled', deposit_status = CASE WHEN deposit_status = 'due' THEN 'none' ELSE deposit_status END, updated_at = now() WHERE id = $1", [r.id]);
+  // A deposit: given back if cancelled in time, else kept.
+  var kept = false;
+  if (r.deposit_status === 'paid') {
+    if (new Date(r.at).getTime() - Date.now() >= r.refund_hours * 3600000) await refundDeposit(r.id, 'Booking cancelled in time.');
+    else { kept = true; await pool.query("UPDATE restaurant_bookings SET deposit_status = 'kept' WHERE id = $1", [r.id]); }
+  }
   await activity.log(pool, { companyId: r.company_id, employeeId: null, app: 'online', action: 'online.booking_cancel',
-    summary: r.name + ' cancelled their booking for ' + r.party + ' on ' + whenText(r.at) + ' on the website.', refType: 'booking', refId: r.id });
-  return bookingOut(Object.assign({}, r, { status: 'cancelled' }), await coOf(r));
+    summary: r.name + ' cancelled their booking for ' + r.party + ' on ' + whenText(r.at) + ' on the website' + (r.deposit_status === 'paid' ? (kept ? '; the deposit is kept (cancelled late).' : '; the deposit is given back.') : '.'), refType: 'booking', refId: r.id });
+  return bookingOut(await byToken(token), await coOf(r));
 }
 
 // The reminder (jobs/reminders.js): for each restaurant that sends them, a
@@ -379,5 +492,6 @@ async function remindDue(now) {
 
 module.exports = {
   list: list, soon: soon, remindDue: remindDue, save: save, act: act, onlineOptions: onlineOptions, onlineBook: onlineBook, onlineMine: onlineMine, onlineCancel: onlineCancel,
+  settleDeposit: settleDeposit, payDeposit: payDeposit, sweepDeposits: sweepDeposits, refundDeposit: refundDeposit, DEPOSIT_MINUTES: DEPOSIT_MINUTES,
   STATUSES: STATUSES, QUOTES: QUOTES, _askedBy: askedBy, whenText: whenText
 };

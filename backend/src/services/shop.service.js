@@ -22,7 +22,10 @@ var config = require('../config');
 // each order has its own page to follow it (/o/<token>, migration 0191):
 // received, being made, ready, on its way, delivered or collected.
 
-var DEFAULTS = { on: false, title: 'Bamboo Products', intro: '', categories: [], delivery: true, pickup: true, pickupAddress: '', deliveryNote: '', codes: [], areas: [] };
+var DEFAULTS = { on: false, title: 'Bamboo Products', intro: '', categories: [], delivery: true, pickup: true, pickupAddress: '', deliveryNote: '', codes: [], areas: [],
+  remindAfter: 3, reviews: { on: true, autoShow: false } };
+// An unpaid checkout is reminded once, this many hours after (0: never).
+var REMIND_HOURS = [0, 1, 3, 6, 12, 24];
 var CODE_KINDS = ['percent', 'amount'];
 var MAX_MAKE_DAYS = 180;
 // new, being made (making), ready, on its way (out, delivery only), done, cancelled.
@@ -77,8 +80,16 @@ async function settingsOf(db) {
   return {
     on: !!s.on, title: text(s.title, 80) || DEFAULTS.title, intro: text(s.intro, 400), categories: Array.isArray(s.categories) ? s.categories.filter(function (c) { return /^[0-9a-f-]{36}$/i.test(c); }) : [],
     delivery: s.delivery !== false, pickup: s.pickup !== false, pickupAddress: text(s.pickupAddress, 200), deliveryNote: text(s.deliveryNote, 300),
-    codes: cleanCodes(s.codes), areas: cleanAreas(s.areas)
+    codes: cleanCodes(s.codes), areas: cleanAreas(s.areas),
+    remindAfter: REMIND_HOURS.indexOf(Number(s.remindAfter)) >= 0 && s.remindAfter !== null && s.remindAfter !== '' ? Number(s.remindAfter) : DEFAULTS.remindAfter,
+    reviews: reviewsOf(s.reviews)
   };
+}
+// Reviews: asked for once an order is done; shown on the shop once staff
+// approve them, or at once when autoShow (4 stars and up).
+function reviewsOf(r) {
+  r = r && typeof r === 'object' ? r : {};
+  return { on: r.on !== false, autoShow: r.autoShow === true };
 }
 
 // What the shop sells: active items (in its categories, when it has some)
@@ -104,13 +115,14 @@ async function view() {
   var items = await visibleItems(s);
   var cats = [];
   items.forEach(function (r) { var n = r.category_name || 'More'; if (cats.indexOf(n) < 0) cats.push(n); });
+  var stars = s.reviews.on ? await require('./shopReviews.service').summary(items.map(function (r) { return r.id; })) : {};
   return {
     shop: { title: s.title, intro: s.intro, delivery: s.delivery, pickup: s.pickup, pickupAddress: s.pickupAddress, deliveryNote: s.deliveryNote, currency: 'GHS',
-      payOnline: require('./invoicePay.service').configured(), codes: s.codes.some(function (c) { return c.on; }), areas: s.delivery ? s.areas : [] },
+      payOnline: require('./invoicePay.service').configured(), codes: s.codes.some(function (c) { return c.on; }), areas: s.delivery ? s.areas : [], reviews: s.reviews.on, quotes: true },
     categories: cats,
     items: items.map(function (r) {
       return {
-        id: r.id, name: r.name, description: r.description || '', category: r.category_name || 'More', options: r.options, makeDays: makeDaysOf(r),
+        id: r.id, name: r.name, description: r.description || '', category: r.category_name || 'More', options: r.options, makeDays: makeDaysOf(r), stars: stars[r.id] || null,
         photos: r.photos.map(function (p) { return { id: p.id, variationId: p.variationId || null }; }),
         variations: r.variations.map(function (v) { return { id: v.id, name: v.name === 'Regular' ? '' : v.name, unit: v.unit || 'each', price: round2(v.price), options: v.options || {} }; })
       };
@@ -302,7 +314,7 @@ async function invoicePaid(invoiceId) {
   await audit(pool, ctxShop, 'shop.order_paid', 'shop_order', row.id, row.order_no + ' paid (' + (inv.invoice_no || '') + ', ' + total + '): placed.');
   var holders = await require('./staffAlerts.service').holdersOf(['invoice.manage']);
   for (var i = 0; i < holders.length; i++) {
-    await notify(pool, holders[i].employee_id, '🛍️ New shop order ' + row.order_no + ' · paid', row.name + ' · ' + total + ' · ' + (row.fulfilment === 'delivery' ? 'delivery' + (row.area ? ' to ' + row.area : '') : 'pickup'), '/shop-orders?open=' + row.id);
+    await notify(pool, holders[i].employee_id, '🛍️ New shop order ' + row.order_no + ' · paid', row.name + ' · ' + total + ' · ' + (row.fulfilment === 'delivery' ? 'delivery' + (row.area ? ' to ' + row.area : '') : 'pickup'), '/shoporders?open=' + row.id);
   }
   var emailed = false;
   if (row.email) {
@@ -321,6 +333,60 @@ async function invoicePaid(invoiceId) {
     } catch (e) { /* the page has it */ }
   }
   return { orderNo: row.order_no, emailed: emailed };
+}
+
+// ── unpaid checkouts reminded (migration 0192) ──
+// Once, remindAfter hours after the checkout (the hourly job), or when staff
+// press Remind: by email and by text when they can, with the order's page
+// to pay on and the day it is cancelled if it is not.
+async function remindOne(o) {
+  var trackUrl = config.bplSiteUrl + '/o/' + o.token;
+  var by = longDay(dayText(new Date(new Date(o.created_at).getTime() + UNPAID_DAYS * 86400000)));
+  var words = 'Bamboo Products: your order ' + o.order_no + ' (GHS ' + round2(o.total).toFixed(2) + ') is waiting for your payment. Pay here to place it: ' + trackUrl +
+    '. If it is not paid, it is cancelled on ' + by + '.';
+  var emailed = false, texted = false;
+  if (o.email) {
+    try {
+      var mail = require('./mail.service');
+      if (mail.configured()) {
+        await mail.send({ to: o.email, subject: 'Your order ' + o.order_no + ' is waiting for your payment', fromName: 'Bamboo Products', text: words,
+          html: '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2937">' + mail.escapeHtml(words.replace(' Pay here to place it: ' + trackUrl + '.', '')) +
+            '<p style="margin:18px 0"><a href="' + mail.escapeHtml(trackUrl) + '" style="display:inline-block;padding:12px 20px;border-radius:12px;background:#2f6b2c;color:#fff;text-decoration:none;font-weight:700">Pay and place my order</a></p></div>' });
+        emailed = true;
+      }
+    } catch (e) { /* the text, or staff call */ }
+  }
+  var sms = require('./sms.service');
+  if (o.phone && sms.configured()) {
+    try { await sms.send({ to: o.phone, message: words, purpose: 'shop_order', refId: o.id }); texted = true; } catch (e) { /* staff call */ }
+  }
+  if (emailed || texted) await pool.query('UPDATE shop_orders SET reminded_at = now() WHERE id = $1', [o.id]);
+  return { emailed: emailed, texted: texted };
+}
+async function remindUnpaid() {
+  var s = await settingsOf();
+  if (!s.remindAfter) return 0;
+  var rows = (await pool.query(
+    "SELECT * FROM shop_orders WHERE status = 'unpaid' AND reminded_at IS NULL AND token IS NOT NULL AND created_at < now() - make_interval(hours => $1) AND created_at > now() - make_interval(days => $2) LIMIT 100",
+    [s.remindAfter, UNPAID_DAYS])).rows;
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = await remindOne(rows[i]);
+    if (r.emailed || r.texted) n++;
+  }
+  return n;
+}
+// POST /api/shop-orders/:id/remind — staff remind a customer to pay now.
+async function remind(ctx, id) {
+  if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
+  var o = (await pool.query('SELECT * FROM shop_orders WHERE id = $1', [id])).rows[0];
+  if (!o) fail('notfound', 'That order is gone.');
+  if (o.status !== 'unpaid') fail('conflict', 'Only an order not paid yet is reminded.');
+  if (o.reminded_at && Date.now() - new Date(o.reminded_at).getTime() < 3600000) fail('conflict', 'Reminded less than an hour ago.');
+  var r = await remindOne(o);
+  if (!r.emailed && !r.texted) fail('unavailable', 'No email address or texts set up to remind them with: call them instead.');
+  await audit(pool, ctx, 'shop.order_remind', 'shop_order', id, o.order_no + ' reminded to pay' + (r.emailed ? ' by email' : '') + (r.texted ? (r.emailed ? ' and text' : ' by text') : '') + '.');
+  return Object.assign(orderOut((await pool.query(ORDER_SELECT + 'WHERE o.id = $1', [id])).rows[0]), r);
 }
 
 // Checkouts never paid: after two days with nothing paid, the order is
@@ -350,7 +416,7 @@ function orderOut(r) {
     id: r.id, orderNo: r.order_no, name: r.name, phone: r.phone, email: r.email, fulfilment: r.fulfilment, address: r.address, note: r.note, lines: r.lines,
     total: round2(r.total), status: r.status, createdAt: r.created_at, customerId: r.customer_id, promoCode: r.promo_code || '', discount: round2(r.discount || 0),
     readyFrom: r.ready_from ? dayText(r.ready_from) : null, readyBy: r.ready_by ? dayText(r.ready_by) : null,
-    area: r.area || '', deliveryFee: round2(r.delivery_fee || 0), steps: r.steps || {}, trackUrl: r.token ? config.bplSiteUrl + '/o/' + r.token : null,
+    area: r.area || '', deliveryFee: round2(r.delivery_fee || 0), steps: r.steps || {}, trackUrl: r.token ? config.bplSiteUrl + '/o/' + r.token : null, remindedAt: r.reminded_at || null,
     invoice: r.invoice_id ? { id: r.invoice_id, invoiceNo: r.invoice_no, status: r.invoice_status, balance: round2(r.balance_due), paid: round2(r.amount_paid) } : null
   };
 }
@@ -370,9 +436,11 @@ async function list(ctx, q) {
     "count(*) FILTER (WHERE o.created_at >= date_trunc('month', now()) AND o.status NOT IN ('cancelled', 'unpaid')) AS month_count, " +
     "count(*) FILTER (WHERE i.status = 'paid' AND o.created_at >= date_trunc('month', now())) AS month_paid " +
     'FROM shop_orders o LEFT JOIN invoices i ON i.id = o.invoice_id')).rows[0];
+  // The buttons for reviews to look at and quote requests not priced yet.
+  var asks = (await pool.query("SELECT (SELECT count(*) FROM shop_reviews WHERE status = 'pending')::int AS reviews, (SELECT count(*) FROM shop_quote_requests WHERE status = 'new')::int AS quotes")).rows[0];
   return {
     orders: rows.map(orderOut), settings: await settingsOf(),
-    totals: { fresh: Number(sums.fresh), unpaid: Number(sums.unpaid), ready: Number(sums.ready), making: Number(sums.making), out: Number(sums.out_now), month: round2(sums.month), monthCount: Number(sums.month_count), monthPaid: Number(sums.month_paid) },
+    totals: { fresh: Number(sums.fresh), unpaid: Number(sums.unpaid), ready: Number(sums.ready), making: Number(sums.making), out: Number(sums.out_now), month: round2(sums.month), monthCount: Number(sums.month_count), monthPaid: Number(sums.month_paid), reviews: asks.reviews, quotes: asks.quotes },
     url: config.bplSiteUrl, payOnline: require('./invoicePay.service').configured()
   };
 }
@@ -401,7 +469,8 @@ async function setStatus(ctx, id, p) {
     making: 'Bamboo Products: we have started making your order ' + o.order_no + '.' + (o.ready_by ? ' It should be ready by ' + longDay(dayText(o.ready_by)) + '.' : '') + link,
     ready: 'Bamboo Products: your order ' + o.order_no + (o.fulfilment === 'delivery' ? ' is ready; we will deliver it soon.' : ' is ready for pickup.') + link,
     out: 'Bamboo Products: your order ' + o.order_no + ' is on its way to you.' + link,
-    done: 'Bamboo Products: your order ' + o.order_no + (o.fulfilment === 'delivery' ? ' was delivered.' : ' was collected.') + ' Thank you!'
+    done: 'Bamboo Products: your order ' + o.order_no + (o.fulfilment === 'delivery' ? ' was delivered.' : ' was collected.') + ' Thank you!' +
+      (o.token && (await settingsOf()).reviews.on ? ' How do you like it? Rate it here: ' + config.bplSiteUrl + '/o/' + o.token : '')
   }[status];
   var texted = false, emailed = false;
   if (words && (status === 'ready' || status === 'out')) {
@@ -419,6 +488,7 @@ async function setStatus(ctx, id, p) {
     } catch (e) { /* the page shows it */ }
   }
   await audit(pool, ctx, 'shop.order_' + status, 'shop_order', id, o.order_no + ' marked ' + status + (texted ? ' (customer texted).' : '.'));
+  if (status === 'done' && emailed) await pool.query('UPDATE shop_orders SET review_asked_at = now() WHERE id = $1', [id]);
   return Object.assign(orderOut((await pool.query(ORDER_SELECT + 'WHERE o.id = $1', [id])).rows[0]), { texted: texted, emailed: emailed });
 }
 
@@ -439,7 +509,8 @@ async function track(token) {
     readyFrom: o.ready_from ? dayText(o.ready_from) : null, readyBy: o.ready_by ? dayText(o.ready_by) : null,
     steps: o.steps || {}, placedAt: o.created_at, pickupAddress: o.fulfilment === 'pickup' ? s.pickupAddress : '',
     invoice: o.invoice_no ? { invoiceNo: o.invoice_no, status: o.invoice_status, paid: o.invoice_status === 'paid', balance: round2(o.balance_due), amountPaid: round2(o.amount_paid), token: o.share_token || null } : null,
-    payOnline: require('./invoicePay.service').configured()
+    payOnline: require('./invoicePay.service').configured(),
+    reviews: await require('./shopReviews.service').forOrder(o)
   };
 }
 
@@ -465,7 +536,9 @@ async function saveSettings(ctx, p) {
     categories: (Array.isArray(p.categories) ? p.categories : []).filter(function (c) { return known.indexOf(c) >= 0; }),
     delivery: !!p.delivery, pickup: !!p.pickup, pickupAddress: text(p.pickupAddress, 200), deliveryNote: text(p.deliveryNote, 300),
     codes: p.codes !== undefined ? cleanCodes(p.codes) : (await settingsOf()).codes,
-    areas: p.areas !== undefined ? cleanAreas(p.areas) : (await settingsOf()).areas
+    areas: p.areas !== undefined ? cleanAreas(p.areas) : (await settingsOf()).areas,
+    remindAfter: REMIND_HOURS.indexOf(Number(p.remindAfter)) >= 0 && p.remindAfter !== null && p.remindAfter !== '' ? Number(p.remindAfter) : (await settingsOf()).remindAfter,
+    reviews: p.reviews !== undefined ? reviewsOf(p.reviews) : (await settingsOf()).reviews
   };
   if (s.on && !s.delivery && !s.pickup) fail('invalid', 'Offer delivery, pickup or both.');
   if (Array.isArray(p.codes) && p.codes.length !== s.codes.length) fail('invalid', 'Each code needs 3 or more letters or numbers, used once, and a value (a percentage up to 90).');
@@ -501,4 +574,4 @@ async function saveMakeDays(ctx, p) {
   return getSettings(ctx);
 }
 
-module.exports = { _placedBy: placedBy, view: view, photoKey: photoKey, place: place, track: track, invoicePaid: invoicePaid, sweepUnpaid: sweepUnpaid, checkCode: checkCode, saveMakeDays: saveMakeDays, readyOf: readyOf, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };
+module.exports = { remind: remind, remindUnpaid: remindUnpaid, _placedBy: placedBy, view: view, photoKey: photoKey, place: place, track: track, invoicePaid: invoicePaid, sweepUnpaid: sweepUnpaid, checkCode: checkCode, saveMakeDays: saveMakeDays, readyOf: readyOf, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };

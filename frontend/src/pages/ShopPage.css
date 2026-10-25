@@ -172,3 +172,34 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
   .shp-two { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .shp-leaves i, .shp-card, .shp-basket, .shp-sheet, .shp-done-art i, .shp-spin { animation: none; } }
+
+/* Reviews and "Ask for a quote" (ShopPage.jsx, QuoteSheet.jsx). */
+.shp-stars { display: inline-flex; gap: 1px; font-size: 17px; line-height: 1; }
+.shp-stars i { font-style: normal; color: #e5e7eb; }
+.shp-stars i.is-on { color: #f59f00; }
+.shp-stars i.is-half { background: linear-gradient(90deg, #f59f00 50%, #e5e7eb 50%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.shp-stars.is-sm { font-size: 13px; }
+.shp-rating { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; }
+.shp-rating b { font-size: 14px; }
+.shp-rating small { font-size: 12.5px; color: var(--shp-muted); }
+.shp-card-stars { display: inline-flex; align-items: center; gap: 4px; }
+.shp-card-stars em { font-size: 11.5px; font-style: normal; font-weight: 700; color: var(--shp-muted); }
+.shp-reviews { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; padding-top: 12px; border-top: 1px dashed var(--shp-line); }
+.shp-reviews h3 { margin: 0; font-size: 15px; }
+.shp-reviews ul { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.shp-reviews li { padding: 10px 12px; border-radius: 14px; background: #f7f8f4; animation: shp-lift .4s calc(var(--i) * 60ms) ease both; }
+.shp-review-top { display: flex; align-items: center; gap: 8px; }
+.shp-review-top strong { font-size: 13.5px; }
+.shp-review-top small { margin-left: auto; font-size: 11.5px; color: var(--shp-muted); }
+.shp-reviews li p { margin: 6px 0 0; font-size: 14px; line-height: 1.45; }
+.shp-review-reply { padding: 7px 10px; font-size: 13px !important; border-radius: 10px; background: #eef6e8; }
+.shp-review-reply b { color: var(--shp-gd); }
+.shp-quote-link { align-self: flex-start; padding: 8px 12px; font: inherit; font-size: 13.5px; font-weight: 800; color: var(--shp-gd); border: 1px dashed rgba(63, 125, 59, .45); border-radius: 12px; background: #f6fbf1; cursor: pointer; }
+.shp-quote-btn { display: inline-flex; align-items: center; gap: 10px; align-self: flex-start; margin-top: 4px; padding: 9px 16px 9px 10px; font: inherit; color: #1f2a1c; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 10px 24px -14px rgba(0, 0, 0, .55); cursor: pointer; transition: transform .2s; }
+.shp-quote-btn:hover { transform: translateY(-1px); }
+.shp-quote-btn > span:first-child { display: grid; place-items: center; width: 34px; height: 34px; font-size: 18px; border-radius: 50%; background: linear-gradient(135deg, #fde68a, #f59f00); }
+.shp-quote-btn > span:last-child { display: flex; flex-direction: column; text-align: left; line-height: 1.2; }
+.shp-quote-btn strong { font-size: 14px; }
+.shp-quote-btn small { font-size: 12px; color: #3f7d3b; font-weight: 800; }
+@keyframes shp-lift { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .shp-reviews li { animation: none; } }

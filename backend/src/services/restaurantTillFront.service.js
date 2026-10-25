@@ -23,8 +23,11 @@ var DEFAULTS = {
   // day), up to `perSlot` a time and `maxParty` people, `daysAhead` days
   // ahead; confirmed by the till unless autoConfirm. A booking keeps its
   // table `minutes`. remind: a text `remindHours` before each booking
-  // (jobs/reminders.js).
-  bookings: { online: false, autoConfirm: false, from: '12:00', to: '21:00', days: [], step: 30, perSlot: 4, maxParty: 10, daysAhead: 30, minutes: 90, remind: false, remindHours: 24 },
+  // (jobs/reminders.js). deposit: from `fromParty` guests, a website booking
+  // is paid `perGuest` a guest in advance (Paystack on), taken off the bill;
+  // cancelled `refundHours` or more before, it is given back; a no-show keeps it.
+  bookings: { online: false, autoConfirm: false, from: '12:00', to: '21:00', days: [], step: 30, perSlot: 4, maxParty: 10, daysAhead: 30, minutes: 90, remind: false, remindHours: 24,
+    deposit: { on: false, fromParty: 8, perGuest: 50, refundHours: 24 } },
   // Tips on the pay screen and the customer's screen: the percentages to tap;
   // and how they are shared (restaurantTips): each to the person who served
   // the bill ('direct'), each sale's split among the tip-eligible staff
@@ -79,6 +82,17 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function num(v) { return Math.round(Number(v) * 100) / 100; }
 function days(list) { return Array.isArray(list) ? list.map(Number).filter(function (d, i, a) { return d >= 0 && d <= 6 && Math.floor(d) === d && a.indexOf(d) === i; }).sort() : []; }
 
+// A booking deposit's settings, each value in range or the default's.
+var REFUND_HOURS = [0, 2, 6, 12, 24, 48, 72];
+function depositOf(d, dflt) {
+  return {
+    on: typeof d.on === 'boolean' ? d.on : dflt.on,
+    fromParty: Number(d.fromParty) >= 1 && Number(d.fromParty) <= 100 ? Math.round(Number(d.fromParty)) : dflt.fromParty,
+    perGuest: Number(d.perGuest) >= 1 && Number(d.perGuest) <= 5000 ? num(d.perGuest) : dflt.perGuest,
+    refundHours: REFUND_HOURS.indexOf(Number(d.refundHours)) >= 0 && d.refundHours !== null && d.refundHours !== '' ? Number(d.refundHours) : dflt.refundHours
+  };
+}
+
 // The stored settings over the defaults (what is not right is left as the default).
 function merge(out, s) {
   var b = s.bookings;
@@ -92,6 +106,7 @@ function merge(out, s) {
     if (Number(b.maxParty) >= 1 && Number(b.maxParty) <= 100) out.bookings.maxParty = Math.round(Number(b.maxParty));
     if (Number(b.daysAhead) >= 1 && Number(b.daysAhead) <= 180) out.bookings.daysAhead = Math.round(Number(b.daysAhead));
     if (Number(b.minutes) >= 15 && Number(b.minutes) <= 600) out.bookings.minutes = Math.round(Number(b.minutes));
+    if (b.deposit && typeof b.deposit === 'object') out.bookings.deposit = depositOf(b.deposit, out.bookings.deposit);
   }
   if (s.tips && typeof s.tips === 'object') {
     if (typeof s.tips.on === 'boolean') out.tips.on = s.tips.on;
@@ -163,8 +178,12 @@ function clean(out, p, text) {
     if (!(maxParty >= 1 && maxParty <= 100)) fail('invalid', 'Bookings: the biggest party on the website, from 1 to 100.');
     if (!(ahead >= 1 && ahead <= 180)) fail('invalid', 'Bookings: from 1 to 180 days ahead.');
     if (!(minutes >= 15 && minutes <= 600)) fail('invalid', 'Bookings: a table is kept from 15 to 600 minutes.');
+    var dep = b.deposit || {};
+    if (dep.on && !(Number(dep.perGuest) >= 1 && Number(dep.perGuest) <= 5000)) fail('invalid', 'Bookings: a deposit from 1 to 5,000 a guest.');
+    if (dep.on && !(Number(dep.fromParty) >= 1 && Number(dep.fromParty) <= 100)) fail('invalid', 'Bookings: a deposit from parties of 1 to 100.');
     out.bookings = { online: !!b.online, autoConfirm: !!b.autoConfirm, from: b.from, to: b.to, days: days(b.days), step: Number(b.step), perSlot: perSlot, maxParty: maxParty, daysAhead: ahead, minutes: minutes,
-      remind: !!b.remind, remindHours: REMIND_HOURS.indexOf(Number(b.remindHours)) >= 0 ? Number(b.remindHours) : 24 };
+      remind: !!b.remind, remindHours: REMIND_HOURS.indexOf(Number(b.remindHours)) >= 0 ? Number(b.remindHours) : 24,
+      deposit: depositOf(dep, DEFAULTS.bookings.deposit) };
   }
   if (p.tips) {
     var percents = Array.isArray(p.tips.percents) ? p.tips.percents.map(num).filter(function (x) { return x > 0; }) : [];

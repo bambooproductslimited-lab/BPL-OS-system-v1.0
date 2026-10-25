@@ -120,5 +120,13 @@ export function contactOf(g) {
 export function paidAheadOf(tab) {
   if (!tab) return [];
   return (tab.paidOnKiosk ? [{ ref: tab.paidOnKiosk.ref, amount: tab.paidOnKiosk.amount, tip: 0, payer: '', channel: tab.paidOnKiosk.channel, from: 'kiosk' }] : [])
-    .concat((tab.paidAtTable || []).map((p) => ({ ref: p.ref, amount: p.amount, tip: p.tip || 0, payer: p.payer || '', channel: p.channel, from: 'table' })));
+    .concat((tab.paidAtTable || []).map((p) => ({ ref: p.ref, amount: p.amount, tip: p.tip || 0, payer: p.payer || '', channel: p.channel, from: p.kind === 'online' || p.kind === 'deposit' ? p.kind : 'table' })));
+}
+// What was paid ahead, in words: on the website, a booking's deposit, at the table or on the kiosk.
+export function paidAheadWords(list, amount, tr) {
+  const from = (list || []).map((p) => p.from || p.kind || 'table');
+  if (from.includes('deposit')) return tr('Deposit paid: {amount}', { amount });
+  if (from.length && from.every((f) => f === 'online')) return tr('Paid online: {amount}', { amount });
+  if (from.includes('table') || from.includes('online')) return tr('Paid at the table: {amount}', { amount });
+  return tr('Paid on the kiosk: {amount}', { amount });
 }

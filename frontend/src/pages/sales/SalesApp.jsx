@@ -77,6 +77,12 @@ function Page({ item }) {
 }
 
 // A link to the rest of the OS, or a page this account cannot open.
+// Old notifications of the online shop link to /shop-orders.
+function ShopOrdersMoved() {
+  const { search } = useLocation();
+  return <Navigate to={'/shoporders' + search} replace />;
+}
+
 export function Elsewhere({ reason }) {
   const location = useLocation();
   const url = OS_URL + location.pathname + location.search;
@@ -106,6 +112,7 @@ export default function SalesApp() {
           {/* Old addresses of pages that became tabs (as in the OS, App.jsx). */}
           <Route path="crmprospects" element={<Navigate to="/crmcustomers?tab=prospects" replace />} />
           <Route path="crmfollowups" element={<Navigate to="/crminbox?tab=followups" replace />} />
+          <Route path="shop-orders" element={<ShopOrdersMoved />} />
           <Route path="dashboard" element={<Navigate to={HOME} replace />} />
           <Route path="*" element={<Elsewhere />} />
         </Route>

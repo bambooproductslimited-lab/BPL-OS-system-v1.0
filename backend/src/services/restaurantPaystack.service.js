@@ -7,7 +7,9 @@ var access = require('./restaurantTillAccess.service');
 // Card and Mobile Money paid online through Paystack (migration 0177): the
 // till shows a QR code the customer pays with on their own phone (a card,
 // Apple or Google Pay where Paystack offers them, or Mobile Money), and the
-// self-order kiosk takes payment on its own screen. Each payment is started
+// self-order kiosk takes payment on its own screen; the websites take
+// orders paid in advance and booking deposits (migration 0192), given back
+// (refund) when the restaurant turns them down. Each payment is started
 // here (Paystack's "initialize": an amount, a reference, a page to pay on),
 // checked with Paystack ("verify", or its webhook) and used by one sale only
 // (restaurantTillMoney.planPayments with opts.paystack).
@@ -58,13 +60,14 @@ function emailFor(code) {
 
 function out(r) {
   return { reference: r.reference, amount: round2(r.amount), status: r.status, url: r.url, channel: r.channel || '', cardBrand: r.card_brand || null, cardLast4: r.card_last4 || null, paidAt: r.paid_at || null, used: !!r.used_by_order,
-    tip: round2(r.tip || 0), payer: r.payer || '' };
+    tip: round2(r.tip || 0), payer: r.payer || '', refund: r.refund_status ? { status: r.refund_status, at: r.refunded_at, note: r.refund_note || '' } : null };
 }
 
 // Starts a payment of `amount` cedis for a restaurant: its page to pay on.
 // extra (paying at the table): { tabId, tip, payer } — the open order it is
 // for, the tip in it, and the payer's name; meta: what else it is for (a gift
-// card bought on the website: restaurantGiftCards buyOnline).
+// card bought on the website: restaurantGiftCards buyOnline); onlineOrderId
+// (a website order paid in advance), bookingId (a booking's deposit).
 async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callbackUrl, extra) {
   extra = extra || {};
   amount = round2(amount);
@@ -77,8 +80,9 @@ async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callb
     metadata: { restaurant: co.code, purpose: purpose }
   });
   var row = (await pool.query(
-    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer, meta) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *',
-    [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null, extra.tabId || null, round2(extra.tip || 0), String(extra.payer || '').slice(0, 60), extra.meta || {}])).rows[0];
+    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer, meta, online_order_id, booking_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',
+    [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null, extra.tabId || null, round2(extra.tip || 0), String(extra.payer || '').slice(0, 60), extra.meta || {},
+      extra.onlineOrderId || null, extra.bookingId || null])).rows[0];
   return out(row);
 }
 
@@ -149,7 +153,30 @@ async function claimFor(client, companyId, refs) {
   return map;
 }
 async function markUsed(client, refs, orderId) {
-  if (refs.length) await client.query('UPDATE restaurant_paystack_payments SET used_by_order = $2 WHERE reference = ANY($1::text[])', [refs, orderId]);
+  if (!refs.length) return;
+  await client.query('UPDATE restaurant_paystack_payments SET used_by_order = $2 WHERE reference = ANY($1::text[])', [refs, orderId]);
+  // A booking's deposit taken off the bill.
+  await client.query("UPDATE restaurant_bookings SET deposit_status = 'applied', updated_at = now() WHERE deposit_status = 'paid' AND id IN " +
+    "(SELECT booking_id FROM restaurant_paystack_payments WHERE reference = ANY($1::text[]) AND purpose = 'deposit')", [refs]);
+}
+
+// Given back in full (an order the restaurant turned down, a deposit
+// cancelled in time): once, never for a payment a sale has used (that is
+// refunded on the till). Paystack takes a while to send it back: pending,
+// then processed; failed, it is for a manager to give back by hand.
+async function refund(row, reason) {
+  if (!row || row.status !== 'success' || row.used_by_order || row.refund_status) return row;
+  var claimed = (await pool.query("UPDATE restaurant_paystack_payments SET refund_status = 'pending', refund_note = $2 WHERE id = $1 AND refund_status IS NULL AND used_by_order IS NULL RETURNING *",
+    [row.id, String(reason || '').slice(0, 200)])).rows[0];
+  if (!claimed) return row;
+  try {
+    var data = await call('POST', '/refund', { transaction: row.reference, merchant_note: String(reason || 'Refund').slice(0, 200) });
+    return (await pool.query('UPDATE restaurant_paystack_payments SET refund_status = $2, refunded_at = now() WHERE id = $1 RETURNING *',
+      [row.id, data && data.status === 'processed' ? 'processed' : 'pending'])).rows[0];
+  } catch (e) {
+    return (await pool.query("UPDATE restaurant_paystack_payments SET refund_status = 'failed', refund_note = $2 WHERE id = $1 RETURNING *",
+      [row.id, ('Not refunded: ' + (e.message || 'Paystack did not answer') + ' Give it back by hand.').slice(0, 300)])).rows[0];
+  }
 }
 
 // POST /api/pos/paystack/webhook — Paystack telling us, signed with the
@@ -170,8 +197,11 @@ async function webhook(rawBody, signature) {
   if (!known) return { ok: true };
   if (event.event === 'charge.success') {
     var row = await record(String(data.reference), data);
-    // A gift card bought on the website is made as soon as it is paid.
+    // A gift card bought on the website is made as soon as it is paid; an
+    // order paid in advance goes to the restaurant; a deposit holds the booking.
     if (row && row.purpose === 'gift' && row.status === 'success') await require('./restaurantGiftCards.service').settleOnline(row);
+    if (row && row.purpose === 'online' && row.status === 'success') await online().settlePaid(row);
+    if (row && row.purpose === 'deposit' && row.status === 'success') await require('./restaurantBookings.service').settleDeposit(row);
   }
   return { ok: true };
 }
@@ -186,5 +216,5 @@ async function report(companyId, from, to) {
 
 module.exports = {
   configured: configured, onFor: onFor, begin: begin, check: check, start: start, status: status, claimFor: claimFor, markUsed: markUsed,
-  webhook: webhook, validSignature: validSignature, report: report, rowOf: rowOf, out: out, setFetchForTests: setFetchForTests
+  webhook: webhook, validSignature: validSignature, report: report, rowOf: rowOf, out: out, refund: refund, setFetchForTests: setFetchForTests
 };

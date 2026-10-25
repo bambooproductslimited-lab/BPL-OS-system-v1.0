@@ -44,6 +44,7 @@ router.get('/online/:code/book', h(function (req) { return bookings.onlineOption
 router.post('/online/:code/book', h(function (req) { return bookings.onlineBook(req.params.code, body(req), req.ip, posToken(req)); }));
 router.get('/online/bookings/:token', h(function (req) { return bookings.onlineMine(req.params.token); }));
 router.post('/online/bookings/:token/cancel', h(function (req) { return bookings.onlineCancel(req.params.token); }));
+router.post('/online/bookings/:token/pay', h(function (req) { return bookings.payDeposit(req.params.token); }));
 
 // ── the customer's screen (its key as the bearer token) and the till's side of it ──
 router.post('/display/hello', h(function (req) { return displays.hello(body(req).key, req.ip, req.headers['user-agent']); }));

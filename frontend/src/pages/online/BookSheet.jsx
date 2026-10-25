@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
+import { money } from '../../lib/currency';
 import { restaurantLogoUrl } from '../../lib/restaurantLogos';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import { applyTheme, getInitialTheme } from '../../lib/theme';
@@ -51,11 +52,14 @@ export default function BookSheet({ code, account, onClose, onBooked }) {
     setBusy(true); setError(null);
     try {
       const r = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/book', account ? account.token : null, { name, phone, party, date, time, note, website: '' });
+      // A big party: on to pay the deposit; Paystack brings them back to the booking's page.
+      if (r.payUrl) { window.location.assign(r.payUrl); return; }
       onBooked(r);
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) { setError(err.message); setBusy(false); }
   }
 
   const slots = opts && opts.date === date ? opts.slots : [];
+  const deposit = opts && opts.deposit && party >= opts.deposit.fromParty ? Math.round(opts.deposit.perGuest * party * 100) / 100 : 0;
   return (
     <div className="on-sheet-back" onClick={onClose}>
       <form className="on-sheet on-book" role="dialog" aria-modal="true" aria-labelledby="on-book-title" onClick={(e) => e.stopPropagation()} onSubmit={book}>
@@ -110,11 +114,19 @@ export default function BookSheet({ code, account, onClose, onBooked }) {
             <label className="on-field"><span>{tr('Phone number')}</span><input className="input" type="tel" inputMode="tel" required autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="024 000 0000" />
               <small className="on-hint">{tr('We text you when your table is confirmed.')}</small></label>
             <label className="on-field"><span>{tr('Anything we should know? (optional)')}</span><input className="input" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr('e.g. A birthday, a high chair, by the window')} /></label>
+            {deposit > 0 && (
+              <div className="on-bk-deposit" role="note">
+                <span aria-hidden="true">🎟️</span>
+                <span><strong>{tr('A deposit of {amount} to hold the table', { amount: money(deposit) })}</strong>
+                  <small>{tr('{per} a guest for parties of {n} or more, paid now by card or Mobile Money and taken off your bill.', { per: money(opts.deposit.perGuest), n: opts.deposit.fromParty })}
+                    {' '}{opts.deposit.refundHours > 0 ? tr('Cancel up to {h} hours before and it is given back.', { h: opts.deposit.refundHours }) : tr('Cancel before your time and it is given back.')}</small></span>
+              </div>
+            )}
             {error && <div className="error-banner" role="alert">{error}</div>}
             <button type="submit" className="on-go is-big" disabled={busy || !date || !time}>
-              {busy ? tr('One moment…') : time ? tr('Book for {n} at {time}', { n: party, time }) : tr('Pick a time')}
+              {busy ? tr('One moment…') : !time ? tr('Pick a time') : deposit > 0 ? '🔒 ' + tr('Pay {amount} and book', { amount: money(deposit) }) : tr('Book for {n} at {time}', { n: party, time })}
             </button>
-            <p className="on-hint is-center">{opts.autoConfirm ? tr('Your table is booked as soon as you press the button.') : tr('The restaurant confirms your booking by text.')}</p>
+            <p className="on-hint is-center">{deposit > 0 ? tr('Booked for {n} at {time} once the deposit is paid.', { n: party, time: time || '…' }) : opts.autoConfirm ? tr('Your table is booked as soon as you press the button.') : tr('The restaurant confirms your booking by text.')}</p>
           </>
         )}
       </form>
@@ -132,6 +144,11 @@ const BK_STATUS = {
   no_show: ['⌛', () => tr('This booking has passed'), null]
 };
 
+function depositWords(d) {
+  return { due: tr('to pay'), paid: tr('paid, taken off your bill'), applied: tr('taken off your bill'), kept: tr('kept'), refunded: tr('given back'), refund_failed: tr('to be given back: the restaurant will call you') }[d.status] || d.status;
+}
+function bookingTime(iso) { return new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }); }
+
 // /b/<link>: a booking's own page — its state, and cancelling it while it can be.
 export function BookingPage({ token, onMenu }) {
   const [b, setB] = useState(null);
@@ -145,8 +162,14 @@ export function BookingPage({ token, onMenu }) {
     const t = setInterval(load, 20000);
     return () => { live = false; clearInterval(t); };
   }, [token]);
+  async function payDeposit() {
+    setBusy(true); setError(null);
+    try { const r = await posFetch('POST', '/pos/online/bookings/' + token + '/pay'); window.location.assign(r.url); } catch (e) { setError(e.message); setBusy(false); }
+  }
   async function cancel() {
-    if (!window.confirm(tr('Cancel your booking?'))) return;
+    const dep = b.deposit;
+    const late = dep && dep.status === 'paid' && dep.refundUntil && Date.now() > new Date(dep.refundUntil).getTime();
+    if (!window.confirm(late ? tr('Cancel your booking? It is too late to give the deposit back: it is kept.') : dep && dep.status === 'paid' ? tr('Cancel your booking? Your deposit is given back.') : tr('Cancel your booking?'))) return;
     setBusy(true);
     try { setB(await posFetch('POST', '/pos/online/bookings/' + token + '/cancel')); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
@@ -169,7 +192,15 @@ export function BookingPage({ token, onMenu }) {
           <div><small>{tr('People')}</small><strong>{b.party}</strong></div>
           <div><small>{tr('Name')}</small><strong>{b.name}</strong></div>
           {b.note && <div className="is-wide"><small>{tr('Note')}</small><strong>{b.note}</strong></div>}
+          {b.deposit && <div className={'is-wide on-bk-dep is-' + b.deposit.status}><small>{tr('Deposit')}</small><strong>{money(b.deposit.amount)} · {depositWords(b.deposit)}</strong></div>}
         </div>
+        {b.deposit && b.deposit.status === 'due' && ['requested', 'booked'].includes(b.status) && (
+          <>
+            <p className="on-hint is-center">{tr('Your table is held once the deposit is paid{by}.', { by: b.deposit.payBy ? ' ' + tr('(by {time})', { time: bookingTime(b.deposit.payBy) }) : '' })}</p>
+            <button type="button" className="on-go is-big" disabled={busy} onClick={payDeposit}>🔒 {tr('Pay the deposit · {amount}', { amount: money(b.deposit.amount) })}</button>
+          </>
+        )}
+        {b.deposit && b.deposit.status === 'paid' && b.deposit.refundUntil && b.canCancel && <p className="on-hint is-center">{tr('Cancel by {when} and your deposit is given back.', { when: bookingWhen(b.deposit.refundUntil) })}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
         {b.restaurant.phone && <a className="on-go is-ghost" href={'tel:' + b.restaurant.phone.replace(/[^\d+]/g, '')}>📞 {tr('Call {name}', { name: b.restaurant.name })}</a>}
         {b.canCancel && <button type="button" className="on-go is-stop" disabled={busy} onClick={cancel}>{tr('Cancel my booking')}</button>}

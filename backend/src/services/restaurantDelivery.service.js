@@ -50,7 +50,10 @@ var DEFAULTS = {
   // time, how many days ahead (0: today only), the first and last time
   // they may choose (Ghana keeps GMT all year: UTC), and whether they may
   // while the restaurant is not taking orders now.
-  later: { on: true, days: 2, from: '11:00', to: '22:00', whenClosed: true }
+  later: { on: true, days: 2, from: '11:00', to: '22:00', whenClosed: true },
+  // Customers may pay online when ordering (needs Paystack on in the till's
+  // settings): the order reaches the restaurant once it is paid.
+  payOnline: false
 };
 var SITE = { delivery: function (code) { return code ? online().siteUrlFor(code, 'delivery') : config.deliverySiteUrl; } };
 
@@ -103,7 +106,7 @@ function travelMinutes(distanceKm, vehicle) {
 function merged(s) {
   s = s || {};
   var out = JSON.parse(JSON.stringify(DEFAULTS));
-  ['open', 'delivery', 'pickup'].forEach(function (k) { if (typeof s[k] === 'boolean') out[k] = s[k]; });
+  ['open', 'delivery', 'pickup', 'payOnline'].forEach(function (k) { if (typeof s[k] === 'boolean') out[k] = s[k]; });
   if (typeof s.phone === 'string') out.phone = cleanText(s.phone, 40);
   if (typeof s.note === 'string') out.note = cleanText(s.note, 200);
   if (s.location && isFinite(Number(s.location.lat)) && isFinite(Number(s.location.lng))) {
@@ -384,15 +387,17 @@ async function board(token) {
   // Orders for later whose time to cook has come go to the kitchen now, if
   // the job (jobs/onlineScheduled.js) has not got to them yet.
   await online.releaseDue(company);
-  var pending = (await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'pending' ORDER BY coalesce(scheduled_for, created_at), created_at", [company])).rows.map(online.staffOut);
+  var pending = await online.withPaid((await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'pending' ORDER BY coalesce(scheduled_for, created_at), created_at", [company])).rows.map(online.staffOut));
   // Confirmed for later, not started in the kitchen yet.
-  var later = (await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'accepted' AND tab_id IS NULL ORDER BY start_at, scheduled_for", [company])).rows.map(online.staffOut);
+  var later = await online.withPaid((await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status = 'accepted' AND tab_id IS NULL ORDER BY start_at, scheduled_for", [company])).rows.map(online.staffOut));
   var active = (await pool.query(DELIVERY_SELECT + "WHERE d.company_id = $1 AND d.status IN ('assigned', 'picked_up', 'arrived') ORDER BY d.created_at", [company])).rows
     .map(function (d) { return deliveryOut(d, { link: true }); });
   var done = (await pool.query(DELIVERY_SELECT + "WHERE d.company_id = $1 AND d.status IN ('delivered', 'failed', 'cancelled') AND d.ended_at >= date_trunc('day', now()) ORDER BY d.ended_at DESC LIMIT 60", [company])).rows
     .map(function (d) { return deliveryOut(d); });
-  var turnedDown = (await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status IN ('rejected', 'cancelled') AND updated_at >= date_trunc('day', now()) ORDER BY updated_at DESC LIMIT 40", [company])).rows
-    .map(online.staffOut);
+  // Turned down or cancelled today; not ones never paid for (the customer gave up paying).
+  var turnedDown = await online.withPaid((await pool.query("SELECT * FROM restaurant_online_orders WHERE company_id = $1 AND status IN ('rejected', 'cancelled') AND updated_at >= date_trunc('day', now()) " +
+    "AND NOT (pay_method = 'online' AND decided_at IS NULL AND reject_reason IN ('Not paid.', 'Paying online did not start.')) ORDER BY updated_at DESC LIMIT 40", [company])).rows
+    .map(online.staffOut));
   var waiting = await waitingToGo(company);
   var co = (await pool.query('SELECT code, name FROM companies WHERE id = $1', [company])).rows[0];
   var delivered = done.filter(function (d) { return d.status === 'delivered'; });
@@ -438,7 +443,9 @@ async function send(token, p) {
     if (tab.fulfillment !== 'delivery') fail('invalid', 'That order is not a delivery.');
     src = { tabId: tabId, orderId: null, onlineId: oo ? oo.id : null, label: tab.label || tab.customerName, name: tab.customerName || tab.guestName || '', phone: tab.customerPhone || tab.guestPhone || '',
       address: addressOf(tab.deliveryAddress, oo), landmark: oo ? oo.landmark : '', lat: oo ? oo.lat : null, lng: oo ? oo.lng : null,
-      items: tab.lines.filter(function (l) { return !l.fee; }).map(function (l) { return l.qty + '× ' + l.name; }), owed: tab.total, payMethod: oo ? oo.pay_method : null };
+      items: tab.lines.filter(function (l) { return !l.fee; }).map(function (l) { return l.qty + '× ' + l.name; }),
+      // Paid online already (in advance, or at the table): the rider collects the rest.
+      owed: Math.max(0, round2(tab.total - (tab.paidAtTable || []).reduce(function (a, x) { return a + x.amount - (x.tip || 0); }, 0))), payMethod: oo && oo.pay_method !== 'online' ? oo.pay_method : null };
   } else {
     var o = (await pool.query("SELECT * FROM restaurant_orders WHERE id = $1 AND company_id = $2 AND status = 'completed'", [orderId, company])).rows[0];
     if (!o) fail('notfound', 'That sale is not this restaurant\'s.');

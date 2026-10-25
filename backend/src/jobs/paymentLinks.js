@@ -3,7 +3,8 @@ var shop = require('../services/shop.service');
 
 // Payment links (paymentLinks.service.js sweep): invoices raised from a link
 // and left unpaid, voided after three days; and shop checkouts never paid
-// (shop.service.js sweepUnpaid), cancelled after two. Checked every hour.
+// (shop.service.js sweepUnpaid), reminded once (remindUnpaid) and
+// cancelled after two. Checked every hour.
 var INTERVAL_MS = 60 * 60 * 1000;
 
 async function runOnce() {
@@ -17,6 +18,8 @@ async function runOnce() {
   try {
     var shopped = await shop.sweepUnpaid();
     if (shopped.cancelled) console.log('Shop: ' + shopped.cancelled + ' unpaid orders cancelled.');
+    var reminded = await shop.remindUnpaid();
+    if (reminded) console.log('Shop: ' + reminded + ' unpaid orders reminded.');
   } catch (e) {
     console.error('Shop unpaid sweep failed:', e.message);
   }

@@ -56,6 +56,10 @@ function modsFrom(list) {
 function hash(token) { return crypto.createHash('sha256').update(String(token)).digest('hex'); }
 function pos() { return require('./restaurantPos.service'); }
 function accounts() { return require('./restaurantCustomerAccounts.service'); }
+function paystack() { return require('./restaurantPaystack.service'); }
+// Paid online when ordering (migration 0192): an order waits, unpaid, this
+// long for its payment, then is cancelled.
+var UNPAID_MINUTES = 30;
 function ref(n) { return 'W-' + String(n).padStart(4, '0'); }
 function fullPhotoUrl(id, key) { var u = restaurantService.menuThumbUrl(id, key); return u ? u.replace('?size=thumb&', '?') : null; }
 
@@ -146,13 +150,15 @@ async function shopOf(code) {
   if (!co) fail('notfound', 'This restaurant does not take orders online.');
   co = { id: co.id, code: co.code, name: co.name };
   co.settings = await delivery.liveSettingsOf(co.id);
+  // Paying online when ordering: on in the website's settings, and Paystack on for the restaurant.
+  co.payOnline = !!co.settings.payOnline && paystack().onFor(await access.settingsOf(co.id));
   return co;
 }
 function shopOut(co) {
   var s = co.settings;
   return {
     code: co.code, name: co.name, open: s.open, delivery: s.delivery, pickup: s.pickup, phone: s.phone, note: s.note,
-    location: s.location, fee: s.fee, maxKm: s.maxKm, minOrder: s.minOrder, readyMinutes: s.readyMinutes, payMethods: ['cash', 'mobile_money'],
+    location: s.location, fee: s.fee, maxKm: s.maxKm, minOrder: s.minOrder, readyMinutes: s.readyMinutes, payMethods: co.payOnline ? ['online', 'cash', 'mobile_money'] : ['cash', 'mobile_money'],
     later: laterOut(s, new Date()), busy: s.busy ? { mode: s.busy.mode, extraMinutes: s.busy.extraMinutes, until: s.busy.until } : null
   };
 }
@@ -298,7 +304,7 @@ async function place(code, p, ip, accountToken) {
     if (!point) fail('invalid', 'Show us where to bring it: drop the pin on the map, or use your location.');
     if (!address) fail('invalid', 'Write the address or the area, for the rider.');
   }
-  var payMethod = V.oneOf(p.payMethod || 'cash', ['cash', 'mobile_money'], 'How you pay');
+  var payMethod = V.oneOf(p.payMethod || 'cash', co.payOnline ? ['online', 'cash', 'mobile_money'] : ['cash', 'mobile_money'], 'How you pay');
   if (!Array.isArray(p.items) || !p.items.length) fail('invalid', 'Your basket is empty.');
   if (p.items.length > MAX_LINES) fail('invalid', 'That is a lot of dishes: call the restaurant for a big order.');
   var items = p.items.map(function (i) {
@@ -319,7 +325,7 @@ async function place(code, p, ip, accountToken) {
   if (s.minOrder > 0 && priced.subtotal < s.minOrder) fail('invalid', 'The smallest order is ' + s.minOrder.toFixed(2) + ' before delivery.');
   var q = delivery.quote(s, priced.subtotal, point, fulfillment);
   if (!q.deliverable) fail('invalid', 'That is ' + q.distanceKm + ' km away by road: ' + co.name + ' delivers up to ' + s.maxKm + ' km. Pick it up instead?');
-  var pending = (await pool.query("SELECT count(*)::int AS n FROM restaurant_online_orders WHERE company_id = $1 AND customer_phone = $2 AND status = 'pending'", [co.id, phone])).rows[0].n;
+  var pending = (await pool.query("SELECT count(*)::int AS n FROM restaurant_online_orders WHERE company_id = $1 AND customer_phone = $2 AND (status = 'pending' OR (status = 'unpaid' AND created_at > now() - make_interval(mins => $3)))", [co.id, phone, UNPAID_MINUTES])).rows[0].n;
   if (pending >= MAX_PENDING_PER_PHONE) fail('conflict', 'You have orders waiting for the restaurant already. Wait for their answer, or call them.');
   throttle(ip);
 
@@ -330,19 +336,108 @@ async function place(code, p, ip, accountToken) {
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_online_orders WHERE company_id = $1', [co.id])).rows[0].n;
     var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}); });
     var row = (await client.query(
-      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id, adjust) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING *',
+      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id, adjust, status) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *',
       [co.id, number, hash(token), fulfillment, name, phone, address, landmark, point ? point.lat : null, point ? point.lng : null, cleanText(p.note, 300), payMethod, JSON.stringify(lines),
-        priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges), account ? account.id : null, JSON.stringify(bill.adjust || {})])).rows[0];
+        priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges), account ? account.id : null, JSON.stringify(bill.adjust || {}),
+        payMethod === 'online' ? 'unpaid' : 'pending'])).rows[0];
     if (account && p.saveAddress && fulfillment === 'delivery') {
       await client.query('UPDATE restaurant_customer_accounts SET address = $2, landmark = $3, lat = $4, lng = $5, updated_at = now() WHERE id = $1', [account.id, address, landmark, point.lat, point.lng]);
     }
     await activity.log(client, { companyId: co.id, employeeId: null, app: 'online', action: 'online.placed',
-      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + bill.total.toFixed(2) + '.',
+      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + bill.total.toFixed(2) + (payMethod === 'online' ? ', to pay online' : '') + '.',
       amount: bill.total, refType: 'online', refId: row.id });
     return row;
   });
-  return { ref: ref(saved.number), token: token, trackUrl: siteUrlFor(co.code) + '/t/' + token, order: await trackOut(saved) };
+  var trackUrl = siteUrlFor(co.code) + '/t/' + token;
+  // Paid online: straight on to Paystack's page, back to the order's own.
+  var payUrl = null;
+  if (payMethod === 'online') {
+    try { payUrl = (await paystack().begin(co.id, bill.total, 'online', null, null, trackUrl, { onlineOrderId: saved.id, payer: name })).url; }
+    catch (e) {
+      await pool.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Paying online did not start.', updated_at = now() WHERE id = $1", [saved.id]);
+      fail('unavailable', 'Paying online is not working just now. Choose to pay on ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + ' instead, or try again.');
+    }
+  }
+  return { ref: ref(saved.number), token: token, trackUrl: trackUrl, payUrl: payUrl, order: await trackOut(saved) };
+}
+
+// ── paid online (migration 0192) ──
+
+// The latest payment started for an order paid online.
+async function paymentOf(orderId) {
+  return (await pool.query("SELECT * FROM restaurant_paystack_payments WHERE online_order_id = $1 AND purpose = 'online' ORDER BY (status = 'success') DESC, created_at DESC LIMIT 1", [orderId])).rows[0] || null;
+}
+// Paid: the order goes to the restaurant (pending), once — from the
+// customer back on its page, or Paystack's webhook.
+async function settlePaid(row) {
+  if (!row || row.status !== 'success' || !row.online_order_id) return null;
+  var o = (await pool.query("UPDATE restaurant_online_orders SET status = 'pending', created_at = now(), updated_at = now() WHERE id = $1 AND status = 'unpaid' RETURNING *", [row.online_order_id])).rows[0];
+  if (o) {
+    await activity.log(pool, { companyId: o.company_id, employeeId: null, app: 'online', action: 'online.paid',
+      summary: o.customer_name + ' paid ' + ref(o.number) + ' online: ' + round2(row.amount).toFixed(2) + (row.channel ? ' (' + (row.channel === 'mobile_money' ? 'Mobile Money' : 'card') + ')' : '') + '.',
+      amount: round2(row.amount), refType: 'online', refId: o.id });
+    return o;
+  }
+  // Paid after it was cancelled (too late, or by the customer): given back.
+  var gone = (await pool.query("SELECT status FROM restaurant_online_orders WHERE id = $1", [row.online_order_id])).rows[0];
+  if (gone && (gone.status === 'cancelled' || gone.status === 'rejected')) await paystack().refund(row, 'The order was cancelled before it was paid.');
+  return null;
+}
+// An unpaid order asked about: its payment checked with Paystack.
+async function checkPaid(o) {
+  if (o.status !== 'unpaid') return o;
+  var row = await paymentOf(o.id);
+  if (row && row.status === 'pending') row = await paystack().check(row, false);
+  if (row && row.status === 'success') await settlePaid(row);
+  return (await pool.query('SELECT * FROM restaurant_online_orders WHERE id = $1', [o.id])).rows[0];
+}
+// POST /api/pos/online/track/:token/pay — try paying again (the first did
+// not go through): a new page to pay on.
+async function payAgain(raw, account) {
+  var o = account ? await byAccount(account, raw) : await byToken(raw);
+  o = await checkPaid(o);
+  if (o.status !== 'unpaid') fail('conflict', o.status === 'cancelled' ? 'This order was cancelled: order again.' : 'This order is paid already.');
+  var co = (await pool.query('SELECT code FROM companies WHERE id = $1', [o.company_id])).rows[0];
+  var trackUrl = account ? siteUrlFor(co.code) + '/?r=' + co.code + '&mine=' + o.id : siteUrlFor(co.code) + '/t/' + raw;
+  var started = await paystack().begin(o.company_id, round2(o.total), 'online', null, null, trackUrl, { onlineOrderId: o.id, payer: o.customer_name });
+  await pool.query("UPDATE restaurant_online_orders SET updated_at = now() WHERE id = $1 AND status = 'unpaid'", [o.id]);
+  return { url: started.url };
+}
+// Orders never paid: cancelled after UNPAID_MINUTES (the job, with orders for later).
+async function sweepUnpaid() {
+  var rows = (await pool.query("SELECT * FROM restaurant_online_orders WHERE status = 'unpaid' AND updated_at < now() - make_interval(mins => $1) LIMIT 100", [UNPAID_MINUTES])).rows;
+  var n = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var o = await checkPaid(rows[i]);
+    if (o.status !== 'unpaid') continue;
+    var up = await pool.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Not paid.', updated_at = now() WHERE id = $1 AND status = 'unpaid'", [o.id]);
+    if (up.rowCount) n++;
+  }
+  return n;
+}
+// Paid online and turned down or cancelled: given back.
+async function refundFor(orderId, reason) {
+  var row = await paymentOf(orderId);
+  if (!row) return null;
+  if (row.status === 'pending') row = await paystack().check(row, true);
+  return paystack().refund(row, reason);
+}
+// The till's open order for a paid order: its payment there to take.
+async function attachPaid(db, orderId, tabId) {
+  await db.query("UPDATE restaurant_paystack_payments SET tab_id = $2 WHERE online_order_id = $1 AND purpose = 'online' AND status = 'success' AND used_by_order IS NULL AND refund_status IS NULL", [orderId, tabId]);
+}
+// Staff's view of orders, with what was paid online (and given back).
+async function withPaid(list) {
+  var ids = list.filter(function (o) { return o.payMethod === 'online'; }).map(function (o) { return o.id; });
+  if (!ids.length) return list;
+  var rows = (await pool.query("SELECT DISTINCT ON (online_order_id) * FROM restaurant_paystack_payments WHERE online_order_id = ANY($1::uuid[]) AND purpose = 'online' ORDER BY online_order_id, (status = 'success') DESC, created_at DESC", [ids])).rows;
+  var by = {};
+  rows.forEach(function (r) { by[r.online_order_id] = r; });
+  return list.map(function (o) {
+    var r = by[o.id];
+    return r ? Object.assign({}, o, { paid: { status: r.status, amount: round2(r.amount), channel: r.channel || '', refund: r.refund_status ? { status: r.refund_status, note: r.refund_note || '', at: r.refunded_at } : null } }) : o;
+  });
 }
 
 // ── following an order (the customer's link) ──
@@ -357,6 +452,7 @@ async function byToken(raw, lock, client) {
 // (pickup: ready_pickup), rider (on the way to the restaurant), on_the_way,
 // arrived, delivered, collected, failed.
 async function stageOf(o, d) {
+  if (o.status === 'unpaid') return 'unpaid';
   if (o.status === 'pending' || o.status === 'rejected' || o.status === 'cancelled') return o.status === 'pending' ? 'waiting' : o.status;
   if (o.status === 'accepted' && !o.tab_id && o.scheduled_for) return 'scheduled';
   if (d) {
@@ -373,6 +469,7 @@ async function stageOf(o, d) {
 }
 async function trackOut(o) {
   var d = o.status === 'accepted' || o.status === 'done' ? await delivery.forOnline(o.id) : null;
+  var paidRow = o.pay_method === 'online' ? await paymentOf(o.id) : null;
   var stage = await stageOf(o, d);
   var r = await delivery.restaurantOf(o.company_id);
   return {
@@ -382,6 +479,8 @@ async function trackOut(o) {
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), readyMinutes: o.ready_minutes, rejectReason: o.reject_reason,
     placedAt: o.created_at, decidedAt: o.decided_at, scheduledFor: o.scheduled_for, canCancel: canCancel(o),
     here: o.here_at ? { at: o.here_at, note: o.here_note || '', broughtAt: o.brought_at || null } : null, canSayHere: canSayHere(o, stage),
+    paid: paidRow ? { status: paidRow.status, amount: round2(paidRow.amount), channel: paidRow.channel || '', refund: paidRow.refund_status ? { status: paidRow.refund_status, at: paidRow.refunded_at } : null } : null,
+    payBy: o.status === 'unpaid' ? new Date(new Date(o.updated_at).getTime() + UNPAID_MINUTES * 60000).toISOString() : null,
     restaurant: { code: r.code, name: r.name, phone: r.phone, location: r.location },
     delivery: d ? {
       ref: d.ref, status: d.status, rider: { name: d.rider.name, phone: d.rider.phone, vehicle: d.rider.vehicle, plate: d.rider.plate },
@@ -391,7 +490,7 @@ async function trackOut(o) {
   };
 }
 // GET /api/pos/online/track/:token
-async function track(raw) { return trackOut(await byToken(raw)); }
+async function track(raw) { return trackOut(await checkPaid(await byToken(raw))); }
 
 // ── curbside pickup (migration 0191) ──
 // A pickup customer outside says so on their order's page, with a word
@@ -446,10 +545,10 @@ async function byAccount(accountToken, id, lock, client) {
   return o;
 }
 // GET /api/pos/online/account/orders/:id
-async function trackMine(accountToken, id) { return trackOut(await byAccount(accountToken, id)); }
+async function trackMine(accountToken, id) { return trackOut(await checkPaid(await byAccount(accountToken, id))); }
 // Whether the customer may still cancel: while it waits for the restaurant,
 // or, for later, until the kitchen starts on it.
-function canCancel(o) { return o.status === 'pending' || (o.status === 'accepted' && !o.tab_id && !!o.scheduled_for); }
+function canCancel(o) { return o.status === 'unpaid' || o.status === 'pending' || (o.status === 'accepted' && !o.tab_id && !!o.scheduled_for); }
 // POST /api/pos/online/track/:token/cancel, or by a signed-in customer
 // (account: their token, raw: the order's id).
 async function cancel(raw, account) {
@@ -458,9 +557,10 @@ async function cancel(raw, account) {
     if (!canCancel(row)) fail('conflict', row.status === 'accepted' ? 'The restaurant has started on your order already: call them to change it.' : 'This order is not waiting any more.');
     var up = (await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the customer.', updated_at = now() WHERE id = $1 RETURNING *", [row.id])).rows[0];
     await activity.log(client, { companyId: row.company_id, app: 'online', action: 'online.cancelled',
-      summary: row.customer_name + ' cancelled ' + ref(row.number) + (row.status === 'pending' ? ' before it was accepted.' : ' (for ' + whenText(row.scheduled_for) + ') before the kitchen started on it.'), refType: 'online', refId: row.id });
+      summary: row.customer_name + ' cancelled ' + ref(row.number) + (row.status === 'unpaid' ? ' before paying.' : row.status === 'pending' ? ' before it was accepted.' : ' (for ' + whenText(row.scheduled_for) + ') before the kitchen started on it.'), refType: 'online', refId: row.id });
     return up;
   });
+  if (o.pay_method === 'online') await refundFor(o.id, 'Cancelled by the customer.');
   return trackOut(o);
 }
 
@@ -526,6 +626,7 @@ async function accept(token, id, p) {
   }
   var row = (await pool.query("UPDATE restaurant_online_orders SET status = 'accepted', tab_id = $2, ready_minutes = $3, start_at = CASE WHEN scheduled_for IS NULL THEN NULL ELSE now() END, updated_at = now() WHERE id = $1 RETURNING *",
     [o.id, tab.id, readyMinutes])).rows[0];
+  await attachPaid(pool, o.id, tab.id);
   await activity.log(pool, { companyId: company, employeeId: session.posEmployeeId, app: 'delivery', action: 'online.accepted',
     summary: 'Accepted ' + ref(o.number) + ' from ' + o.customer_name + (o.scheduled_for ? ' for ' + whenText(o.scheduled_for) : ' (ready in about ' + readyMinutes + ' min)') + (tab.kitchenTicket ? '; kitchen ticket #' + tab.kitchenTicket.number : '') + '.',
     amount: round2(o.total), refType: 'online', refId: o.id });
@@ -550,6 +651,7 @@ async function release(id, session, early) {
       return { order: stuck, error: err };
     }
     var row = (await client.query('UPDATE restaurant_online_orders SET tab_id = $2, start_at = least(start_at, now()), release_error = NULL, updated_at = now() WHERE id = $1 RETURNING *', [o.id, tab.id])).rows[0];
+    await attachPaid(client, o.id, tab.id);
     await activity.log(client, { companyId: o.company_id, employeeId: early ? session.posEmployeeId : null, app: 'delivery', action: 'online.started',
       summary: (early ? 'Started ' : 'Time to cook: ') + ref(o.number) + ' from ' + o.customer_name + ' for ' + hhmmOf(o.scheduled_for) + ' went to the kitchen' + (tab.kitchenTicket ? ' as #' + tab.kitchenTicket.number : '') + '.',
       amount: round2(o.total), refType: 'online', refId: o.id });
@@ -599,7 +701,8 @@ async function reject(token, id, p) {
   if (!o) fail('conflict', 'That order has been answered already, or cancelled.');
   await activity.log(pool, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'delivery', action: 'online.rejected',
     summary: 'Turned down ' + ref(o.number) + ' from ' + o.customer_name + ': ' + reason, amount: round2(o.total), refType: 'online', refId: o.id });
-  return { order: staffOut(o) };
+  var given = o.pay_method === 'online' ? await refundFor(o.id, 'Turned down by the restaurant: ' + reason) : null;
+  return { order: (await withPaid([staffOut(o)]))[0], refund: given ? { status: given.refund_status, note: given.refund_note || '' } : null };
 }
 
 module.exports = {
@@ -607,5 +710,6 @@ module.exports = {
   modsFrom: modsFrom, billRules: billRules,
   categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start, here: here, curbside: curbside, brought: brought,
   releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP,
+  settlePaid: settlePaid, payAgain: payAgain, sweepUnpaid: sweepUnpaid, refundFor: refundFor, withPaid: withPaid, UNPAID_MINUTES: UNPAID_MINUTES,
   promo: promo, promoByCode: promoByCode, promoThrottle: promoThrottle
 };

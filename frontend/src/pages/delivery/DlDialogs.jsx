@@ -227,7 +227,8 @@ export function SettingsDialog({ token, canSettings, onClose, onSaved }) {
             <fieldset className="dl-fs">
               <legend>{tr('On the website')}</legend>
               <div className="dl-toggles">
-                {[['delivery', tr('Delivery'), tr('Customers drop a pin; a rider brings it.')], ['pickup', tr('Pickup'), tr('Customers collect it at the counter.')]].map(([k, label, note]) => (
+                {[['delivery', tr('Delivery'), tr('Customers drop a pin; a rider brings it.')], ['pickup', tr('Pickup'), tr('Customers collect it at the counter.')],
+                  ['payOnline', '💳 ' + tr('Pay online when ordering'), tr('Card or Mobile Money through Paystack (turned on in Till settings → Payments). The order reaches you once it is paid; turned down, the money goes back.')]].map(([k, label, note]) => (
                   <button key={k} type="button" role="switch" aria-checked={form[k]} className={'dl-toggle' + (form[k] ? ' is-on' : '')} onClick={() => set({ [k]: !form[k] })}>
                     <span><strong>{label}</strong><small>{note}</small></span><span className={'ts-switch' + (form[k] ? ' is-on' : '')} aria-hidden="true"><i /></span>
                   </button>

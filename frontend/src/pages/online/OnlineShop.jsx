@@ -241,7 +241,7 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
         onFollow={(o) => { setAcctOpen(false); onTrackMine(o); }} onReorder={(o) => { reorder(o); setAcctOpen(false); }} />}
       {checkout && (
         <Checkout code={code} r={r} items={data.items} basket={basket} subtotal={subtotal} setQty={setQty} onClose={() => setCheckout(false)} account={account} onSignIn={() => { setCheckout(false); setAcctOpen(true); }}
-          onPlaced={(res) => { save(ORDERS_KEY, [{ ref: res.ref, token: res.token, at: Date.now() }].concat(mine).slice(0, 5)); setBasket([]); onTrack(res.token); }} />
+          onPlaced={(res, leaving) => { save(ORDERS_KEY, [{ ref: res.ref, token: res.token, at: Date.now() }].concat(mine).slice(0, 5)); setBasket([]); if (!leaving) onTrack(res.token); }} />
       )}
     </div>
   );
@@ -286,7 +286,8 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const [address, setAddress] = useState(remembered.address || '');
   const [landmark, setLandmark] = useState(remembered.landmark || '');
   const [pin, setPin] = useState(remembered.lat != null ? { lat: remembered.lat, lng: remembered.lng } : null);
-  const [pay, setPay] = useState('cash');
+  const payOnline = (r.payMethods || []).includes('online');
+  const [pay, setPay] = useState(payOnline ? 'online' : 'cash');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -336,8 +337,10 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
         payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined, saveAddress: account && how === 'delivery' ? saveAddress : undefined, promoCode: promo ? promo.code : undefined,
         items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) }))
       });
+      // Paid online: on to Paystack's page; it brings them back to the order's.
+      if (res.payUrl) { save(ME_KEY, { name: name.trim(), phone: phone.trim(), address: address.trim(), landmark: landmark.trim(), lat: pin ? pin.lat : null, lng: pin ? pin.lng : null }); onPlaced(res, true); window.location.assign(res.payUrl); return; }
       onPlaced(res);
-    } catch (err) { setError(err.message); } finally { setBusy(false); }
+    } catch (err) { setError(err.message); setBusy(false); }
   }
   const markers = here ? [{ id: 'here', kind: 'restaurant', lat: here.lat, lng: here.lng, emoji: '🍽️', label: r.name, fit: true }] : [];
   return (
@@ -430,10 +433,16 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
         </fieldset>
 
         <fieldset className="on-fs">
-          <legend>{how === 'delivery' ? tr('Pay on delivery') : tr('Pay at pickup')}</legend>
-          <div className="on-how is-pay" role="radiogroup" aria-label={tr('How you pay')}>
+          <legend>{tr('How you pay')}</legend>
+          <div className={'on-how is-pay' + (payOnline ? ' is-three' : '')} role="radiogroup" aria-label={tr('How you pay')}>
+            {payOnline && (
+              <button type="button" role="radio" aria-checked={pay === 'online'} className={'is-online' + (pay === 'online' ? ' is-on' : '')} onClick={() => setPay('online')}>
+                <span aria-hidden="true">💳</span><strong>{tr('Pay now')}</strong><small>{tr('Card or Mobile Money')}</small>
+              </button>
+            )}
             {['cash', 'mobile_money'].map((m) => (
-              <button key={m} type="button" role="radio" aria-checked={pay === m} className={pay === m ? 'is-on' : ''} onClick={() => setPay(m)}><span aria-hidden="true">{m === 'cash' ? '💵' : '📱'}</span><strong>{payName(m)}</strong></button>
+              <button key={m} type="button" role="radio" aria-checked={pay === m} className={pay === m ? 'is-on' : ''} onClick={() => setPay(m)}><span aria-hidden="true">{m === 'cash' ? '💵' : '📱'}</span><strong>{payName(m)}</strong>
+                <small>{how === 'delivery' ? tr('on delivery') : tr('at pickup')}</small></button>
             ))}
           </div>
           <label className="on-field"><span>{tr('A note for the restaurant')}</span><input className="input" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder={tr('Optional')} /></label>
@@ -462,8 +471,9 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
         {!r.open && !later && <p className="on-dist is-bad">{tr('Not taking orders right now')}</p>}
         {paused && !later && <p className="on-dist is-bad">{tr('Very busy: not taking orders until {time}.', { time: busyTime(r.busy.until) })}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
-        <button type="submit" className="on-go is-big" disabled={busy || !ready}>{busy ? tr('Sending your order…') : tr('Place order · {amount}', { amount: money(bill.total) })}</button>
-        <p className="on-hint is-center">{scheduledFor ? tr('The restaurant confirms your order first, and starts cooking it in time. You can cancel until then.') : tr('The restaurant accepts your order first; you can watch it here all the way to your door.')}</p>
+        <button type="submit" className="on-go is-big" disabled={busy || !ready}>{busy ? (pay === 'online' ? tr('On to pay…') : tr('Sending your order…')) : pay === 'online' ? '🔒 ' + tr('Pay {amount}', { amount: money(bill.total) }) : tr('Place order · {amount}', { amount: money(bill.total) })}</button>
+        <p className="on-hint is-center">{pay === 'online' ? tr('Paid safely with Paystack. The restaurant gets your order once it is paid, and gives the money back if they cannot make it.')
+          : scheduledFor ? tr('The restaurant confirms your order first, and starts cooking it in time. You can cancel until then.') : tr('The restaurant accepts your order first; you can watch it here all the way to your door.')}</p>
       </form>
     </div>
   );

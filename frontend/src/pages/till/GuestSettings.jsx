@@ -1,6 +1,7 @@
 import { money } from '../../lib/currency';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import './fifth.css';
+import './tenth.css';
 
 // The guests' side of the till in the settings (TillSettings.jsx, "Bookings,
 // tips and rewards"; backend restaurantTillFront clean): bookings and the
@@ -14,9 +15,9 @@ function newId() { return (typeof crypto !== 'undefined' && crypto.randomUUID) ?
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 function dayName(d) { return new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(activeIntlLocale(), { weekday: 'short', timeZone: 'UTC' }); }
 
-function Toggle({ on, title, note, onChange }) {
+function Toggle({ on, title, note, disabled, onChange }) {
   return (
-    <button type="button" role="switch" aria-checked={!!on} className="ts-toggle-row" onClick={() => onChange(!on)}>
+    <button type="button" role="switch" aria-checked={!!on} className="ts-toggle-row" disabled={disabled} onClick={() => onChange(!on)}>
       <span><strong>{title}</strong>{note && <small>{note}</small>}</span>
       <span className={'ts-switch' + (on ? ' is-on' : '')} aria-hidden="true"><i /></span>
     </button>
@@ -56,6 +57,28 @@ export default function GuestSettings({ draft, set, companyName, paystackReady }
             </div>
           </div>
         )}
+        {b.online && (() => {
+          const dep = b.deposit || { on: false, fromParty: 8, perGuest: 50, refundHours: 24 };
+          const setDep = (patch) => setB({ deposit: { ...dep, ...patch } });
+          return (
+            <>
+              <Toggle on={!!dep.on} title={'🎟️ ' + tr('A deposit for big parties')} note={!paystackReady ? tr('Needs paying by phone through Paystack: turn it on in Payments first.') : dep.on ? tr('Paid on the website when booking, taken off their bill; kept if they do not come.') : tr('Big parties book without paying.')}
+                onChange={(v) => setDep({ on: v })} disabled={!paystackReady && !dep.on} />
+              {dep.on && (
+                <div className="ts-guests-grid ts-dep-grid">
+                  <div className="field"><label htmlFor="gs-dep-from">{tr('From parties of')}</label><input id="gs-dep-from" className="input ts-bill-num" type="number" min="1" max="100" value={dep.fromParty} onChange={(e) => setDep({ fromParty: e.target.value })} /></div>
+                  <div className="field"><label htmlFor="gs-dep-per">{tr('A guest')}</label><input id="gs-dep-per" className="input ts-bill-num" type="number" min="1" max="5000" step="5" value={dep.perGuest} onChange={(e) => setDep({ perGuest: e.target.value })} /></div>
+                  <div className="field ts-dep-refund"><label>{tr('Given back if cancelled')}</label>
+                    <div className="dk-segment" role="radiogroup" aria-label={tr('Given back if cancelled')}>
+                      {[[0, () => tr('Any time before')], [12, () => tr('12 h before')], [24, () => tr('A day before')], [48, () => tr('2 days before')]].map(([h, label]) => <button key={h} type="button" role="radio" aria-checked={Number(dep.refundHours) === h} className={Number(dep.refundHours) === h ? 'is-on' : ''} onClick={() => setDep({ refundHours: h })}>{label()}</button>)}
+                    </div>
+                  </div>
+                  <p className="dk-muted ts-dep-sample">{tr('A party of {n}: {amount} to pay when booking.', { n: Math.max(Number(dep.fromParty) || 1, 8), amount: money((Number(dep.perGuest) || 0) * Math.max(Number(dep.fromParty) || 1, 8)) })}</p>
+                </div>
+              )}
+            </>
+          );
+        })()}
         <div className="ts-guests-grid">
           <div className="field"><label htmlFor="gs-from">{tr('First booking')}</label><input id="gs-from" className="input" type="time" value={b.from} onChange={(e) => setB({ from: e.target.value })} /></div>
           <div className="field"><label htmlFor="gs-to">{tr('Last booking')}</label><input id="gs-to" className="input" type="time" value={b.to} onChange={(e) => setB({ to: e.target.value })} /></div>

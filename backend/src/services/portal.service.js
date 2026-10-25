@@ -186,7 +186,7 @@ async function me(token) {
   var ids = await customerIds(a);
   var site = config.bplSiteUrl;
   var c = ids.length ? (await pool.query("SELECT name, phone, email, address FROM customers WHERE id = ANY($1) ORDER BY (status = 'active') DESC, created_at LIMIT 1", [ids])).rows[0] || {} : {};
-  var out = { name: String(c.name || '').replace(/\s+/g, ' ').trim(), signedInAs: masked(a), kind: a.kind, orders: [], invoices: [], quotes: [], bookings: [], contracts: [] };
+  var out = { name: String(c.name || '').replace(/\s+/g, ' ').trim(), signedInAs: masked(a), kind: a.kind, orders: [], invoices: [], quotes: [], requests: [], bookings: [], contracts: [] };
   if (!ids.length) return out;
   // Their details, to fill the shop's checkout: the address signed in with,
   // the rest from their customer record.
@@ -228,6 +228,9 @@ async function me(token) {
   out.contracts = (await pool.query(
     "SELECT contract_no, title, status, sent_at, signed_at, token FROM contracts WHERE customer_id = ANY($1) AND status IN ('sent', 'signed', 'declined') ORDER BY (status = 'sent') DESC, sent_at DESC LIMIT 30", [ids])).rows
     .map(function (k) { return { contractNo: k.contract_no, title: k.title, status: k.status, sentAt: k.sent_at, signedAt: k.signed_at, url: site + '/c/' + k.token }; });
+
+  // Quotes asked for on the shop, until their quotation is sent (then it is in quotes).
+  out.requests = await require('./shopQuotes.service').ofCustomers(ids);
 
   out.waiting = {
     toPay: round2(out.invoices.filter(function (x) { return x.status !== 'paid'; }).reduce(function (n, x) { return n + x.balance; }, 0)),

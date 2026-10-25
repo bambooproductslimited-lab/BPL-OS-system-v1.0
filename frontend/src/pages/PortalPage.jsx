@@ -69,7 +69,7 @@ function Section({ icon, title, count, children, empty }) {
   return (
     <section className="ptl-sec">
       <h2><span aria-hidden="true">{icon}</span>{title}{count > 0 && <em>{count}</em>}</h2>
-      {children || <p className="ptl-empty">{empty}</p>}
+      {(Array.isArray(children) ? children.some(Boolean) : children) ? children : <p className="ptl-empty">{empty}</p>}
     </section>
   );
 }
@@ -133,6 +133,10 @@ export default function PortalPage() {
             </Section></div>
 
             <div id="ptl-quotes"><Section icon="📝" title={tr('Quotations and estimates')} count={d.waiting ? d.waiting.toApprove : 0} empty={tr('No quotations yet.')}>
+              {(d.requests || []).length > 0 && <ul className="ptl-list ptl-requests">{d.requests.map((q) => (
+                <li key={q.number} className="is-asked"><span className="ptl-ico" aria-hidden="true">📐</span>
+                  <span className="ptl-main"><strong>{q.what}{q.qty > 1 ? ' × ' + q.qty : ''}</strong><small>{q.number} · {dayWords(q.createdAt)}</small></span>
+                  <span className={'ptl-tag is-' + (q.status === 'quoted' ? 'making' : 'asked')}>{q.status === 'quoted' ? (q.quoteSent ? tr('Quotation sent') : tr('Being priced')) : tr('Asked for')}</span></li>))}</ul>}
               {d.quotes.length > 0 && <ul className="ptl-list">{d.quotes.map((q) => (
                 <li key={q.no} className={q.toAnswer ? 'is-due' : ''}><span className="ptl-ico" aria-hidden="true">{q.answer === 'approved' || q.status === 'accepted' || q.status === 'converted' ? '✅' : q.answer === 'declined' || q.status === 'rejected' ? '✋' : '📝'}</span>
                   <span className="ptl-main"><strong>{q.no}{q.title ? ' · ' + q.title : ''}</strong><small>{cedis(q.total)}{q.validUntil ? ' · ' + tr('valid until {day}', { day: dayWords(q.validUntil) }) : ''}</small></span>

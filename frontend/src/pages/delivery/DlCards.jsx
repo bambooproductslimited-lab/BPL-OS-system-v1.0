@@ -49,7 +49,8 @@ export function NewOrderCard({ o, settings, selected, onSelect, onAccept, onReje
       <div className="dl-money">
         <span>{tr('Food {amount}', { amount: money(o.subtotal) })}{o.deliveryFee > 0 ? ' + ' + tr('delivery {amount}', { amount: money(o.deliveryFee) }) : ''}</span>
         <strong>{money(o.total)}</strong>
-        <small>{payName(o.payMethod)} · {pickup ? tr('paid at pickup') : tr('paid on delivery')}</small>
+        {o.payMethod === 'online' ? <small className="dl-paid-online">💳 {tr('Paid online')}{o.paid && o.paid.channel ? ' · ' + (o.paid.channel === 'mobile_money' ? tr('Mobile Money') : tr('Card')) : ''} · {tr('given back if turned down')}</small>
+          : <small>{payName(o.payMethod)} · {pickup ? tr('paid at pickup') : tr('paid on delivery')}</small>}
       </div>
       {!rejecting ? (
         <div className="dl-answer" onClick={(e) => e.stopPropagation()}>
@@ -118,7 +119,7 @@ export function LaterCard({ o, now, selected, onSelect, onStart }) {
       <ul className="dl-items is-short">{o.items.map((l, i) => <li key={i}><span>{l.qty}× {l.name}{l.note && <em>{l.note}</em>}</span></li>)}</ul>
       {o.note && <p className="dl-note">✎ {o.note}</p>}
       <div className="dl-money">
-        <span>{payName(o.payMethod)} · {pickup ? tr('paid at pickup') : tr('paid on delivery')}</span>
+        <span>{o.payMethod === 'online' ? '💳 ' + tr('Paid online') : payName(o.payMethod) + ' · ' + (pickup ? tr('paid at pickup') : tr('paid on delivery'))}</span>
         <strong>{money(o.total)}</strong>
       </div>
       {o.startError && <p className="dl-stuck">⚠️ {tr('It could not go to the kitchen: {why}', { why: o.startError })}</p>}
@@ -327,6 +328,9 @@ export function TurnedDownCard({ o }) {
       </header>
       <p className="dl-done-line"><strong>{o.customer.name}</strong> · {money(o.total)}</p>
       {o.rejectReason && <p className="dl-note">✎ {o.rejectReason}</p>}
+      {o.paid && o.paid.refund && (
+        <p className={'dl-refund is-' + o.paid.refund.status}>{o.paid.refund.status === 'failed' ? '⚠️ ' + tr('Paid online, not given back: {why}', { why: o.paid.refund.note }) : '↩️ ' + tr('Paid online: {amount} given back to the customer', { amount: money(o.paid.amount) })}</p>
+      )}
     </article>
   );
 }

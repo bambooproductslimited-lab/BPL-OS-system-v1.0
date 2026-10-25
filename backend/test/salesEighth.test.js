@@ -16,6 +16,9 @@ var shop = require('../src/services/shop.service');
 var bookings = require('../src/services/bookings.service');
 var invoicePay = require('../src/services/invoicePay.service');
 var invoices = require('../src/services/invoices.service');
+var reviews = require('../src/services/shopReviews.service');
+var quotes = require('../src/services/shopQuotes.service');
+var fileStore = require('../src/lib/fileStore');
 var mail = require('../src/services/mail.service');
 var { buildContext } = require('../src/services/context.service');
 
@@ -39,11 +42,13 @@ async function payFor(invoiceNo) {
 }
 async function cleanup() {
   var custs = (await pool.query("SELECT id FROM customers WHERE name LIKE 'Zqh %'")).rows.map(function (r) { return r.id; });
-  await pool.query("DELETE FROM notifications WHERE title LIKE '%Zqh%' OR body LIKE '%Zqh%' OR link LIKE '/shop-orders?open=%' OR link LIKE '/appointments?open=%'");
+  await pool.query("DELETE FROM notifications WHERE title LIKE '%Zqh%' OR body LIKE '%Zqh%' OR link LIKE '/shoporders?open=%' OR link LIKE '/appointments?open=%'");
   await pool.query("DELETE FROM appointments WHERE name LIKE 'Zqh %'");
   await pool.query("DELETE FROM crm_site_visits WHERE client LIKE 'Zqh %'");
   await pool.query("DELETE FROM crm_leads WHERE name LIKE 'Zqh %'");
+  await pool.query("DELETE FROM notifications WHERE link LIKE '/shoporders?%'");
   if (custs.length) {
+    await pool.query('DELETE FROM shop_quote_requests WHERE customer_id = ANY($1)', [custs]);
     await pool.query('DELETE FROM shop_orders WHERE customer_id = ANY($1)', [custs]);
     await pool.query('UPDATE quotations SET pay_share_id = NULL WHERE customer_id = ANY($1)', [custs]);
     await pool.query('DELETE FROM invoice_online_payments WHERE invoice_id IN (SELECT id FROM invoices WHERE customer_id = ANY($1))', [custs]);
@@ -621,4 +626,138 @@ test('shop delivery by area and the order\'s own page: being made, ready, on its
   var pk = (await shop.list(boss, {})).orders.find(function (o) { return o.orderNo === pick.body.orderNo; });
   await assert.rejects(shop.setStatus(boss, pk.id, { status: 'out' }), /Only a delivery goes out/);
   assert.ok((await shop.list(boss, {})).totals.making >= 0);
+});
+
+// The eleventh batch's shop changes (migration 0192): an unpaid checkout
+// reminded once, reviews once an order is done, and quote requests.
+test('unpaid checkouts reminded once, before they are cancelled; staff remind again after an hour', async function () {
+  shop._placedBy.clear();
+  config.paystackBpl.secretKey = '';
+  var s = (await shop.getSettings(boss)).settings;
+  await shop.saveSettings(boss, Object.assign({}, s, { on: true, categories: [catA], codes: [], areas: [], remindAfter: 3 }));
+  assert.equal((await shop.getSettings(boss)).settings.remindAfter, 3);
+  var r = await http('POST', '/api/shop/orders', { name: 'Zqh Remind Buyer', phone: '024 400 0811', email: 'zqh.remind.buyer@example.com', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] });
+  assert.equal(r.status, 201);
+  sent.length = 0;
+  assert.equal(await shop.remindUnpaid(), 0, 'not before three hours');
+  await pool.query("UPDATE shop_orders SET created_at = now() - interval '4 hours' WHERE order_no = $1", [r.body.orderNo]);
+  assert.ok(await shop.remindUnpaid() >= 1);
+  var m = sent.find(function (x) { return x.to === 'zqh.remind.buyer@example.com'; });
+  assert.match(m.subject, /is waiting for your payment/);
+  assert.ok(m.text.indexOf(r.body.trackUrl) >= 0, 'with its page to pay on');
+  assert.match(m.text, /it is cancelled on /);
+  sent.length = 0;
+  await shop.remindUnpaid();
+  assert.ok(!sent.some(function (x) { return x.to === 'zqh.remind.buyer@example.com'; }), 'once');
+  var o = (await shop.list(boss, { status: 'unpaid' })).orders.find(function (x) { return x.orderNo === r.body.orderNo; });
+  assert.ok(o.remindedAt);
+  await assert.rejects(shop.remind(boss, o.id), /less than an hour ago/);
+  await pool.query("UPDATE shop_orders SET reminded_at = now() - interval '2 hours' WHERE id = $1", [o.id]);
+  var again = await shop.remind(boss, o.id);
+  assert.equal(again.emailed, true);
+  // Never: off.
+  await shop.saveSettings(boss, Object.assign({}, (await shop.getSettings(boss)).settings, { remindAfter: 0 }));
+  await pool.query('UPDATE shop_orders SET reminded_at = NULL WHERE id = $1', [o.id]);
+  assert.equal(await shop.remindUnpaid(), 0);
+});
+
+test('reviews: asked for once an order is done; shown on the shop when approved (or at once, four stars up); answered', async function () {
+  shop._placedBy.clear();
+  config.paystackBpl.secretKey = '';
+  var s = (await shop.getSettings(boss)).settings;
+  await shop.saveSettings(boss, Object.assign({}, s, { on: true, categories: [catA], codes: [], areas: [], reviews: { on: true, autoShow: false } }));
+  // Placed by the service: the address's limit on orders is spent by the tests before.
+  var r = { body: await shop.place({ name: 'Zqh Review Buyer', phone: '024 400 0812', email: 'zqh.review.buyer@example.com', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }, { variationId: varL, qty: 1 }] }, '10.7.11.1') };
+  await payFor(r.body.invoiceNo);
+  var rate = function (body) { return http('POST', '/api/shop/orders/' + r.body.orderToken + '/reviews', body); };
+  var early = await rate({ reviews: [{ itemId: item, rating: 5 }] });
+  assert.match(early.body.error.message, /once you have it/);
+  var id = (await pool.query('SELECT id FROM shop_orders WHERE order_no = $1', [r.body.orderNo])).rows[0].id;
+  await shop.setStatus(boss, id, { status: 'ready' });
+  sent.length = 0;
+  await shop.setStatus(boss, id, { status: 'done' });
+  assert.match(sent.find(function (x) { return x.to === 'zqh.review.buyer@example.com'; }).text, /How do you like it\? Rate it here: https:\/\/online\.bplghana\.com\/o\//);
+  var t = await http('GET', '/api/shop/orders/' + r.body.orderToken);
+  assert.deepEqual(t.body.reviews.items.map(function (x) { return [x.name, x.rating]; }), [['Zqh roller blind', null]], 'one per item, its choices together');
+  var bad = await rate({ reviews: [{ itemId: other, rating: 5 }] });
+  assert.match(bad.body.error.message, /not in this order/);
+  bad = await rate({ reviews: [{ itemId: item, rating: 6 }] });
+  assert.match(bad.body.error.message, /1 to 5 stars/);
+  var ok = await rate({ reviews: [{ itemId: item, rating: 4, words: 'Zqh: fits the window perfectly' }] });
+  assert.deepEqual([ok.body.items[0].rating, ok.body.items[0].status], [4, 'pending']);
+  ok = await rate({ reviews: [{ itemId: item, rating: 5, words: 'Zqh: fits the window perfectly, and quick' }] });
+  assert.equal(ok.body.items[0].rating, 5, 'changed while not decided on');
+  var page = await http('GET', '/api/shop');
+  assert.equal(page.body.items.find(function (i) { return i.id === item; }).stars, null, 'not shown before staff approve');
+  var listed = await reviews.list(boss, { status: 'pending' });
+  var mine = listed.reviews.find(function (x) { return x.orderNo === r.body.orderNo; });
+  assert.deepEqual([mine.name, mine.itemName, mine.rating], ['Zqh B.', 'Zqh roller blind', 5]);
+  assert.ok(listed.counts.pending >= 1);
+  assert.equal((await shop.list(boss, {})).totals.reviews, listed.counts.pending, 'the staff page counts them');
+  var d = await reviews.decide(boss, mine.id, { status: 'shown', reply: 'Zqh: thank you, enjoy it!' });
+  assert.equal(d.status, 'shown');
+  page = await http('GET', '/api/shop');
+  assert.deepEqual(page.body.items.find(function (i) { return i.id === item; }).stars, { average: 5, count: 1 });
+  var its = await http('GET', '/api/shop/items/' + item + '/reviews');
+  assert.deepEqual(its.body.reviews.map(function (x) { return [x.name, x.rating, x.words, x.reply]; }), [['Zqh B.', 5, 'Zqh: fits the window perfectly, and quick', 'Zqh: thank you, enjoy it!']]);
+  ok = await rate({ reviews: [{ itemId: item, rating: 1, words: 'Zqh: changed my mind' }] });
+  assert.equal(ok.body.items[0].rating, 5, 'once decided on, kept as it is');
+  // Shown at once, four stars and up, when the shop says so.
+  await shop.saveSettings(boss, Object.assign({}, (await shop.getSettings(boss)).settings, { reviews: { on: true, autoShow: true } }));
+  await pool.query('DELETE FROM shop_reviews WHERE id = $1', [mine.id]);
+  ok = await rate({ reviews: [{ itemId: item, rating: 4 }] });
+  assert.equal(ok.body.items[0].status, 'shown');
+  await shop.saveSettings(boss, Object.assign({}, (await shop.getSettings(boss)).settings, { reviews: { on: true, autoShow: false } }));
+});
+
+test('ask for a quote: what, how big, how many, with photos (checked by their bytes); staff make a draft quotation from it; the customer sees it in My account', async function () {
+  quotes._askedBy.clear();
+  var PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+  var ask = async function (fields, photos) {
+    var fd = new FormData();
+    Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+    (photos || []).forEach(function (ph) { fd.append('photos', new Blob([ph.bytes], { type: ph.type }), ph.name); });
+    var res = await fetch(base + '/api/shop/quotes', { method: 'POST', body: fd });
+    return { status: res.status, body: await res.json() };
+  };
+  var fields = { name: 'Zqh Quote Asker', phone: '024 400 0813', email: 'zqh.quote@example.com', what: 'Zqh bamboo pergola for the garden', size: '4 m by 3 m', qty: '1', area: 'Zqh East Legon', budget: '12000', note: 'Zqh: with a roof of thatch' };
+  var bad = await ask(Object.assign({}, fields, { what: '' }));
+  assert.match(bad.body.error.message, /what you would like us to make/);
+  bad = await ask(fields, [{ bytes: Buffer.from('this is not a picture at all'), type: 'image/jpeg', name: 'zqh.jpg' }]);
+  assert.match(bad.body.error.message, /Add photos/);
+  bad = await ask(fields, [{ bytes: Buffer.from('MZ fake program'), type: 'application/octet-stream', name: 'zqh.exe' }]);
+  assert.equal(bad.status, 400);
+  sent.length = 0;
+  var r = await ask(Object.assign({}, fields, { itemId: item }), [{ bytes: PNG, type: 'image/png', name: 'garden.png' }]);
+  assert.equal(r.status, 201);
+  assert.match(r.body.number, /^QR-\d+$/);
+  assert.deepEqual([r.body.photos, r.body.emailed], [1, true]);
+  assert.match(sent.find(function (x) { return x.to === 'zqh.quote@example.com'; }).text, /We have your request QR-/);
+  var listed = await quotes.list(boss, {});
+  var mine = listed.requests.find(function (x) { return x.number === r.body.number; });
+  assert.deepEqual([mine.status, mine.what, mine.size, mine.qty, mine.budget, mine.item.name, mine.photos.length], ['new', 'Zqh bamboo pergola for the garden', '4 m by 3 m', 1, 12000, 'Zqh roller blind', 1]);
+  var f = await fileStore.get(await quotes.photoKey(boss, mine.id, 0));
+  assert.equal(f.contentType, 'image/png');
+  assert.equal((await pool.query('SELECT category FROM customers WHERE id = $1', [mine.customerId])).rows[0].category, 'lead');
+  var told = (await pool.query("SELECT count(*)::int AS n FROM notifications WHERE title = $1", ['📐 Quote request ' + r.body.number])).rows[0].n;
+  assert.ok(told >= 1);
+  // The draft quotation: the request written in, priced from the item's least price.
+  var q = await quotes.makeQuotation(boss, mine.id);
+  assert.equal(q.made, true);
+  var qrow = (await pool.query('SELECT * FROM quotations WHERE id = $1', [q.quotationId])).rows[0];
+  assert.deepEqual([qrow.status, qrow.customer_id], ['draft', mine.customerId]);
+  assert.match(qrow.notes, /From quote request QR-\d+ on the website\. Their budget: GHS 12000\.00\./);
+  var line = (await pool.query("SELECT description, notes, qty, unit_price FROM document_line_items WHERE document_type = 'quotation' AND document_id = $1", [q.quotationId])).rows[0];
+  assert.deepEqual([line.description, Number(line.unit_price)], ['Zqh bamboo pergola for the garden', 250]);
+  assert.match(line.notes, /Size: 4 m by 3 m · Where: Zqh East Legon · Zqh: with a roof of thatch/);
+  assert.equal((await quotes.makeQuotation(boss, mine.id)).made, false, 'once');
+  var mineNow = (await quotes.list(boss, { status: 'quoted' })).requests.find(function (x) { return x.id === mine.id; });
+  assert.equal(mineNow.quotation.id, q.quotationId);
+  // My account: asked for, the quotation on its way.
+  var asked = await quotes.ofCustomers([mine.customerId]);
+  assert.deepEqual([asked[0].number, asked[0].status, asked[0].quoteSent], [r.body.number, 'quoted', false]);
+  var closed = await quotes.setStatus(boss, mine.id, { status: 'closed' });
+  assert.equal(closed.status, 'closed');
+  assert.deepEqual(await quotes.ofCustomers([mine.customerId]), []);
+  assert.equal((await quotes.setStatus(boss, mine.id, { status: 'new' })).status, 'quoted', 'opened again: still priced');
 });

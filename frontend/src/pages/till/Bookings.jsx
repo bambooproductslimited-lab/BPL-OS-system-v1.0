@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { posFetch } from '../../lib/posApi';
+import { money } from '../../lib/currency';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
+import './tenth.css';
 
 // Bookings and the waitlist on the till (backend restaurantBookings): the
 // day's bookings by time, guests waiting for a table (how long, against
@@ -29,6 +31,10 @@ function Party({ value, onChange }) {
     </div>
   );
 }
+
+// A website booking's deposit, as the till sees it.
+const DEP_WORDS = { due: () => tr('deposit not paid yet'), paid: () => tr('deposit paid'), applied: () => tr('deposit on the bill'), kept: () => tr('deposit kept'),
+  refunded: () => tr('deposit given back'), refund_failed: () => tr('deposit to give back by hand') };
 
 export default function Bookings({ token, tables, onSeat, onToast, onClose }) {
   const [day, setDay] = useState(today);
@@ -176,6 +182,7 @@ export default function Bookings({ token, tables, onSeat, onToast, onClose }) {
                         <strong>{b.name} <span className="bk-pax">👥 {b.party}</span>{b.source === 'website' && <span className="bk-web">🌐 {tr('Website')}</span>}</strong>
                         <small>{[b.tableName ? '🪑 ' + b.tableName : null, b.phone || null, b.note ? '✎ ' + b.note : null].filter(Boolean).join(' · ')}</small>
                         <span className={'bk-status ' + st[1]}>{st[0]} {st[2]()}{b.texted.length > 0 && <em>💬 {tr('texted')}</em>}{b.texted.some((x) => x.what === 'reminder') && <em>⏰ {tr('Reminded')}</em>}</span>
+                        {b.deposit && <span className={'bk-dep is-' + b.deposit.status}>🎟️ {money(b.deposit.amount)} · {DEP_WORDS[b.deposit.status] ? DEP_WORDS[b.deposit.status]() : b.deposit.status}</span>}
                       </div>
                       <div className="bk-acts">
                         {b.status === 'requested' && <>

@@ -27,7 +27,7 @@ import { AddOnsDialog, DiscountDialog } from './till/BillDialogs';
 import PromoCodeDialog from './till/PromoCode';
 import { CameraScan, LinkBarcode } from './till/Barcode';
 import { dishByCode, useBarcodeWedge } from './till/barcodeScan';
-import { billOf, contactOf, serviceWords, modsPrice, modsWords, paidAheadOf, withMarkup } from './till/tillBill';
+import { billOf, contactOf, serviceWords, modsPrice, modsWords, paidAheadOf, paidAheadWords, withMarkup } from './till/tillBill';
 import { ReceiptLines, ReceiptQr, SendReceipt } from './till/ReceiptParts';
 import MoveBill from './till/MoveBill';
 import { AllergyDialog, AllergyStrip, KitchenChits } from './till/ServiceParts';
@@ -1924,7 +1924,7 @@ export default function RestaurantPosPage() {
           </p>
           {liveTab && liveTab.kitchen && <KitchenTag kitchen={liveTab.kitchen} />}
           {liveTab && (liveTab.paidAtTable || []).length > 0 && (
-            <span className="tbill-chip">💳 {tr('Paid at the table: {amount}', { amount: money(liveTab.paidAtTable.reduce((a, p) => a + p.amount - (p.tip || 0), 0)) })}</span>
+            <span className="tbill-chip">💳 {paidAheadWords(liveTab.paidAtTable, money(liveTab.paidAtTable.reduce((a, p) => a + p.amount - (p.tip || 0), 0)), tr)}</span>
           )}
         </div>
         <div className="pos-order-head-tools">

@@ -132,7 +132,7 @@ async function summary(ctx, opts) {
   var out = {
     scope: all ? 'all' : 'mine', canSeeAll: S.canRead(ctx), canManage: ctx.can('marketing.manage'),
     company: co ? { code: co.code, name: co.name } : null,
-    period: { kind: kind, from: p.from, to: p.to, until: until, current: until < p.to, prevFrom: prev.from, prevUntil: prevUntil, today: today, comingTo: comingTo },
+    period: { kind: kind, from: p.from, to: p.to, until: until, current: today <= p.to, prevFrom: prev.from, prevUntil: prevUntil, today: today, comingTo: comingTo },
     made: c.made, madeBefore: c.made_before, urgent: c.urgent, fromRoutines: c.from_routines,
     done: c.done, doneBefore: c.done_before, onTime: c.on_time, onTimeBefore: c.on_time_before,
     days: days(c.days), daysBefore: days(c.days_before),

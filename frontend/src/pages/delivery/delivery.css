@@ -389,3 +389,11 @@
 .dl-shell .ts-switch i, .dl-send .ts-switch i { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .3); transition: transform .15s ease; }
 .dl-shell .ts-switch.is-on, .dl-send .ts-switch.is-on { background: linear-gradient(135deg, #10b981, #059669); }
 .dl-shell .ts-switch.is-on i, .dl-send .ts-switch.is-on i { transform: translateX(18px); }
+
+/* Paid online when ordering, and given back (DlCards.jsx). */
+.dl-paid-online { font-weight: 800; color: #2b8a3e; }
+.dl-refund { margin: 0; padding: 7px 10px; font-size: 12.5px; font-weight: 700; border-radius: 10px; color: #1864ab; background: color-mix(in srgb, #1c7ed6 12%, transparent); }
+.dl-refund.is-failed { color: #c92a2a; background: color-mix(in srgb, #e03131 12%, transparent); }
+:root[data-theme='dark'] .dl-paid-online { color: #69db7c; }
+:root[data-theme='dark'] .dl-refund { color: #74c0fc; }
+:root[data-theme='dark'] .dl-refund.is-failed { color: #ff8787; }

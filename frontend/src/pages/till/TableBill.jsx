@@ -60,7 +60,7 @@ export default function TableBill({ token, tab, companyName, printer, onClose, o
               </div>
               {(tab.paidAtTable || []).length > 0 && (
                 <ul className="tbill-paid is-plain">
-                  {tab.paidAtTable.map((p) => <li key={p.ref}><span aria-hidden="true">💳</span>{p.payer || tr('A guest')}<b>{money(p.amount - (p.tip || 0))}</b>{p.tip > 0 && <em>{tr('+ tip {amount}', { amount: money(p.tip) })}</em>}</li>)}
+                  {tab.paidAtTable.map((p) => <li key={p.ref}><span aria-hidden="true">{p.kind === 'deposit' ? '🎟️' : p.kind === 'online' ? '🌐' : '💳'}</span>{p.payer || tr('A guest')}{p.kind === 'deposit' && <small> · {tr('booking deposit')}</small>}{p.kind === 'online' && <small> · {tr('paid on the website')}</small>}<b>{money(p.amount - (p.tip || 0))}</b>{p.tip > 0 && <em>{tr('+ tip {amount}', { amount: money(p.tip) })}</em>}</li>)}
                 </ul>
               )}
             </div>

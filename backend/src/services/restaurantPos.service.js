@@ -844,8 +844,11 @@ async function tabRows(companyId, where, args) {
     "     WHERE ko.tab_id = t.id AND ps.status = 'success' AND ps.used_by_order IS NULL LIMIT 1) AS kiosk_paid, " +
     "  EXISTS (SELECT 1 FROM restaurant_table_orders kk WHERE kk.tab_id = t.id AND kk.kind = 'kiosk') AS from_kiosk, " +
     // Paid by guests from the table (restaurantTablePay): for the cashier to take with the rest.
-    "  (SELECT json_agg(json_build_object('ref', tp.reference, 'amount', tp.amount, 'tip', tp.tip, 'payer', tp.payer, 'channel', tp.channel) ORDER BY tp.paid_at) FROM restaurant_paystack_payments tp " +
-    "     WHERE tp.tab_id = t.id AND tp.purpose = 'table' AND tp.status = 'success' AND tp.used_by_order IS NULL) AS table_paid " +
+    // Paid in advance on the website, or a booking's deposit (the party seated at its table): taken the same way.
+    "  (SELECT json_agg(json_build_object('ref', tp.reference, 'amount', tp.amount, 'tip', tp.tip, 'payer', tp.payer, 'channel', tp.channel, 'kind', tp.purpose) ORDER BY tp.paid_at) FROM restaurant_paystack_payments tp " +
+    "     WHERE tp.status = 'success' AND tp.used_by_order IS NULL AND tp.refund_status IS NULL AND (tp.tab_id = t.id AND tp.purpose IN ('table', 'online') " +
+    "       OR (tp.purpose = 'deposit' AND tp.tab_id IS NULL AND t.table_id IS NOT NULL AND tp.booking_id IN (SELECT bk.id FROM restaurant_bookings bk WHERE bk.company_id = t.company_id " +
+    "         AND bk.table_id = t.table_id AND bk.status = 'seated' AND bk.deposit_status = 'paid' AND bk.seated_at > now() - interval '12 hours')))) AS table_paid " +
     'FROM restaurant_open_tabs t LEFT JOIN restaurant_tables rt ON rt.id = t.table_id LEFT JOIN restaurant_guests g ON g.id = t.guest_id ' +
     'LEFT JOIN employees we ON we.id = t.waiter_id LEFT JOIN employees oe ON oe.id = t.opened_by ' +
     'WHERE t.company_id = $1' + (where || '') + ' ORDER BY t.created_at', [companyId].concat(args || []));
@@ -874,7 +877,7 @@ async function tabRows(companyId, where, args) {
       openedBy: r.opened_by_name || null, createdAt: r.created_at, updatedAt: r.updated_at,
       lines: lines, total: total, bill: billOut(bill), adjust: r.adjust || {}, unavailable: gone, kitchen: null,
       paidOnKiosk: r.kiosk_paid ? { ref: r.kiosk_paid.ref, amount: Number(r.kiosk_paid.amount), channel: r.kiosk_paid.channel } : null, fromKiosk: !!r.from_kiosk,
-      paidAtTable: (r.table_paid || []).map(function (x) { return { ref: x.ref, amount: Number(x.amount), tip: Number(x.tip), payer: x.payer || '', channel: x.channel || '' }; }),
+      paidAtTable: (r.table_paid || []).map(function (x) { return { ref: x.ref, amount: Number(x.amount), tip: Number(x.tip), payer: x.payer || '', channel: x.channel || '', kind: x.kind || 'table' }; }),
       guests: r.guests || null, allergy: r.allergy || null, firedCourse: r.fired_course || 0
     });
   }
@@ -1028,14 +1031,15 @@ async function fireCourse(token, id, p) {
 
 async function removeTab(token, id) {
   var session = await access.need(token, 'removeTable');
-  return withTransaction(async function (client) {
+  var paidOnline = [];
+  var out = await withTransaction(async function (client) {
     var res = await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id, label, table_id', [id, session.posCompanyId]);
     if (!res.rows[0]) fail('notfound', 'That open order has already been paid or removed.');
     // Nothing more to cook for it.
     await kitchen.cancelForTab(client, session.posCompanyId, id);
     // A website order it came from is cancelled (its customer sees so), and a delivery on its way stops.
-    await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the restaurant.', updated_at = now() WHERE tab_id = $1 AND company_id = $2 AND status = 'accepted'",
-      [id, session.posCompanyId]);
+    paidOnline = (await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the restaurant.', updated_at = now() WHERE tab_id = $1 AND company_id = $2 AND status = 'accepted' RETURNING id, pay_method",
+      [id, session.posCompanyId])).rows.filter(function (o) { return o.pay_method === 'online'; });
     await client.query("UPDATE restaurant_deliveries SET status = 'cancelled', ended_at = now(), note = 'The order was removed at the till.' WHERE tab_id = $1 AND company_id = $2 AND status IN ('assigned', 'picked_up', 'arrived')",
       [id, session.posCompanyId]);
     var tname = res.rows[0].table_id ? (await client.query('SELECT name FROM restaurant_tables WHERE id = $1', [res.rows[0].table_id])).rows[0] : null;
@@ -1043,6 +1047,12 @@ async function removeTab(token, id) {
       summary: 'Removed the open order ' + (res.rows[0].label || (tname && tname.name) || '') + ' (not paid).', refType: 'tab', refId: id });
     return { removed: true };
   });
+  // A website order paid in advance: its money given back.
+  for (var i = 0; i < paidOnline.length; i++) {
+    var given = await require('./restaurantOnline.service').refundFor(paidOnline[i].id, 'Cancelled by the restaurant.');
+    if (given) out.refund = { status: given.refund_status, amount: Number(given.amount), note: given.refund_note || '' };
+  }
+  return out;
 }
 
 // ── bills: dishes moved, orders joined, an order moved ─────────────────

@@ -139,6 +139,12 @@ function MovedToTab({ to, tab }) {
   return <Navigate to={'/' + to + '?' + p.toString()} replace />;
 }
 
+// Old notifications of the online shop link to /shop-orders.
+function MovedTo({ to }) {
+  const { search } = useLocation();
+  return <Navigate to={'/' + to + search} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -172,6 +178,7 @@ export default function App() {
               notifications still land on them. */}
           <Route path="crmprospects" element={<MovedToTab to="crmcustomers" tab="prospects" />} />
           <Route path="crmfollowups" element={<MovedToTab to="crminbox" tab="followups" />} />
+          <Route path="shop-orders" element={<MovedTo to="shoporders" />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>

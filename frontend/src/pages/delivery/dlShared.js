@@ -21,7 +21,7 @@ const STATUS = {
 };
 export function statusName(s) { return STATUS[s] ? tr(STATUS[s]) : s; }
 export function stepOf(s) { const i = STEPS.indexOf(s); return i < 0 ? (s === 'failed' || s === 'cancelled' ? 3 : 0) : i; }
-export const PAY = { cash: msg('Cash'), mobile_money: msg('Mobile Money') };
+export const PAY = { cash: msg('Cash'), mobile_money: msg('Mobile Money'), online: msg('Paid online') };
 export function payName(m) { return PAY[m] ? tr(PAY[m]) : m; }
 
 // Phone numbers as links: to call, and on WhatsApp (Ghana numbers made international).

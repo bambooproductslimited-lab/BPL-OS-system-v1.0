@@ -23,6 +23,7 @@ const POLL_MS = 5000;
 const SLOW_EVERY = 6; // confirmed for later: every 30 s
 const OVER = ['rejected', 'cancelled', 'delivered', 'collected', 'failed'];
 const STAGE = {
+  unpaid: ['💳', () => tr('Waiting for your payment'), () => tr('Pay to send your order to the restaurant.')],
   waiting: ['⏳', () => tr('Waiting for the restaurant'), () => tr('They will accept it in a moment. You can still cancel.')],
   scheduled: ['🗓️', null, () => tr('The kitchen starts on it in good time. You can still cancel until then.')],
   rejected: ['😔', () => tr('The restaurant could not take this order'), null],
@@ -41,7 +42,7 @@ const STEPS_DELIVERY = [['waiting', () => tr('Placed')], ['preparing', () => tr(
 const STEPS_PICKUP = [['waiting', () => tr('Placed')], ['preparing', () => tr('Cooking')], ['ready_pickup', () => tr('Ready')], ['collected', () => tr('Collected')]];
 const STEP_LATER = ['scheduled', () => tr('Confirmed')];
 // The step each stage is at.
-const STEP_OF = { waiting: 'waiting', scheduled: 'scheduled', preparing: 'preparing', ready: 'ready', ready_pickup: 'ready_pickup', rider: 'ready', on_the_way: 'on_the_way', arrived: 'on_the_way', delivered: 'delivered', collected: 'collected' };
+const STEP_OF = { unpaid: 'unpaid', waiting: 'waiting', scheduled: 'scheduled', preparing: 'preparing', ready: 'ready', ready_pickup: 'ready_pickup', rider: 'ready', on_the_way: 'on_the_way', arrived: 'on_the_way', delivered: 'delivered', collected: 'collected' };
 
 // mineId and auth: an order of the signed-in customer's, found through their
 // account (any phone) rather than the order's own link.
@@ -52,6 +53,8 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
   const [fetchedAt, setFetchedAt] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
+  // Back from Paystack's page (it adds ?reference=): the payment is being checked.
+  const [backFromPaying] = useState(() => { try { return new URLSearchParams(window.location.search).has('reference'); } catch { return false; } });
   const stage = useRef(null); // asked again until it is over
   const ticks = useRef(0);
   useEffect(() => { applyTheme(getInitialTheme()); }, []);
@@ -76,6 +79,12 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
     e.preventDefault();
     setBusy(true);
     try { const r = await posFetch('POST', path + '/here', auth || null, { note: car || '' }); stage.current = r.stage; setO(r); setCar(null); setError(null); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+
+  // Paid online: the payment page again (the first did not go through).
+  async function payNow() {
+    setBusy(true); setError(null);
+    try { const r = await posFetch('POST', path + '/pay', auth || null); window.location.assign(r.url); } catch (e) { setError(e.message); setBusy(false); }
   }
 
   async function cancel() {
@@ -139,6 +148,16 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
           {left != null && !bad && <span className="on-eta">⏱ {tr('about {m}', { m: minText(left) })}</span>}
         </div>
       </section>
+
+      {o.stage === 'unpaid' && (
+        <div className="on-card on-pay-card">
+          <span className="on-pay-amt"><small>{tr('To pay')}</small><strong>{money(o.total)}</strong></span>
+          {o.paid && ['failed', 'abandoned'].includes(o.paid.status) && <p className="on-pay-note is-bad">{tr('That payment did not go through. Nothing was taken: try again.')}</p>}
+          {o.paid && o.paid.status === 'pending' && backFromPaying && <p className="on-pay-note">⏳ {tr('Checking your payment… This page updates by itself.')}</p>}
+          <button type="button" className="on-go is-big" disabled={busy} onClick={payNow}>🔒 {tr('Pay by card or Mobile Money')}</button>
+          {o.payBy && <p className="on-hint is-center">{tr('Not paid by {time}, the order is cancelled.', { time: clockOf(o.payBy) })}</p>}
+        </div>
+      )}
 
       {o.scheduledFor && !bad && ['waiting', 'scheduled'].includes(o.stage) && (
         <div className="on-card on-when-card">
@@ -218,7 +237,14 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
           {((o.charges || {}).taxes || []).filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(o.total)}</strong></div>
           {((o.charges || {}).taxes || []).filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
-          <p className="on-hint">{o.fulfillment === 'delivery' ? tr('Pay the rider: {method}.', { method: payName(o.payMethod) }) : tr('Pay at the counter: {method}.', { method: payName(o.payMethod) })}</p>
+          {o.payMethod !== 'online' ? <p className="on-hint">{o.fulfillment === 'delivery' ? tr('Pay the rider: {method}.', { method: payName(o.payMethod) }) : tr('Pay at the counter: {method}.', { method: payName(o.payMethod) })}</p>
+            : o.paid && o.paid.status === 'success' && (
+              <p className={'on-paid' + (o.paid.refund ? ' is-refund' + (o.paid.refund.status === 'failed' ? ' is-failed' : '') : '')}>
+                {!o.paid.refund ? '✅ ' + tr('Paid online: {amount}', { amount: money(o.paid.amount) }) + (o.paid.channel === 'mobile_money' ? ' · ' + tr('Mobile Money') : o.paid.channel === 'card' ? ' · ' + tr('Card') : '')
+                  : o.paid.refund.status === 'failed' ? '⚠️ ' + tr('We could not give your {amount} back automatically: the restaurant will call you to sort it out.', { amount: money(o.paid.amount) })
+                    : '↩️ ' + tr('Your {amount} is being given back: it reaches your card or Mobile Money in a few days.', { amount: money(o.paid.amount) })}
+              </p>
+            )}
         </div>
         {o.fulfillment === 'delivery' && <p className="on-hint">📍 {o.customer.address}{o.customer.landmark ? ' · ' + o.customer.landmark : ''}</p>}
       </div>

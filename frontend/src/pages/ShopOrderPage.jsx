@@ -43,6 +43,54 @@ function stepsFor(o) {
 // Back from Paystack (?reference=…): the payment, checked with the invoice's page.
 function referenceOf() { const m = /[?&]reference=([A-Za-z0-9_-]{6,80})/.exec(window.location.search); return m ? m[1] : null; }
 
+// Done: each thing in it rated, stars and a few words (backend shopReviews
+// rate). Shown on the shop once Bamboo Products has read it; until then
+// it can be changed.
+function RateItems({ token, reviews, onSaved }) {
+  const [draft, setDraft] = useState(() => Object.fromEntries(reviews.items.map((it) => [it.itemId, { rating: it.rating || 0, words: it.words || '' }])));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
+  const open = reviews.items.filter((it) => !it.status || it.status === 'pending');
+  const ready = open.some((it) => draft[it.itemId].rating > 0);
+  async function save(e) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try {
+      const r = await call('/shop/orders/' + encodeURIComponent(token) + '/reviews', 'POST', { reviews: open.filter((it) => draft[it.itemId].rating > 0).map((it) => ({ itemId: it.itemId, rating: draft[it.itemId].rating, words: draft[it.itemId].words })) });
+      onSaved(r); setSaved(true);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  return (
+    <form className="sop-card sop-rate" onSubmit={save}>
+      <h2>⭐ {tr('How do you like it?')}</h2>
+      <p className="ptl-note">{tr('Rate what you bought: it helps other customers, and us.')}</p>
+      <ul className="sop-rate-list">
+        {reviews.items.map((it) => {
+          const d = draft[it.itemId];
+          const locked = it.status && it.status !== 'pending';
+          return (
+            <li key={it.itemId}>
+              <strong>{it.name}</strong>
+              <span className="sop-stars" role="radiogroup" aria-label={tr('Stars for {name}', { name: it.name })}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} type="button" role="radio" aria-checked={d.rating === n} disabled={locked} className={d.rating >= n ? 'is-on' : ''}
+                    onClick={() => setDraft({ ...draft, [it.itemId]: { ...d, rating: n } })} aria-label={tr('{n} out of 5', { n })}>★</button>
+                ))}
+              </span>
+              {locked ? <small className="sop-rate-done">{it.status === 'shown' ? '✅ ' + tr('Thank you! It is on the shop.') : '✓ ' + tr('Thank you for telling us.')}</small>
+                : d.rating > 0 && <textarea className="input" rows={2} maxLength={600} value={d.words} onChange={(e) => setDraft({ ...draft, [it.itemId]: { ...d, words: e.target.value } })} placeholder={tr('A few words (optional)')} />}
+            </li>
+          );
+        })}
+      </ul>
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {open.length > 0 && <button type="submit" className="shp-go" disabled={busy || !ready}>{busy ? tr('One moment…') : saved ? tr('Save my changes') : tr('Send my review')}</button>}
+      {saved && <p className="sop-rate-thanks" role="status">🎉 {tr('Thank you! We show it on the shop once we have read it.')}</p>}
+    </form>
+  );
+}
+
 // The account asked for at checkout: its code, then signed in.
 function FinishAccount({ pending, onDone }) {
   const [made, setMade] = useState(false);
@@ -138,6 +186,8 @@ export default function ShopOrderPage() {
       )}
 
       {!cancelled && !unpaid && pending && <FinishAccount pending={pending} onDone={() => setPending(null)} />}
+
+      {o.reviews && o.reviews.items.length > 0 && <RateItems token={token} reviews={o.reviews} onSaved={(r) => setO({ ...o, reviews: r })} />}
 
       {!cancelled && (
         <ol className={'sop-steps' + (unpaid ? ' is-waiting' : '')} aria-label={tr('Where your order is')}>

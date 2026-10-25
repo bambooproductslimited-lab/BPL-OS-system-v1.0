@@ -63,6 +63,7 @@ router.post('/online/:code/orders', h(function (req) { return online.place(req.p
 router.get('/online/track/:token', h(function (req) { return online.track(req.params.token); }));
 router.post('/online/track/:token/cancel', h(function (req) { return online.cancel(req.params.token); }));
 router.post('/online/track/:token/here', h(function (req) { return online.here(req.params.token, body(req)); }));
+router.post('/online/track/:token/pay', h(function (req) { return online.payAgain(req.params.token); }));
 // Curbside pickup: who is outside, brought out.
 router.get('/curbside', h(function (req) { return online.curbside(posToken(req)); }));
 router.post('/curbside/:id/brought', h(function (req) { return online.brought(posToken(req), req.params.id); }));
@@ -74,6 +75,7 @@ router.get('/online/account', h(function (req) { return accounts.me(posToken(req
 router.put('/online/account', h(function (req) { return accounts.update(posToken(req), body(req)); }));
 router.get('/online/account/orders/:id', h(function (req) { return online.trackMine(posToken(req), req.params.id); }));
 router.post('/online/account/orders/:id/cancel', h(function (req) { return online.cancel(req.params.id, posToken(req)); }));
+router.post('/online/account/orders/:id/pay', h(function (req) { return online.payAgain(req.params.id, posToken(req)); }));
 router.post('/online/account/orders/:id/here', h(function (req) { return online.here(req.params.id, body(req), posToken(req)); }));
 
 // ── a sale's receipt, opened from the link sent to the customer ──

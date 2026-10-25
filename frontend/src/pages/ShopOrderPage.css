@@ -61,3 +61,16 @@
 .sop-sum .is-total { margin-top: 4px; font-size: 18px; color: var(--shp-gd); font-weight: 800; }
 .sop-paid { margin: 0; padding: 10px 12px; font-weight: 800; color: #1b5e20; border-radius: 14px; background: #e3f7d9; }
 @media (prefers-reduced-motion: reduce) { .sop-steps li, .sop-hero-ico, .sop-steps li.is-now .sop-dot { animation: none; } }
+.sop-rate { background: linear-gradient(160deg, #fff, #fffbea); }
+.sop-rate > p { margin: 0; }
+.sop-rate-list { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.sop-rate-list li { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 16px; background: #fff; border: 1px solid var(--shp-line); }
+.sop-rate-list strong { font-size: 14.5px; }
+.sop-stars { display: flex; gap: 4px; }
+.sop-stars button { padding: 0 2px; font-size: 30px; line-height: 1; color: #e5e7eb; border: 0; background: none; cursor: pointer; transition: transform .15s, color .15s; }
+.sop-stars button.is-on { color: #f59f00; }
+.sop-stars button:hover:not(:disabled) { transform: scale(1.15); }
+.sop-stars button:disabled { cursor: default; }
+.sop-stars button:focus-visible { outline: 2px solid #84cc16; border-radius: 6px; }
+.sop-rate-done { font-size: 13px; font-weight: 700; color: #2b8a3e; }
+.sop-rate-thanks { margin: 0; padding: 9px 12px; font-weight: 800; border-radius: 14px; color: #1b5e20; background: #e3f7d9; }

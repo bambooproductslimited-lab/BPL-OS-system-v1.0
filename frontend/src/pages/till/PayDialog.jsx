@@ -4,7 +4,7 @@ import { money } from '../../lib/currency';
 import { tr } from '../../lib/i18n.jsx';
 import { CURRENCY_LABEL, MethodGlyph, fmt, liveCurrencies, methodCurrencies, methodName, round2 } from './tillShared';
 import { CardFields, PhonePay } from './CardPay';
-import { cardOk } from './tillBill';
+import { cardOk, paidAheadWords } from './tillBill';
 import './fifth.css';
 
 // Taking payment (RestaurantPosPage.jsx's Charge): one way, or the bill
@@ -188,7 +188,7 @@ export default function PayDialog({ token, title, total: wholeTotal, methods: ti
           <div className={'cp-kiosk' + (aheadRest < -0.004 ? ' is-bad' : '')}>
             <span className="cp-tick" aria-hidden="true">✓</span>
             <div>
-              <strong>{ahead.some((p) => p.from === 'table') ? tr('Paid at the table: {amount}', { amount: money(aheadSum) }) : tr('Paid on the kiosk: {amount}', { amount: money(aheadSum) })}</strong>
+              <strong>{paidAheadWords(ahead, money(aheadSum), tr)}</strong>
               {ahead.map((p) => (
                 <small key={p.ref}>{[p.payer || null, p.channel === 'mobile_money' ? methodName('mobile_money') : methodName('card'), 'Paystack', p.tip > 0 ? tr('a tip of {amount}', { amount: money(p.tip) }) : null, p.ref].filter(Boolean).join(' · ')}</small>
               ))}

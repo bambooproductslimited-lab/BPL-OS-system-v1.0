@@ -3,6 +3,7 @@ import { API_URL } from '../api/client';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import DeviceLanguage from '../components/DeviceLanguage';
 import { loadToken, portalCall, saveSignup, saveToken } from '../lib/portal';
+import QuoteSheet from './QuoteSheet';
 import './ShopPage.css';
 
 // Bamboo Products' online shop at /shop (backend shop.service.js): public,
@@ -43,10 +44,26 @@ function readyOf(mds) {
 // Without a closing full stop ("29 oct."): the sentence brings its own.
 function dayWords(d) { return new Date(d).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\.$/, ''); }
 
-function ItemSheet({ item, onAdd, onClose }) {
+// Stars, as many as the rating (rounded to a half), the rest pale.
+function Stars({ value, size }) {
+  const full = Math.round(value * 2) / 2;
+  return (
+    <span className={'shp-stars' + (size ? ' is-' + size : '')} role="img" aria-label={tr('{n} out of 5', { n: value })}>
+      {[1, 2, 3, 4, 5].map((n) => <i key={n} className={full >= n ? 'is-on' : full >= n - 0.5 ? 'is-half' : ''} aria-hidden="true">★</i>)}
+    </span>
+  );
+}
+function when(iso) { return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short', year: 'numeric' }); }
+
+function ItemSheet({ item, onAdd, onClose, onQuote }) {
   const [vid, setVid] = useState(item.variations[0].id);
   const [qty, setQty] = useState(1);
   const [pic, setPic] = useState(0);
+  const [reviews, setReviews] = useState(null);
+  useEffect(() => {
+    if (!item.stars) return;
+    call('GET', '/shop/items/' + item.id + '/reviews').then((r) => setReviews(r.reviews)).catch(() => setReviews([]));
+  }, [item.id, item.stars]);
   const v = item.variations.find((x) => x.id === vid);
   const photos = item.photos.length ? item.photos : [];
   useEffect(() => {
@@ -66,6 +83,7 @@ function ItemSheet({ item, onAdd, onClose }) {
         <div className="shp-sheet-body">
           <small className="shp-cat">{item.category}</small>
           <h2 id="shp-item-title">{item.name}</h2>
+          {item.stars && <p className="shp-rating"><Stars value={item.stars.average} /><b>{item.stars.average.toFixed(1)}</b><small>{item.stars.count === 1 ? tr('1 review') : tr('{n} reviews', { n: item.stars.count })}</small></p>}
           {item.description && <p className="shp-desc">{item.description}</p>}
           {made(item.makeDays) && (
             <p className="shp-made-note"><span aria-hidden="true">🛠️</span>{tr('Made to order for you: ready in about {days}.', { days: daysText(item.makeDays) })}</p>
@@ -88,6 +106,21 @@ function ItemSheet({ item, onAdd, onClose }) {
             <button type="button" className="shp-go" onClick={() => onAdd(item, v, qty)}>{tr('Add · {amount}', { amount: cedis(v.price * qty) })}</button>
           </div>
           {v.unit && v.unit !== 'each' && <p className="shp-hint">{tr('Price per {unit}', { unit: v.unit })}</p>}
+          {onQuote && <button type="button" className="shp-quote-link" onClick={() => onQuote(item)}>📐 {tr('Need another size, or many? Ask for a quote')}</button>}
+          {reviews && reviews.length > 0 && (
+            <section className="shp-reviews" aria-label={tr('What customers say')}>
+              <h3>{tr('What customers say')}</h3>
+              <ul>
+                {reviews.map((r, i) => (
+                  <li key={r.id} style={{ '--i': i }}>
+                    <div className="shp-review-top"><Stars value={r.rating} size="sm" /><strong>{r.name}</strong><small>{when(r.at)}</small></div>
+                    {r.words && <p>“{r.words}”</p>}
+                    {r.reply && <p className="shp-review-reply"><b>🎋 Bamboo Products</b> {r.reply}</p>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       </div>
     </div>
@@ -259,6 +292,7 @@ export default function ShopPage() {
   const [bump, setBump] = useState(0);
   const [me, setMe] = useState(null);
   const [going, setGoing] = useState(false);
+  const [quote, setQuote] = useState(null); // { item } while asking for a quote
   useEffect(() => { call('GET', '/shop').then((d) => { setData(d); document.title = d.shop.title; }).catch((e) => setError(e.message)); }, []);
   // Signed in to "My account": their details for the checkout.
   useEffect(() => {
@@ -295,6 +329,7 @@ export default function ShopPage() {
         </div>
         <h1>{s.title}</h1>
         {s.intro && <p>{s.intro}</p>}
+        {s.quotes && <button type="button" className="shp-quote-btn" onClick={() => setQuote({ item: null })}><span aria-hidden="true">📐</span><span><strong>{tr('Made to your size')}</strong><small>{tr('Ask for a quote')}</small></span></button>}
         <div className="shp-facts">
           {s.delivery && <span>🚚 {tr('Delivery')}</span>}
           {s.pickup && <span>🏬 {s.pickupAddress ? tr('Pickup at {place}', { place: s.pickupAddress }) : tr('Pickup')}</span>}
@@ -322,6 +357,7 @@ export default function ShopPage() {
                 <span className="shp-card-body">
                   <strong>{it.name}</strong>
                   <small>{it.variations.length > 1 ? tr('{n} choices', { n: it.variations.length }) : it.category}</small>
+                  {it.stars && <span className="shp-card-stars"><Stars value={it.stars.average} size="sm" /><em>{it.stars.average.toFixed(1)} ({it.stars.count})</em></span>}
                   {made(it.makeDays) && <em className="shp-made">🛠️ {tr('Made to order · {days}', { days: daysText(it.makeDays) })}</em>}
                   <b>{it.variations.length > 1 ? tr('from {amount}', { amount: cedis(from) }) : cedis(from)}</b>
                 </span>
@@ -336,7 +372,8 @@ export default function ShopPage() {
           <span className="shp-basket-n">{count}</span><span>{tr('Your basket')}</span><strong>{cedis(total)}</strong>
         </button>
       )}
-      {open && <ItemSheet item={open} onAdd={add} onClose={() => setOpen(null)} />}
+      {open && <ItemSheet item={open} onAdd={add} onClose={() => setOpen(null)} onQuote={s.quotes ? (it) => { setOpen(null); setQuote({ item: it }); } : null} />}
+      {quote && <QuoteSheet item={quote.item} me={me} onClose={() => setQuote(null)} />}
       {checkout && <Checkout shop={s} cart={cart} items={items} setCart={setCart} me={me} onClose={() => setCheckout(false)}
         onDone={(r) => {
           setCart([]); setCheckout(false);
