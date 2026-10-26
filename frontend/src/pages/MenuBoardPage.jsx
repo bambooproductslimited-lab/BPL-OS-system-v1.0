@@ -66,6 +66,8 @@ export default function MenuBoardPage() {
   useEffect(() => { document.title = tr('Menu'); hello(readKey()); }, [hello]);
 
   const ready = !!(view && view.options && view.options.ready);
+  // Showing its code, it asks often: paired, the menu comes up in a moment.
+  const waiting = !!(view && !view.paired);
   useEffect(() => {
     if (!key) return undefined;
     let live = true;
@@ -79,9 +81,9 @@ export default function MenuBoardPage() {
       }
     };
     ask();
-    const t = setInterval(ask, ready ? 6000 : 20000);
+    const t = setInterval(ask, waiting ? 4000 : ready ? 6000 : 20000);
     return () => { live = false; clearInterval(t); };
-  }, [key, hello, ready]);
+  }, [key, hello, ready, waiting]);
 
   const o = view && view.options;
   const perPage = o ? (o.layout === 'list' ? (ready ? 14 : 20) : o.photos ? (ready ? 6 : 8) : (ready ? 9 : 12)) : 8;
