@@ -617,7 +617,8 @@ test('shop delivery by area and the order\'s own page: being made, ready, on its
   var u = await shop.setStatus(boss, mine.id, { status: 'making' });
   assert.equal(u.status, 'making');
   assert.equal(u.emailed, true);
-  assert.match(sent[0].subject, /being made/);
+  // The payment's receipt may still be on its way: find this order's email.
+  assert.ok(sent.some(function (m) { return /being made/.test(m.subject); }), 'the customer told it is being made');
   await shop.setStatus(boss, mine.id, { status: 'ready' });
   u = await shop.setStatus(boss, mine.id, { status: 'out' });
   assert.match(sent[sent.length - 1].text, /on its way to you/);
