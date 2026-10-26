@@ -52,7 +52,7 @@ function Receive({ t, items, busy, onReceive }) {
 function TransferRow({ t, busy, onCancel }) {
   const [icon, label] = STATUS[t.status];
   return (
-    <li className={'xfr-row is-' + t.status + ' is-' + t.direction}>
+    <li className={'xfr-row is-' + t.status + ' xfr-' + t.direction}>
       <span className="xfr-dir" aria-hidden="true">{t.direction === 'out' ? '↗' : '↙'}</span>
       <span className="xfr-row-main">
         <strong>{t.ref} · {t.direction === 'out' ? tr('to {name}', { name: t.to.name }) : tr('from {name}', { name: t.from.name })}</strong>

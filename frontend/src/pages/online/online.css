@@ -724,6 +724,7 @@
 .on-book-btn.is-catering { color: #7c3aed; background: linear-gradient(135deg, #fff, #f5f3ff); }
 :root[data-theme='dark'] .on-book-btn.is-catering { color: #c4b5fd; background: var(--on-card); }
 .on-sheet.ctg { display: flex; flex-direction: column; gap: 12px; }
+.on-sheet.ctg > * { flex: none; }
 .ctg-hero { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 18px; background: linear-gradient(135deg, rgba(124, 58, 237, .12), rgba(236, 72, 153, .1)); }
 .ctg-hero > div { display: flex; flex-direction: column; gap: 2px; }
 .ctg-hero strong { font-size: 16px; }
@@ -747,7 +748,7 @@
 .ctg-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .ctg-name small { color: var(--on-muted); font-size: 12.5px; }
 .ctg-name .is-bad { color: #dc2626; font-weight: 800; }
-.ctg-foot { position: sticky; bottom: -1px; display: flex; flex-direction: column; gap: 8px; padding: 12px 0 2px; background: linear-gradient(transparent, var(--on-card) 18%); }
+.ctg-foot { position: sticky; bottom: -1px; z-index: 2; display: flex; flex-direction: column; gap: 8px; padding: 12px 0 2px; border-top: 1px solid var(--on-line); background: var(--on-card); -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4); box-shadow: 0 -14px 22px -20px rgba(0, 0, 0, .45); }
 .ctg-foot > div { display: flex; align-items: baseline; justify-content: space-between; }
 .ctg-foot small { color: var(--on-muted); }
 .ctg-foot strong { font-size: 22px; }
