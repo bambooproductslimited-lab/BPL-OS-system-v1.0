@@ -74,3 +74,48 @@
 .sop-stars button:focus-visible { outline: 2px solid #84cc16; border-radius: 6px; }
 .sop-rate-done { font-size: 13px; font-weight: 700; color: #2b8a3e; }
 .sop-rate-thanks { margin: 0; padding: 9px 12px; font-weight: 800; border-radius: 14px; color: #1b5e20; background: #e3f7d9; }
+
+/* After the sale (ShopAfterSales.jsx, ShopServicePage.jsx, migration 0195):
+   the delivery or fitting, the warranty, a repair asked for. */
+.sop-visit { flex-direction: row; align-items: center; gap: 14px; border-left: 5px solid var(--shp-g); }
+.sop-visit.is-on_way { border-left-color: #2563eb; background: linear-gradient(135deg, #fff, #eff6ff); }
+.sop-visit.is-done { border-left-color: #16a34a; }
+.sop-visit.is-failed { border-left-color: #dc2626; }
+.sop-visit > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sop-visit small { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--shp-g); }
+.sop-visit strong { font-size: 18px; }
+.sop-visit span { font-size: 14px; color: #4b5563; }
+.sop-visit .sop-visit-hint { font-size: 12.5px; color: #6b7280; }
+.sop-visit-art { display: grid; place-items: center; width: 54px; height: 54px; flex: none; font-size: 28px; border-radius: 18px; background: #eef7e8; }
+.sop-visit.is-on_way .sop-visit-art { animation: sop-drive 2.6s ease-in-out infinite; background: #dbeafe; }
+@keyframes sop-drive { 50% { transform: translateX(6px); } }
+.sop-visit-kind { padding: 4px 10px; font-size: 12px; font-weight: 800; border-radius: 999px; color: var(--shp-gd); background: #eef7e8; }
+.sop-after { gap: 12px; }
+.sop-warranty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 14px; font-weight: 800; border-radius: 14px; color: #6b7280; background: #f3f4f6; }
+.sop-warranty.is-in { color: #1b5e20; background: #e3f7d9; }
+.sop-warranty span { font-size: 20px; }
+.sop-services { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sop-services a { display: flex; align-items: center; gap: 10px; padding: 10px 12px; color: inherit; text-decoration: none; border-radius: 12px; border: 1px solid var(--shp-line); }
+.sop-services a span { flex: 1; }
+.sop-services em { padding: 2px 10px; font-size: 12px; font-style: normal; font-weight: 800; border-radius: 999px; background: #fef3c7; color: #92400e; }
+.sop-services em.is-visit { background: #ede9fe; color: #5b21b6; }
+.sop-services em.is-fixed, .sop-services em.is-closed { background: #e3f7d9; color: #1b5e20; }
+.sop-ask-repair { align-self: stretch; text-align: center; }
+.sop-repair textarea { resize: vertical; }
+.sop-repair-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.sop-repair-items button { padding: 8px 12px; font: inherit; font-size: 13.5px; font-weight: 700; border: 1px solid var(--shp-line); border-radius: 12px; background: #fff; cursor: pointer; }
+.sop-repair-items button.is-on { color: #fff; border-color: transparent; background: var(--shp-g); }
+.sop-repair-photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.sop-repair-photos > span { position: relative; width: 76px; height: 76px; }
+.sop-repair-photos img { width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
+.sop-repair-photos > span button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; font-size: 11px; color: #fff; border: 0; border-radius: 50%; background: #dc2626; cursor: pointer; }
+.sop-repair-add { display: grid; place-items: center; width: 140px; height: 76px; padding: 6px; font-size: 13px; font-weight: 800; text-align: center; border: 2px dashed var(--shp-line); border-radius: 12px; cursor: pointer; }
+.sop-repair-go { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.svc-hero.is-fixed .sop-hero-ico { background: #e3f7d9; }
+.svc-answer { flex-direction: row; align-items: flex-start; gap: 12px; background: linear-gradient(135deg, #fff, #f6fbf1); }
+.svc-answer > span { font-size: 26px; }
+.svc-answer small { font-size: 12px; font-weight: 800; color: var(--shp-g); text-transform: uppercase; letter-spacing: .04em; }
+.svc-answer p { margin: 4px 0 0; font-size: 15.5px; }
+.svc-item { margin: 0; font-weight: 800; }
+.svc-problem { margin: 0; font-style: italic; color: #374151; }
+@media (prefers-reduced-motion: reduce) { .sop-visit.is-on_way .sop-visit-art { animation: none; } }

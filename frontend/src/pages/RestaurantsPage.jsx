@@ -1451,6 +1451,8 @@ export default function RestaurantsPage() {
                     {d.vipCashOutsCash > 0 && <li><span>−</span><span>{tr('VIP money given back')}</span><strong>{money(d.vipCashOutsCash)}</strong></li>}
                     {d.iouLentCash > 0 && <li><span>−</span><span>{tr('Cash lent on IOU accounts')}</span><strong>{money(d.iouLentCash)}</strong></li>}
                     <li><span>±</span><span>{tr('Paid In/Out')}</span><strong>{d.netPaidInOut < 0 ? '−' : ''}{money(Math.abs(d.netPaidInOut))}</strong></li>
+                    {d.safeDrops > 0 && <li><span>🔐</span><span>{tr('Into the safe')}</span><strong>−{money(d.safeDrops)}</strong></li>}
+                    {d.pettyCash > 0 && <li><span>🧾</span><span>{tr('Petty cash')}</span><strong>−{money(d.pettyCash)}</strong></li>}
                     <li className="rs-total"><span>=</span><span>{tr('Expected in Drawer')}</span><strong>{money(d.expected)}</strong></li>
                     <li><span /><span>{tr('Counted')}</span><strong>{d.actual === null ? '—' : money(d.actual)}</strong></li>
                   </ul>

@@ -5,6 +5,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { loadSignup, loadToken, saveSignup, saveToken } from '../lib/portal';
 import DeviceLanguage from '../components/DeviceLanguage';
 import MakeAccount from '../components/MakeAccount';
+import { AfterSales } from './ShopAfterSales';
 import './ShopPage.css';
 import './ShopOrderPage.css';
 
@@ -202,6 +203,8 @@ export default function ShopOrderPage() {
           })}
         </ol>
       )}
+
+      {!cancelled && !unpaid && <AfterSales token={token} o={o} />}
 
       <section className="sop-card">
         <h2>{tr('In your order')}</h2>

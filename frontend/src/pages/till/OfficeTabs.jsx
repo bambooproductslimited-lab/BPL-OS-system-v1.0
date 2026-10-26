@@ -193,6 +193,8 @@ export function DrawersTab({ token, pin, onFail, onActivity }) {
                       {d.vipCashOutsCash > 0 && <div><dt>{tr('VIP money given back')}</dt><dd>−{money(d.vipCashOutsCash)}</dd></div>}
                       {d.iouLentCash > 0 && <div><dt>{tr('Cash lent on IOU accounts')}</dt><dd>−{money(d.iouLentCash)}</dd></div>}
                       <div><dt>{tr('Paid In/Out')}</dt><dd>{money(d.netPaidInOut)}</dd></div>
+                      {d.safeDrops > 0 && <div><dt>{tr('Into the safe')}</dt><dd>−{money(d.safeDrops)}</dd></div>}
+                      {d.pettyCash > 0 && <div><dt>{tr('Petty cash')}</dt><dd>−{money(d.pettyCash)}</dd></div>}
                     </dl>
                     {d.movements.length > 0 && <ul className="ts-dr-moves">{d.movements.map((m) => <li key={(m.account || '') + m.id}>{m.direction === 'in' ? '+' : '−'}{money(m.amount)} · {[m.account ? moveLabel(m) : '', m.note].filter(Boolean).join(' — ') || '—'} · {new Date(m.createdAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' })}</li>)}</ul>}
                     {d.session.closingNote && <p className="ts-hint">✎ {d.session.closingNote}</p>}

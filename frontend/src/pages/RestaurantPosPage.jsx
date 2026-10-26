@@ -24,6 +24,9 @@ import TeamNotes from './till/TeamNotes';
 import PrepDialog from './till/Prep';
 import { ChecklistsDialog } from './till/Checklists';
 import { IncomingDialog } from './till/Transfers';
+import { PettyCashDialog, SafeDropDialog } from './till/CashOffice';
+import { EventsDialog } from './till/Events';
+import { pettyOf } from './till/cashShared';
 import { TableMapPicker } from './till/TableMap';
 import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
@@ -415,6 +418,10 @@ export default function RestaurantPosPage() {
   const [checksOpen, setChecksOpen] = useState(false);
   const [incoming, setIncoming] = useState(null); // { waiting, can }
   const [incomingOpen, setIncomingOpen] = useState(false);
+  // The cash office and the week's events (migration 0195).
+  const [cashOpen, setCashOpen] = useState(null); // 'drop' | 'petty' | null
+  const [events, setEvents] = useState(null); // { events, today }
+  const [eventsOpen, setEventsOpen] = useState(false);
   const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
   const [drawerLeftOpen, setDrawerLeftOpen] = useState(false); // signed out with a drawer open: it stays open
   const can = (k) => !!(tillAccess && tillAccess.can[k]);
@@ -473,11 +480,12 @@ export default function RestaurantPosPage() {
   }, [sessionToken]);
   // Today's checklists and stock coming in, now and every two minutes.
   useEffect(() => {
-    setChecks(null); setIncoming(null);
+    setChecks(null); setIncoming(null); setEvents(null);
     if (!sessionToken) return undefined;
     const load = () => {
       posFetch('GET', '/pos/checklists', sessionToken).then(setChecks).catch(() => {});
       posFetch('GET', '/pos/transfers/waiting', sessionToken).then(setIncoming).catch(() => {});
+      posFetch('GET', '/pos/events', sessionToken).then(setEvents).catch(() => {});
     };
     load();
     const t = setInterval(load, 120000);
@@ -1783,6 +1791,8 @@ export default function RestaurantPosPage() {
             {r.vipCashOutsCash > 0 && <div className="pos-receipt-line"><span>{tr('VIP money given back')}</span><span>-{money(r.vipCashOutsCash)}</span></div>}
             {r.iouLentCash > 0 && <div className="pos-receipt-line"><span>{tr('Cash lent on IOU accounts')}</span><span>-{money(r.iouLentCash)}</span></div>}
             <div className="pos-receipt-line"><span>{tr('Paid In/Out')}</span><span>{r.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(r.netPaidInOut))}</span></div>
+            {r.safeDrops > 0 && <div className="pos-receipt-line"><span>{tr('Into the safe')}</span><span>-{money(r.safeDrops)}</span></div>}
+            {r.pettyCash > 0 && <div className="pos-receipt-line"><span>{tr('Petty cash')}</span><span>-{money(r.pettyCash)}</span></div>}
             <div className="pos-receipt-line"><span>{tr('Expected in Drawer')}</span><span>{money(r.expected)}</span></div>
             <div className="pos-receipt-line"><span>{tr('Actual in Drawer')}</span><span>{money(r.actual)}</span></div>
           </div>
@@ -2311,6 +2321,10 @@ export default function RestaurantPosPage() {
                 note: checks.open ? (checks.open === 1 ? tr('1 to finish today') : tr('{n} to finish today', { n: checks.open })) : tr('All done today'), badge: checks.open || null, onClick: () => setChecksOpen(true) },
               incoming && incoming.can && incoming.waiting > 0 && { key: 'incoming', group: 'manage', icon: <span className="tl-more-emo">🚚</span>, tone: 'incoming', label: tr('Stock coming in'),
                 note: incoming.waiting === 1 ? tr('1 transfer to count in') : tr('{n} transfers to count in', { n: incoming.waiting }), badge: incoming.waiting, onClick: () => setIncomingOpen(true) },
+              can('charge') && drawer && drawer.session && drawer.session.status === 'open' && { key: 'safe', group: 'manage', icon: <span className="tl-more-emo">🔐</span>, tone: 'safe', label: tr('Cash into the safe'), note: tr('From your drawer, a manager watching'), onClick: () => setCashOpen('drop') },
+              can('charge') && drawer && drawer.session && drawer.session.status === 'open' && { key: 'petty', group: 'manage', icon: <span className="tl-more-emo">🧾</span>, tone: 'petty', label: tr('Petty cash'), note: tr('Spent from your drawer, with the receipt'), onClick: () => setCashOpen('petty') },
+              events && events.events.length > 0 && { key: 'events', group: 'manage', icon: <span className="tl-more-emo">🥂</span>, tone: 'events', label: tr('Events'),
+                note: events.today ? (events.today === 1 ? tr('1 event today') : tr('{n} events today', { n: events.today })) : tr('{n} this week', { n: events.events.length }), badge: events.today || null, onClick: () => setEventsOpen(true) },
               (can('till') || can('stock') || can('kds')) && { key: 'waste', group: 'manage', icon: <span className="tl-more-emo">🗑️</span>, tone: 'waste', label: tr('Throw something away'), note: tr('Waste: what, how many, why'), onClick: () => setWasteOpen(true) },
               notes && (notes.notes.length > 0 || notes.canWrite) && { key: 'notes', group: 'manage', icon: <span className="tl-more-emo">📌</span>, tone: 'notes', label: tr('Notes for the team'),
                 note: notes.unread ? (notes.unread === 1 ? tr('1 new note') : tr('{n} new notes', { n: notes.unread })) : notes.notes.length ? tr('{n} up now', { n: notes.notes.length }) : tr('Write one for everyone'), badge: notes.unread || null, onClick: () => setNotesOpen(true) },
@@ -2611,6 +2625,8 @@ export default function RestaurantPosPage() {
               {drawer.giftSoldCash > 0 && <div className="pos-drawer-line"><span>{tr('Gift cards sold in cash')}</span><span>{money(drawer.giftSoldCash)}</span></div>}
               {drawer.giftVoidedCash > 0 && <div className="pos-drawer-line"><span>{tr('Gift cards cancelled, cash given back')}</span><span>−{money(drawer.giftVoidedCash)}</span></div>}
               <div className="pos-drawer-line"><span>{tr('Paid In/Out')}</span><span>{drawer.netPaidInOut < 0 ? '-' : ''}{money(Math.abs(drawer.netPaidInOut))}</span></div>
+              {drawer.safeDrops > 0 && <div className="pos-drawer-line"><span>🔐 {tr('Into the safe')}</span><span>−{money(drawer.safeDrops)}</span></div>}
+              {drawer.pettyCash > 0 && <div className="pos-drawer-line"><span>🧾 {tr('Petty cash')}</span><span>−{money(drawer.pettyCash)}</span></div>}
               <div className="pos-drawer-line is-total"><span>{tr('Expected in Drawer')}</span><span>{money(drawer.expected)}</span></div>
             </div>
             {!!drawer.movements.length && (
@@ -2618,7 +2634,10 @@ export default function RestaurantPosPage() {
                 {drawer.movements.slice().reverse().map((m) => (
                   <div key={(m.account || '') + m.id} className={'pos-drawer-line' + (m.account ? ' is-acct is-' + m.account : '')}>
                     <span>{m.account ? <><em className={'pos-acct-tag is-' + m.account}>{m.account === 'vip' ? tr('VIP') : tr('IOU')}</em>{moveLabel(m)} · {timeOf(m.createdAt)}</>
-                      : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
+                      : m.kind === 'drop' ? '🔐 ' + tr('Into the safe at {time}', { time: timeOf(m.createdAt) })
+                        : m.kind === 'petty' ? pettyOf(m.category).icon + ' ' + tr('Petty cash at {time}', { time: timeOf(m.createdAt) }) + (m.paidTo ? ' · ' + m.paidTo : '')
+                          : m.kind === 'event' ? '🥂 ' + tr('Event deposit at {time}', { time: timeOf(m.createdAt) })
+                            : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -2881,6 +2900,9 @@ export default function RestaurantPosPage() {
       )}
       {prepOpen && <PrepDialog token={session.token} onClose={() => setPrepOpen(false)} />}
       {checksOpen && <ChecklistsDialog token={session.token} onClose={(d) => { if (d) setChecks(d); setChecksOpen(false); }} />}
+      {cashOpen === 'drop' && drawer && <SafeDropDialog token={session.token} drawer={drawer} isManager={isManager} onClose={() => setCashOpen(null)} onDone={(d, text) => { setDrawer(d); setCashOpen(null); setToast(text); }} />}
+      {cashOpen === 'petty' && drawer && <PettyCashDialog token={session.token} drawer={drawer} isManager={isManager} onClose={() => setCashOpen(null)} onDone={(d, text) => { setDrawer(d); setCashOpen(null); setToast(text); }} />}
+      {eventsOpen && <EventsDialog token={session.token} onClose={() => setEventsOpen(false)} />}
       {incomingOpen && <IncomingDialog token={session.token} onClose={(d) => { if (d) setIncoming({ waiting: d.waiting, can: true }); setIncomingOpen(false); }} />}
       {wasteOpen && <WasteDialog token={session.token} onClose={() => setWasteOpen(false)} onToast={setToast} />}
       {notesOpen && <TeamNotes token={session.token} isManager={!!(notes && notes.canWrite)} initial={notes} onClose={(r) => { if (r) setNotes(r); setNotesOpen(false); }} />}

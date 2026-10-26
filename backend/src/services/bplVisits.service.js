@@ -142,7 +142,7 @@ async function board(ctx, q) {
   var mine = me ? await visitsOut((await pool.query(VISIT_SELECT + "WHERE $1 = ANY(v.crew) AND v.day >= $2::date AND v.day <= $2::date + 6 AND v.status <> 'cancelled' ORDER BY v.day, v.time_from", [me, today])).rows) : [];
   if (!read) {
     if (!mine.length) fail('forbidden', 'Your role does not allow this action (invoice.read).');
-    return { mine: mine, canManage: false, canRead: false, settings: s, today: today };
+    return { mine: mine, canManage: false, canRead: false, settings: s, today: today, me: me };
   }
   var week = await visitsOut((await pool.query(VISIT_SELECT + "WHERE v.day >= $1::date AND v.day <= $2::date AND v.status <> 'cancelled' ORDER BY v.day, v.time_from", [from, to])).rows);
   var shopWaiting = (await pool.query(
@@ -154,7 +154,7 @@ async function board(ctx, q) {
   var services = (await pool.query(SERVICE_SELECT + "WHERE r.status IN ('new', 'visit') OR r.updated_at > now() - interval '30 days' ORDER BY (r.status = 'new') DESC, r.created_at DESC LIMIT 100")).rows;
   var liveFor = new Map((await pool.query("SELECT service_id, min(day) AS day FROM bpl_visits WHERE service_id IS NOT NULL AND status IN ('planned', 'on_way', 'arrived') GROUP BY service_id")).rows.map(function (r) { return [r.service_id, dayText(r.day)]; }));
   return {
-    from: from, to: to, today: today, visits: week, mine: mine, settings: s, canManage: canManage(ctx), canRead: true,
+    from: from, to: to, today: today, visits: week, mine: mine, settings: s, canManage: canManage(ctx), canRead: true, me: me,
     waiting: {
       shop: shopWaiting.map(function (o) {
         return { id: o.id, orderNo: o.order_no, name: o.name, phone: o.phone, email: o.email, address: o.address, area: o.area || '', status: o.status, readyBy: o.ready_by ? dayText(o.ready_by) : null,

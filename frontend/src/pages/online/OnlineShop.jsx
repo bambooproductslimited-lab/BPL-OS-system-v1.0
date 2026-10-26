@@ -13,6 +13,7 @@ import GoesWith from './GoesWith';
 import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
 import { cateringDays, goesWithFor, happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
 import CateringSheet from './Catering';
+import { EventSheet } from './EventAsk';
 import AccountSheet from './AccountSheet';
 import BookSheet from './BookSheet';
 import { GiftBuySheet } from './GiftBuy';
@@ -54,7 +55,7 @@ function partOf(t) { const h = Number(t.slice(0, 2)); return h < 12 ? 'morning' 
 const PARTS = [['morning', '🌅', () => tr('Morning')], ['afternoon', '☀️', () => tr('Afternoon')], ['evening', '🌙', () => tr('Evening')]];
 
 // onTrackMine(order): follow an order of the signed-in customer's (their account).
-export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
+export default function OnlineShop({ code, onTrack, onTrackMine, onBooking, onEvent }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [theme, setTheme] = useState(getInitialTheme);
@@ -80,6 +81,7 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
   const [giftOpen, setGiftOpen] = useState(false);
   // Catering (Catering.jsx): its own basket and guests, then the checkout for it.
   const [catOpen, setCatOpen] = useState(false);
+  const [evOpen, setEvOpen] = useState(false);
   const [catBasket, setCatBasket] = useState([]);
   const [catGuests, setCatGuests] = useState(0);
   const [catCheckout, setCatCheckout] = useState(false);
@@ -168,9 +170,10 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
           </p>
         )}
         {r.note && <p className="on-note">{r.note}</p>}
-        {(r.book || r.gift || (r.catering && r.catering.on)) && (
+        {(r.book || r.gift || (r.catering && r.catering.on) || (r.events && r.events.on)) && (
           <div className="on-hero-btns">
             {r.catering && r.catering.on && <button type="button" className="on-book-btn is-catering" onClick={() => { if (!catGuests) setCatGuests(Math.max(r.catering.minGuests, 20)); setCatOpen(true); }}><span aria-hidden="true">🎉</span>{tr('Catering for events')}<b aria-hidden="true">→</b></button>}
+            {r.events && r.events.on && <button type="button" className="on-book-btn is-events" onClick={() => setEvOpen(true)}><span aria-hidden="true">🥂</span>{tr('Hire our space')}<b aria-hidden="true">→</b></button>}
             {r.book && <button type="button" className="on-book-btn" onClick={() => setBookOpen(true)}><span aria-hidden="true">📅</span>{tr('Book a table')}<b aria-hidden="true">→</b></button>}
             {r.gift && <button type="button" className="on-book-btn is-gift" onClick={() => setGiftOpen(true)}><span aria-hidden="true">🎁</span>{tr('Send a gift card')}<b aria-hidden="true">→</b></button>}
           </div>
@@ -256,6 +259,7 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
       {bookOpen && <BookSheet code={code} account={account} onClose={() => setBookOpen(false)} onBooked={(b) => { setBookOpen(false); onBooking(b.token); }} />}
       {acctOpen && <AccountSheet account={account} onAccount={setAccount} onClose={() => setAcctOpen(false)}
         onFollow={(o) => { setAcctOpen(false); onTrackMine(o); }} onReorder={(o) => { reorder(o); setAcctOpen(false); }} />}
+      {evOpen && <EventSheet code={code} ev={r.events} onClose={() => setEvOpen(false)} onAsked={(token) => { setEvOpen(false); if (onEvent) onEvent(token); }} />}
       {catOpen && <CateringSheet c={r.catering} basket={catBasket} setBasket={setCatBasket} guests={catGuests} setGuests={setCatGuests} onClose={() => setCatOpen(false)} onCheckout={() => { setCatOpen(false); setCatCheckout(true); }} />}
       {catCheckout && (
         <Checkout code={code} r={r} items={r.catering.items} basket={catBasket} subtotal={Math.round(catBasket.reduce((a, l) => a + l.qty * l.price, 0) * 100) / 100}

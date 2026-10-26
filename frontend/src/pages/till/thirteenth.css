@@ -29,11 +29,13 @@
 .prp-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .prp-pills span { padding: 4px 11px; font-size: 12.5px; font-weight: 800; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 6%, transparent); }
 .prp-pills .is-cater { color: #fff; background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+.prp-pills .is-event { color: #fff; background: linear-gradient(135deg, #ec4899, #f43f5e); }
 .prp-pills .is-short { color: #fff; background: #dc2626; }
 .prp-pills small { margin-left: auto; color: var(--color-text-muted); font-size: 12px; }
 .prp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .prp-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--pos-line, var(--color-border)); background: var(--color-surface, var(--color-bg)); animation: prp-in .3s calc(var(--i) * 40ms) ease both; transition: opacity .2s, background .2s; }
 .prp-list li.is-cater { border-left: 5px solid #8b5cf6; }
+.prp-list li.is-event { border-left: 5px solid #ec4899; }
 .prp-list li.is-done { opacity: .62; background: color-mix(in srgb, #10b981 7%, var(--color-surface, var(--color-bg))); }
 .prp-list li.is-done .prp-name strong { text-decoration: line-through; }
 @keyframes prp-in { from { opacity: 0; transform: translateX(-6px); } }
@@ -48,6 +50,7 @@
 .prp-why em { padding: 1px 8px; font-size: 11.5px; font-style: normal; font-weight: 800; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 6%, transparent); }
 .prp-why .is-ahead { color: #1d4ed8; background: color-mix(in srgb, #3b82f6 12%, transparent); }
 .prp-why .is-cater { color: #6d28d9; background: color-mix(in srgb, #8b5cf6 14%, transparent); }
+.prp-why .is-event { color: #be185d; background: color-mix(in srgb, #ec4899 14%, transparent); }
 .prp-why .is-norecipe { color: var(--color-text-muted); font-weight: 600; }
 .prp-total { min-width: 52px; font-size: 26px; font-weight: 900; text-align: right; font-variant-numeric: tabular-nums; }
 .prp-sec h3 { margin: 6px 0 8px; font-size: 15px; }

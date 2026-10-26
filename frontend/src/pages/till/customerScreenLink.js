@@ -61,3 +61,6 @@ export function useCustomerDisplay({ token, state }) {
 
 // Where the ready-for-pickup board opens (till/ReadyBoards.jsx): /ready-board on either site.
 export function boardUrl() { return window.location.origin + '/ready-board'; }
+
+// Where a menu board opens (till/MenuBoards.jsx): /menu-board on either site.
+export function menuBoardUrl() { return window.location.origin + '/menu-board'; }

@@ -68,6 +68,7 @@ export default function PrepDialog({ token, onClose }) {
               <span>🍽️ {tr('{n} dishes', { n: data.dishes.length })}</span>
               {data.ahead.length > 0 && <span>🗓️ {tr('{n} ordered ahead', { n: data.ahead.length })}</span>}
               {data.ahead.some((o) => o.catering) && <span className="is-cater">🎉 {tr('{n} catering', { n: data.ahead.filter((o) => o.catering).length })}</span>}
+              {(data.events || []).length > 0 && <span className="is-event">🥂 {data.events.length === 1 ? tr('1 event') : tr('{n} events', { n: data.events.length })}</span>}
               {data.bookings.count > 0 && <span>📅 {tr('{n} bookings, {guests} guests', { n: data.bookings.count, guests: data.bookings.guests })}</span>}
               {data.short > 0 && <span className="is-short">⚠️ {tr('{n} ingredients short', { n: data.short })}</span>}
               <small>{tr('The usual: the last {weeks} weeks, +{buffer}%', { weeks: data.weeks, buffer: data.buffer })}</small>
@@ -77,7 +78,7 @@ export default function PrepDialog({ token, onClose }) {
             ) : (
               <ul className="prp-list">
                 {data.dishes.map((d, i) => (
-                  <li key={d.id} className={(d.done ? 'is-done' : '') + (d.catering ? ' is-cater' : '')} style={{ '--i': i }}>
+                  <li key={d.id} className={(d.done ? 'is-done' : '') + (d.catering ? ' is-cater' : '') + (d.event ? ' is-event' : '')} style={{ '--i': i }}>
                     <button type="button" className="prp-tick" aria-pressed={!!d.done} disabled={busy === d.key}
                       onClick={() => act(d.done ? { action: 'tick', key: d.key, done: false } : { action: 'tick', key: d.key, qty: d.total }, d.key)}
                       aria-label={d.done ? tr('Not made yet: {name}', { name: d.name }) : tr('Made: {name}', { name: d.name })}>{d.done ? '✓' : ''}</button>
@@ -87,6 +88,7 @@ export default function PrepDialog({ token, onClose }) {
                         {d.fromUsual > 0 && <em>{tr('usual {n}', { n: d.fromUsual })}</em>}
                         {d.ahead > 0 && <em className="is-ahead">🗓️ {tr('ordered {n}', { n: d.ahead })}</em>}
                         {d.catering > 0 && <em className="is-cater">🎉 {tr('catering {n}', { n: d.catering })}{d.serves ? ' · ' + tr('serves {n}', { n: d.serves * d.catering }) : ''}</em>}
+                        {d.event > 0 && <em className="is-event">🥂 {tr('event {n}', { n: d.event })}</em>}
                         {!d.hasRecipe && <em className="is-norecipe">{tr('no recipe')}</em>}
                       </span>
                       {d.done && <small>✓ {tr('{name} at {time}', { name: d.done.by, time: timeOf(d.done.at) })}</small>}
@@ -106,6 +108,16 @@ export default function PrepDialog({ token, onClose }) {
                       <span className="prp-bar" style={{ '--fill': Math.min(1, g.stock / Math.max(g.need, 0.0001)) }}><i /></span>
                       <b>{g.short > 0 ? tr('{n} short', { n: qtyText(g.short, g.unit) }) : '✓'}</b>
                     </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {(data.events || []).length > 0 && (
+              <section className="prp-sec">
+                <h3>🥂 {tr('Events that day')}</h3>
+                <ul className="prp-ahead">
+                  {data.events.map((e) => (
+                    <li key={e.id} className="is-event"><b>{timeOf(e.at)}</b><span><strong>{e.ref} · {e.occasion || tr('Event')} · {e.name}</strong><small>{tr('{n} guests', { n: e.guests })}</small></span></li>
                   ))}
                 </ul>
               </section>

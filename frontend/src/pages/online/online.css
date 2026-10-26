@@ -757,3 +757,42 @@
 :root[data-theme='dark'] .ctg-co-sum, :root[data-theme='dark'] .ctg-co-sum button { color: #c4b5fd; }
 .ctg-track { color: #7c3aed !important; font-weight: 800; }
 @media (prefers-reduced-motion: reduce) { .ctg-art i, .ctg-list li { animation: none; } }
+
+/* Private events (EventAsk.jsx, migration 0195): "Hire our space" and the guest's page. evq- evp- */
+.on-book-btn.is-events { color: #be185d; background: linear-gradient(135deg, #fff, #fdf2f8); }
+:root[data-theme='dark'] .on-book-btn.is-events { color: #f9a8d4; background: var(--on-card); }
+.on-sheet.evq { display: flex; flex-direction: column; gap: 12px; }
+.on-sheet.evq > * { flex: none; }
+.evq-hero { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 18px; background: linear-gradient(135deg, rgba(236, 72, 153, .12), rgba(244, 63, 94, .08)); }
+.evq-hero > div { display: flex; flex-direction: column; gap: 2px; }
+.evq-hero strong { font-size: 16px; }
+.evq-hero small { color: var(--on-muted); font-size: 13px; }
+.evq-hero .evq-note { color: var(--on-ink); font-style: italic; }
+.evq-art { position: relative; display: grid; place-items: center; width: 56px; height: 56px; flex: none; font-size: 30px; border-radius: 18px; background: var(--on-card); box-shadow: 0 10px 22px -16px rgba(236, 72, 153, .8); }
+.evq-art i { position: absolute; font-style: normal; animation: ctg-float 2.4s ease-in-out infinite; }
+.evq-art i:nth-child(1) { top: -10px; right: -8px; font-size: 22px; }
+.evq-art i:nth-child(2) { bottom: -6px; left: -6px; font-size: 16px; animation-delay: .6s; }
+.evq-occ { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.evq-occ button, .evq-spaces button { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font: inherit; font-size: 14px; font-weight: 800; color: var(--on-ink); text-align: left; border: 1px solid var(--on-line); border-radius: 14px; background: var(--on-card); cursor: pointer; transition: transform .12s, border-color .2s; }
+.evq-occ button span { font-size: 20px; }
+.evq-occ button.is-on, .evq-spaces button.is-on { border-color: #ec4899; background: rgba(236, 72, 153, .1); box-shadow: 0 0 0 3px rgba(236, 72, 153, .14); }
+.evq-occ button:active { transform: scale(.96); }
+.evq-when { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.evq-spaces { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.evq-spaces button { flex-direction: column; align-items: flex-start; gap: 0; }
+.evq-spaces button small { font-weight: 600; color: var(--on-muted); }
+.evq-spaces button.is-small small { color: #dc2626; }
+.evq-go { background: linear-gradient(135deg, #ec4899, #f43f5e); }
+.evp-menu { width: 100%; text-align: left; }
+.evp-menu h2 { margin: 6px 0; font-size: 16px; }
+.evp-menu ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.evp-menu li { display: flex; align-items: baseline; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--on-soft); font-weight: 700; font-size: 14px; }
+.evp-menu li small { font-weight: 600; color: var(--on-muted); }
+.evp-price { width: 100%; display: flex; flex-direction: column; gap: 1px; overflow: hidden; border-radius: 16px; background: var(--on-line); text-align: left; }
+.evp-price > div { display: flex; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--on-bg); }
+.evp-price .is-total { font-size: 17px; font-weight: 900; }
+.evp-price .is-dep { color: #b45309; font-weight: 800; }
+.evp-price .is-dep.is-paid { color: #047857; }
+.on-bk.evp.is-confirmed .on-bk-art { background: linear-gradient(135deg, #fbcfe8, #f9a8d4); }
+.on-bk.evp.is-quoted .on-bk-art { background: linear-gradient(135deg, #dbeafe, #bfdbfe); }
+@media (max-width: 420px) { .evq-when { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .evq-when label:first-child { grid-column: 1 / 3; } }

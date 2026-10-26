@@ -5,6 +5,7 @@ import TableShop from './TableShop';
 import OnlineReceipt from './OnlineReceipt';
 import { BookingPage } from './BookSheet';
 import GiftPage from './GiftPage';
+import { EventPage } from './EventAsk';
 import { GiftBoughtPage } from './GiftBuy';
 import { PaidPage, UnsubscribePage } from './GuestPages';
 import { loadAccount } from './onlineShared';
@@ -13,7 +14,7 @@ import { loadAccount } from './onlineShared';
 // followed at /t/<its link> (?t= also works, for testing), and a table's
 // own menu at /q/<its code> — the QR code on the table (?q=), and a till
 // sale's receipt at /receipt/<its link> (?receipt=), a booking at
-// /b/<its link> (?b=), a gift card at /g/<its link> (?g=), back from paying
+// /b/<its link> (?b=), a private event at /e/<its link> (?e=), a gift card at /g/<its link> (?g=), back from paying
 // for one bought here at /gp/<its secret> (?gp=), the stop link of
 // a text or email at /u/<its link> (?u=) and the page after paying the
 // till's QR code at /paid. Which
@@ -26,10 +27,11 @@ function route() {
   const t = window.location.pathname.match(/\/q\/([A-Za-z0-9_-]{8,40})/);
   const rc = window.location.pathname.match(/\/receipt\/([A-Za-z0-9_-]{16,64})/);
   const bk = window.location.pathname.match(/\/b\/([A-Za-z0-9_-]{16,64})/);
+  const ev = window.location.pathname.match(/\/e\/([A-Za-z0-9_-]{16,64})/);
   const g = window.location.pathname.match(/\/g\/([A-Za-z0-9_-]{16,64})/);
   const u = window.location.pathname.match(/\/u\/([A-Za-z0-9_-]{8,40})/);
   const gp = window.location.pathname.match(/\/gp\/([A-Za-z0-9_-]{16,64})/) || String(q.get('gp') || '').match(/^[A-Za-z0-9_-]{16,64}/);
-  return { unsubscribe: u ? u[1] : q.get('u'), paid: /\/paid\/?$/.test(window.location.pathname) || q.has('paid'), track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), booking: bk ? bk[1] : q.get('b'), gift: g ? g[1] : q.get('g'),
+  return { unsubscribe: u ? u[1] : q.get('u'), paid: /\/paid\/?$/.test(window.location.pathname) || q.has('paid'), track: m ? m[1] : q.get('t'), table: t ? t[1] : q.get('q'), receipt: rc ? rc[1] : q.get('receipt'), booking: bk ? bk[1] : q.get('b'), event: ev ? ev[1] : q.get('e'), gift: g ? g[1] : q.get('g'),
     giftBought: gp ? gp[1] || gp[0] : null,
     mine: q.get('mine'), code: q.get('r') || HOME_CODE };
 }
@@ -52,6 +54,7 @@ export default function OnlineSite() {
   if (r.gift) return <GiftPage token={r.gift} />;
   if (r.giftBought) return <GiftBoughtPage secret={r.giftBought} onMenu={(code) => go(menuOf(code))} />;
   if (r.booking) return <BookingPage token={r.booking} onMenu={(code) => go(menuOf(code))} />;
+  if (r.event) return <EventPage token={r.event} onMenu={(code) => go(menuOf(code))} />;
   if (r.table) return <TableShop code={r.table} />;
   // An order of the signed-in customer's own (their account, on any phone).
   const acct = loadAccount();
@@ -60,5 +63,6 @@ export default function OnlineSite() {
     ? <OnlineTrack token={r.track} onMenu={(code) => go(menuOf(code))} />
     : <OnlineShop key={r.code} code={r.code} onTrack={(token) => go(ON_PAGE ? window.location.pathname + '?r=' + r.code + '&t=' + token : '/t/' + token)}
       onBooking={(token) => go(ON_PAGE ? window.location.pathname + '?r=' + r.code + '&b=' + token : '/b/' + token)}
+      onEvent={(token) => go(ON_PAGE ? window.location.pathname + '?r=' + r.code + '&e=' + token : '/e/' + token)}
       onTrackMine={(o) => go((ON_PAGE ? window.location.pathname : '/') + '?r=' + o.restaurant.code + '&mine=' + o.id)} />;
 }

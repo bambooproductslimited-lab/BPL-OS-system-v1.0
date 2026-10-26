@@ -295,6 +295,8 @@ export function buildDrawerReportBytes(report, companyName, cashierName, opts) {
   if (report.vipTopUpsCash > 0) out = out.concat(line(twoColumn('VIP money in cash', money2(report.vipTopUpsCash), width)));
   out = out.concat(line(twoColumn('Cash Refunds', money2(report.cashRefunds), width)));
   out = out.concat(line(twoColumn('Paid In/Out', (report.netPaidInOut < 0 ? '-' : '') + money2(Math.abs(report.netPaidInOut)), width)));
+  if (report.safeDrops > 0) out = out.concat(line(twoColumn('Into the safe', '-' + money2(report.safeDrops), width)));
+  if (report.pettyCash > 0) out = out.concat(line(twoColumn('Petty cash', '-' + money2(report.pettyCash), width)));
   out = out.concat(line(twoColumn('Expected in Drawer', money2(report.expected), width)));
   out = out.concat(line(twoColumn('Actual in Drawer', report.actual == null ? '' : money2(report.actual), width)));
   out = out.concat(line(twoColumn('Difference', report.difference == null ? '' : ((report.difference < 0 ? '-' : '') + money2(Math.abs(report.difference))), width)));
