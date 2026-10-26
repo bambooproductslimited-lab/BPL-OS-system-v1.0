@@ -54,10 +54,11 @@ export function NewOrderCard({ o, settings, selected, onSelect, onAccept, onReje
       </div>
       {!rejecting ? (
         <div className="dl-answer" onClick={(e) => e.stopPropagation()}>
+          {o.catering ? <span className="dl-answer-label">{tr('The kitchen starts on it by itself, its prep time ahead.')}</span> : <>
           <span className="dl-answer-label">{later ? tr('Cooking takes') : tr('Ready in')}</span>
           <div className="dl-chips" role="radiogroup" aria-label={later ? tr('Cooking takes') : tr('Ready in')}>
             {[15, 20, 30, 45, 60].map((m) => <button key={m} type="button" role="radio" aria-checked={mins === m} className={mins === m ? 'is-on' : ''} onClick={() => setMins(m)}>{minText(m)}</button>)}
-          </div>
+          </div></>}
           <div className="dl-answer-go">
             <button type="button" className="btn dl-go" disabled={busy} onClick={() => run(() => onAccept(mins))}>
               {busy ? tr('Accepting…') : later ? '🗓️ ' + tr('Confirm for {time}', { time: clockOf(o.scheduledFor) }) : '✓ ' + tr('Accept and cook')}
@@ -91,6 +92,7 @@ function When({ o, now }) {
       </span>
       <span className="dl-when-text">
         <strong>{tr('For {when}', { when: laterText(o.scheduledFor, now) })}</strong>
+        {o.catering && <span className="dl-cater">🎉 {tr('Catering for {n} guests', { n: o.catering.guests })}</span>}
         <small>{o.fulfillment === 'pickup' ? tr('Ready at the counter then') : tr('At the door then')}
           {toKitchen != null && ' · ' + (toKitchen < 1 ? tr('to the kitchen now') : tr('to the kitchen at {time}, in {m}', { time: clockOf(o.startAt), m: minText(toKitchen) }))}</small>
       </span>

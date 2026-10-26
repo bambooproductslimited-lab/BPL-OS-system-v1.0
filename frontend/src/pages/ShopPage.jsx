@@ -55,7 +55,43 @@ function Stars({ value, size }) {
 }
 function when(iso) { return new Date(iso).toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short', year: 'numeric' }); }
 
-function ItemSheet({ item, onAdd, onClose, onQuote }) {
+// Sold out (backend shopRestock.service, migration 0194): a phone number or
+// an email address, told once when it is back.
+function BackInStock({ item, me }) {
+  const [name, setName] = useState(me && me.name ? me.name : '');
+  const [phone, setPhone] = useState(me && me.phone ? me.phone : '');
+  const [email, setEmail] = useState(me && me.email ? me.email : '');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  const [error, setError] = useState(null);
+  async function ask(e) {
+    e.preventDefault();
+    setBusy(true); setError(null);
+    try { setDone(await call('POST', '/shop/items/' + item.id + '/alert', { name, phone, email })); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  if (done) {
+    return (
+      <div className="rst-done" role="status">
+        <span aria-hidden="true">🔔</span>
+        <div><strong>{tr('We will tell you when it is back')}</strong><small>{done.by === 'email' ? tr('By email, once, as soon as it is back in stock.') : tr('By text, once, as soon as it is back in stock.')}</small></div>
+      </div>
+    );
+  }
+  return (
+    <form className="rst-form" onSubmit={ask}>
+      <div className="rst-form-head"><span aria-hidden="true">🔔</span><div><strong>{tr('Tell me when it\'s back')}</strong><small>{tr('Leave a phone number or an email: we let you know once, as soon as it is back.')}</small></div></div>
+      <input className="input" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={tr('Your name (optional)')} autoComplete="name" aria-label={tr('Your name')} />
+      <div className="rst-two">
+        <input className="input" type="tel" inputMode="tel" value={phone} maxLength={30} onChange={(e) => setPhone(e.target.value)} placeholder={tr('Phone, e.g. 024 412 3456')} autoComplete="tel" aria-label={tr('Phone number')} />
+        <input className="input" type="email" value={email} maxLength={120} onChange={(e) => setEmail(e.target.value)} placeholder={tr('or email')} autoComplete="email" aria-label={tr('Email address')} />
+      </div>
+      {error && <p className="rst-error" role="alert">{error}</p>}
+      <button type="submit" className="shp-go rst-go" disabled={busy || (!phone.trim() && !email.trim())}>{busy ? tr('Sending…') : '🔔 ' + tr('Tell me when it\'s back')}</button>
+    </form>
+  );
+}
+
+function ItemSheet({ item, onAdd, onClose, onQuote, me }) {
   const [vid, setVid] = useState(item.variations[0].id);
   const [qty, setQty] = useState(1);
   const [pic, setPic] = useState(0);
@@ -65,6 +101,7 @@ function ItemSheet({ item, onAdd, onClose, onQuote }) {
     call('GET', '/shop/items/' + item.id + '/reviews').then((r) => setReviews(r.reviews)).catch(() => setReviews([]));
   }, [item.id, item.stars]);
   const v = item.variations.find((x) => x.id === vid);
+  const out = !!(item.soldOut || (v && v.soldOut));
   const photos = item.photos.length ? item.photos : [];
   useEffect(() => {
     const own = photos.findIndex((p) => p.variationId === vid);
@@ -91,12 +128,18 @@ function ItemSheet({ item, onAdd, onClose, onQuote }) {
           {item.variations.length > 1 && (
             <div className="shp-vars" role="radiogroup" aria-label={tr('Choose one')}>
               {item.variations.map((x) => (
-                <button key={x.id} type="button" role="radio" aria-checked={x.id === vid} className={x.id === vid ? 'is-on' : ''} onClick={() => setVid(x.id)}>
-                  <span>{x.name || tr('Standard')}</span><b>{cedis(x.price)}</b>
+                <button key={x.id} type="button" role="radio" aria-checked={x.id === vid} className={(x.id === vid ? 'is-on' : '') + (x.soldOut ? ' is-out' : '')} onClick={() => setVid(x.id)}>
+                  <span>{x.name || tr('Standard')}{x.soldOut && <small className="rst-var-out">{tr('Sold out')}</small>}</span><b>{cedis(x.price)}</b>
                 </button>
               ))}
             </div>
           )}
+          {out ? (
+            <>
+              <p className="rst-out"><span aria-hidden="true">😔</span>{tr('Sold out right now')}</p>
+              <BackInStock key={v ? v.id : item.id} item={item} me={me} />
+            </>
+          ) : (
           <div className="shp-add">
             <div className="shp-qty">
               <button type="button" onClick={() => setQty(Math.max(1, qty - 1))} disabled={qty <= 1} aria-label={tr('Fewer')}>−</button>
@@ -105,6 +148,7 @@ function ItemSheet({ item, onAdd, onClose, onQuote }) {
             </div>
             <button type="button" className="shp-go" onClick={() => onAdd(item, v, qty)}>{tr('Add · {amount}', { amount: cedis(v.price * qty) })}</button>
           </div>
+          )}
           {v.unit && v.unit !== 'each' && <p className="shp-hint">{tr('Price per {unit}', { unit: v.unit })}</p>}
           {onQuote && <button type="button" className="shp-quote-link" onClick={() => onQuote(item)}>📐 {tr('Need another size, or many? Ask for a quote')}</button>}
           {reviews && reviews.length > 0 && (
@@ -293,7 +337,15 @@ export default function ShopPage() {
   const [me, setMe] = useState(null);
   const [going, setGoing] = useState(false);
   const [quote, setQuote] = useState(null); // { item } while asking for a quote
-  useEffect(() => { call('GET', '/shop').then((d) => { setData(d); document.title = d.shop.title; }).catch((e) => setError(e.message)); }, []);
+  useEffect(() => {
+    call('GET', '/shop').then((d) => {
+      setData(d); document.title = d.shop.title;
+      // A link to one item (?item=…, as the back-in-stock message has): its sheet open.
+      const id = new URLSearchParams(window.location.search).get('item');
+      const it = id && d.items.find((i) => i.id === id);
+      if (it) setOpen(it);
+    }).catch((e) => setError(e.message));
+  }, []);
   // Signed in to "My account": their details for the checkout.
   useEffect(() => {
     const token = loadToken();
@@ -351,9 +403,10 @@ export default function ShopPage() {
             const from = Math.min(...it.variations.map((v) => v.price));
             const inCart = cart.filter((c) => c.itemId === it.id).reduce((a, c) => a + c.qty, 0);
             return (
-              <button key={it.id} type="button" className="shp-card" style={{ '--i': Math.min(i, 12) }} onClick={() => setOpen(it)}>
+              <button key={it.id} type="button" className={'shp-card' + (it.soldOut ? ' is-out' : '')} style={{ '--i': Math.min(i, 12) }} onClick={() => setOpen(it)}>
                 <span className="shp-card-pic">{it.photos[0] ? <img src={photoUrl(it.photos[0].id)} alt="" loading="lazy" /> : <span aria-hidden="true">🎋</span>}
-                  {inCart > 0 && <em className="shp-in">{inCart}</em>}</span>
+                  {inCart > 0 && <em className="shp-in">{inCart}</em>}
+                  {it.soldOut && <em className="rst-card-out">{tr('Sold out')}</em>}</span>
                 <span className="shp-card-body">
                   <strong>{it.name}</strong>
                   <small>{it.variations.length > 1 ? tr('{n} choices', { n: it.variations.length }) : it.category}</small>
@@ -372,7 +425,7 @@ export default function ShopPage() {
           <span className="shp-basket-n">{count}</span><span>{tr('Your basket')}</span><strong>{cedis(total)}</strong>
         </button>
       )}
-      {open && <ItemSheet item={open} onAdd={add} onClose={() => setOpen(null)} onQuote={s.quotes ? (it) => { setOpen(null); setQuote({ item: it }); } : null} />}
+      {open && <ItemSheet item={open} me={me} onAdd={add} onClose={() => setOpen(null)} onQuote={s.quotes ? (it) => { setOpen(null); setQuote({ item: it }); } : null} />}
       {quote && <QuoteSheet item={quote.item} me={me} onClose={() => setQuote(null)} />}
       {checkout && <Checkout shop={s} cart={cart} items={items} setCart={setCart} me={me} onClose={() => setCheckout(false)}
         onDone={(r) => {

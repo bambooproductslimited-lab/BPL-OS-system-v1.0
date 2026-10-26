@@ -9,6 +9,7 @@ import { comboBodyOf, comboDraftOf } from './comboDraft';
 import { ALLERGENS, allergenIcon, allergenWords } from './tillService';
 import LabelSheet from '../../components/LabelSheet';
 import './twelfth.css';
+import './thirteenth.css';
 import { saveFile } from '../../lib/saveFile';
 
 // The menu and the stock, kept from the till (restaurantTillMenu.service.js):
@@ -19,7 +20,7 @@ import { saveFile } from '../../lib/saveFile';
 // thrown away, with each one's history. StockTab also opens from the till
 // for whoever's role may count the stock (no manager PIN then).
 
-function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [], sku: '', description: '', itemType: 'Prepared food and beverage', containsAlcohol: null, combo: [] }; }
+function emptyItem(category) { return { name: '', category: category || '', price: '', active: true, trackStock: false, stockQty: '', lowStock: '', variations: [], allergens: [], sku: '', description: '', itemType: 'Prepared food and beverage', containsAlcohol: null, combo: [], serves: 0 }; }
 // Square's item types (backend restaurantTillMenu ITEM_TYPES): the item library downloads in its layout.
 const ITEM_TYPES = [['Prepared food and beverage', msg('Prepared food and drink')], ['Physical good', msg('Physical good')], ['Service', msg('Service')], ['Digital', msg('Digital')], ['Event', msg('Event')], ['Donation', msg('Donation')], ['Membership', msg('Membership')]];
 
@@ -47,7 +48,7 @@ export function MenuTab({ token, pin, onFail }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const d = await call({ action: 'save', item: { ...edit, price: Number(edit.price), lowStock: edit.lowStock === '' ? 0 : Number(edit.lowStock), stockQty: edit.stockQty === '' ? undefined : Number(edit.stockQty), combo: comboBodyOf(edit.combo) } });
+      const d = await call({ action: 'save', item: { ...edit, price: Number(edit.price), lowStock: edit.lowStock === '' ? 0 : Number(edit.lowStock), stockQty: edit.stockQty === '' ? undefined : Number(edit.stockQty), combo: comboBodyOf(edit.combo), serves: Number(edit.serves) || 0 } });
       setData(d); setEdit(null); setFlash(edit.id ? tr('{name} saved. The till shows it now.', { name: edit.name }) : tr('{name} added to the menu.', { name: edit.name }));
     } catch (err) { onFail(err); } finally { setBusy(false); }
   }
@@ -144,6 +145,12 @@ export function MenuTab({ token, pin, onFail }) {
           </div>
         </div>
         <GoesWithPicker edit={edit} items={data.items} onChange={(goesWith) => setEdit({ ...edit, goesWith })} />
+        {/* A catering tray (backend migration 0194): on the website's catering menu only. */}
+        <div className={'ts-mn-tray' + (Number(edit.serves) > 0 ? ' is-on' : '')}>
+          <span className="ts-mn-tray-art" aria-hidden="true">🎉</span>
+          <label htmlFor="mn-serves"><strong>{tr('Catering tray: how many it serves')}</strong><small>{Number(edit.serves) > 0 ? tr('On the website\'s catering menu only, for events ordered days ahead.') : tr('0: an ordinary dish. More: a party tray, on the catering menu.')}</small></label>
+          <input id="mn-serves" className="input" type="number" min="0" max="1000" inputMode="numeric" value={edit.serves || 0} onChange={(e) => setEdit({ ...edit, serves: e.target.value })} />
+        </div>
         <button type="button" role="switch" aria-checked={edit.active} className="ts-toggle-row" onClick={() => setEdit({ ...edit, active: !edit.active })}>
           <span><strong>{tr('On the till')}</strong><small>{tr('Off: hidden from the till for now (sold out for the day, out of season), kept on the menu.')}</small></span>
           <span className={'ts-switch' + (edit.active ? ' is-on' : '')} aria-hidden="true"><i /></span>

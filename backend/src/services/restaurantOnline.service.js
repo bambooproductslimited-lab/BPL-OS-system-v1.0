@@ -177,6 +177,33 @@ async function limitsOut(co, now) {
   return { on: true, nowFull: nowFull, full: full, next: next };
 }
 
+// ── catering (migration 0194) ──
+// Party trays ordered days or weeks ahead for a number of guests: a website
+// order for later, outside the order limits, that the kitchen starts on
+// prepMinutes before its time. On the website when it is on and has trays.
+var CATERING_STEP = 30, MAX_GUESTS = 5000;
+async function cateringOut(co, now) {
+  var c = co.settings.catering;
+  if (!c.on || !(co.settings.delivery || co.settings.pickup)) return { on: false };
+  var m = await menuItems(co.id, true, { catering: true });
+  if (!m.items.length) return { on: false };
+  var first = new Date(now.getTime() + c.leadDays * 86400000), last = new Date(now.getTime() + c.maxDays * 86400000);
+  return { on: true, firstDay: dayOf(first), lastDay: dayOf(last), leadDays: c.leadDays, from: c.from, to: c.to, step: CATERING_STEP,
+    minGuests: c.minGuests, minOrder: c.minOrder, note: c.note, items: m.items };
+}
+// The day and time chosen for a catering order (an ISO time), if on offer: a Date.
+function cateringWhen(co, value, now) {
+  var c = co.settings.catering;
+  var d = new Date(String(value || ''));
+  if (isNaN(d.getTime())) fail('invalid', 'Choose the day and the time of your event.');
+  var day = dayOf(d), first = dayOf(new Date(now.getTime() + c.leadDays * 86400000)), last = dayOf(new Date(now.getTime() + c.maxDays * 86400000));
+  if (day < first) fail('invalid', 'Catering is ordered at least ' + c.leadDays + ' day' + (c.leadDays === 1 ? '' : 's') + ' ahead: the first day on offer is ' + whenText(first + 'T12:00:00Z').split(',')[0] + '.');
+  if (day > last) fail('invalid', 'Catering is ordered up to ' + c.maxDays + ' days ahead: choose an earlier day.');
+  var m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  if (d.getUTCSeconds() || d.getUTCMilliseconds() || m % CATERING_STEP || m < minutesOf(c.from) || m > minutesOf(c.to)) fail('invalid', 'Catering times are from ' + c.from + ' to ' + c.to + ', on the half hour.');
+  return d;
+}
+
 // The codes a restaurant may go by. Company codes are set by hand (Star Bar
 // Restaurant is 'SB' on the live system, 'SBR' in the demo data), so the
 // website's code stands for all of the restaurant's — the same aliases the
@@ -229,19 +256,25 @@ async function categoriesOff(companyId) {
 // photo, sizes, and whether it is sold out; the website's (online) not the
 // dishes or the sections taken off it — the table's QR menu
 // (restaurantTableOrders) has everything on the till's menu.
-async function menuItems(companyId, online) {
+// Catering trays (serves > 0, migration 0194) are on the catering menu
+// only (opts.catering), and not on the others.
+async function menuItems(companyId, online, opts) {
+  var catering = !!(opts && opts.catering);
   var off = online ? await categoriesOff(companyId) : new Set();
-  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key, allergens FROM restaurant_menu_items WHERE company_id = $1 AND active = true' + (online ? ' AND online = true' : '') + ' ORDER BY category, name', [companyId])).rows
+  var rows = (await pool.query('SELECT id, name, category, price, photo_object_key, allergens, serves FROM restaurant_menu_items WHERE company_id = $1 AND active = true' + (online ? ' AND online = true' : '') +
+    (catering ? ' AND serves > 0' : ' AND serves = 0') + ' ORDER BY category, name', [companyId])).rows
     .filter(function (r) { return !off.has(r.category || ''); });
   var vars = rows.length ? (await pool.query('SELECT id, menu_item_id, name, price FROM restaurant_menu_item_variations WHERE menu_item_id = ANY($1::uuid[]) ORDER BY sort_order, created_at',
     [rows.map(function (r) { return r.id; })])).rows : [];
   var items = rows.map(function (r) {
-    return {
+    var item = {
       id: r.id, name: r.name, category: r.category || '', price: Number(r.price),
       photoUrl: restaurantService.menuThumbUrl(r.id, r.photo_object_key), photoFull: fullPhotoUrl(r.id, r.photo_object_key),
       variations: vars.filter(function (v) { return v.menu_item_id === r.id; }).map(function (v) { return { id: v.id, name: v.name, price: Number(v.price) }; }),
       allergens: r.allergens || []
     };
+    if (catering) item.serves = r.serves;
+    return item;
   });
   // Its menu's hours (served only then: notNow outside them), and a happy
   // hour on it now (restaurantTillTimes).
@@ -273,7 +306,9 @@ async function menu(code) {
   // book: tables booked on the website (restaurantBookings onlineOptions);
   // gift: gift cards sold on it (restaurantGiftCards buyOnline).
   // limits: times full (order limits, migration 0193).
-  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online, gift: require('./restaurantGiftCards.service').onlineOptions(till), limits: await limitsOut(co, new Date()) }), categories: m.categories, items: m.items };
+  // catering: its days and times, and its trays (migration 0194).
+  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online, gift: require('./restaurantGiftCards.service').onlineOptions(till), limits: await limitsOut(co, new Date()),
+    catering: await cateringOut(co, new Date()) }), categories: m.categories, items: m.items };
 }
 // The service charge (on the order types it is charged on) and the taxes,
 // for a customer's phone to show the same total the restaurant charges
@@ -344,7 +379,9 @@ async function place(code, p, ip, accountToken) {
   if (account) p = Object.assign({}, p, { name: p.name || account.name, phone: p.phone || account.phone });
   var co = await shopOf(code);
   var s = co.settings;
-  var later = p.scheduledFor != null && p.scheduledFor !== '';
+  var catering = p.catering === true;
+  if (catering && !s.catering.on) fail('conflict', co.name + ' is not taking catering orders online right now.' + (s.phone ? ' Call ' + s.phone + '.' : ''));
+  var later = catering || (p.scheduledFor != null && p.scheduledFor !== '');
   if (!s.open && !later) {
     fail('conflict', co.name + ' is not taking orders online right now.' + (laterOut(s, new Date()).on ? ' Order for later instead.' : s.phone ? ' Call ' + s.phone + '.' : ''));
   }
@@ -354,7 +391,12 @@ async function place(code, p, ip, accountToken) {
   }
   var fulfillment = V.oneOf(p.fulfillment || 'delivery', ['delivery', 'pickup'], 'Delivery or pickup');
   if (!s[fulfillment]) fail('invalid', fulfillment === 'delivery' ? co.name + ' is not delivering right now: pick it up instead.' : co.name + ' only delivers.');
-  var scheduledFor = later ? whenOf(co, p.scheduledFor, fulfillment, new Date()) : null;
+  var scheduledFor = catering ? cateringWhen(co, p.scheduledFor, new Date()) : later ? whenOf(co, p.scheduledFor, fulfillment, new Date()) : null;
+  var guests = null;
+  if (catering) {
+    guests = Math.round(Number(p.guests));
+    if (!(guests >= s.catering.minGuests && guests <= MAX_GUESTS)) fail('invalid', 'How many guests? Catering is for ' + s.catering.minGuests + ' guests or more.');
+  }
   var name = V.text(cleanText(p.name, 80), 'Your name', 80);
   var phone = cleanText(p.phone, 30);
   if (!internationalNumber(phone)) fail('invalid', 'Give a phone number we can call you on.');
@@ -377,13 +419,20 @@ async function place(code, p, ip, accountToken) {
   var dishes = items.reduce(function (a, i) { return a + i.qty; }, 0);
   // Served then (breakfast in the morning), and a happy hour on now goes on its dishes.
   var tillSettings = await access.settingsOf(co.id);
-  times.checkHours(tillSettings, priced.lines, null, scheduledFor || null);
+  if (!catering) times.checkHours(tillSettings, priced.lines, null, scheduledFor || null);
   times.applyHappy(tillSettings, priced.lines);
   // Not a dish taken off the website since the menu was loaded.
   var off = await categoriesOff(co.id);
-  var shown = (await pool.query('SELECT id, name, category, online FROM restaurant_menu_items WHERE id = ANY($1::uuid[])', [priced.lines.map(function (l) { return l.menuItemId; })])).rows;
-  shown.forEach(function (m) { if (!m.online || off.has(m.category || '')) fail('invalid', m.name + ' is not on the website right now. Take it out of your basket.'); });
-  if (s.minOrder > 0 && priced.subtotal < s.minOrder) fail('invalid', 'The smallest order is ' + s.minOrder.toFixed(2) + ' before delivery.');
+  var shown = (await pool.query('SELECT id, name, category, online, serves FROM restaurant_menu_items WHERE id = ANY($1::uuid[])', [priced.lines.map(function (l) { return l.menuItemId; })])).rows;
+  shown.forEach(function (m) {
+    if (!m.online || off.has(m.category || '')) fail('invalid', m.name + ' is not on the website right now. Take it out of your basket.');
+    // Trays on the catering menu, the rest on the other.
+    if (catering && !(m.serves > 0)) fail('invalid', m.name + ' is not on the catering menu.');
+    if (!catering && m.serves > 0) fail('invalid', m.name + ' is ordered as catering: order it from the catering menu.');
+  });
+  if (catering) {
+    if (s.catering.minOrder > 0 && priced.subtotal < s.catering.minOrder) fail('invalid', 'The smallest catering order is ' + s.catering.minOrder.toFixed(2) + ' before delivery.');
+  } else if (s.minOrder > 0 && priced.subtotal < s.minOrder) fail('invalid', 'The smallest order is ' + s.minOrder.toFixed(2) + ' before delivery.');
   var q = delivery.quote(s, priced.subtotal, point, fulfillment);
   if (!q.deliverable) fail('invalid', 'That is ' + q.distanceKm + ' km away by road: ' + co.name + ' delivers up to ' + s.maxKm + ' km. Pick it up instead?');
   var pending = (await pool.query("SELECT count(*)::int AS n FROM restaurant_online_orders WHERE company_id = $1 AND customer_phone = $2 AND (status = 'pending' OR (status = 'unpaid' AND created_at > now() - make_interval(mins => $3)))", [co.id, phone, UNPAID_MINUTES])).rows[0].n;
@@ -395,8 +444,9 @@ async function place(code, p, ip, accountToken) {
   var saved = await withTransaction(async function (client) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('online:' || $1))", [co.id]);
     // Room in its 15 minutes, when the restaurant limits them.
-    var now = new Date(), slot = slotOf(dueOf(s, scheduledFor, now));
-    if (s.limits.on) {
+    // Catering is outside the order limits (no slot).
+    var now = new Date(), slot = catering ? null : slotOf(dueOf(s, scheduledFor, now));
+    if (s.limits.on && !catering) {
       var load = await slotLoad(client, co.id, slot, new Date(slot.getTime() + SLOT_MS));
       if (!hasRoom(s.limits, load.get(slot.getTime()), dishes)) {
         var wide = await slotLoad(client, co.id, slotOf(now), new Date(now.getTime() + (s.later.days + 2) * 86400000));
@@ -408,16 +458,16 @@ async function place(code, p, ip, accountToken) {
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_online_orders WHERE company_id = $1', [co.id])).rows[0].n;
     var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}, items[i].suggested ? { suggested: true } : {}); });
     var row = (await client.query(
-      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id, adjust, status, slot_at, dish_count) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING *',
+      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id, adjust, status, slot_at, dish_count, catering, guests) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27) RETURNING *',
       [co.id, number, hash(token), fulfillment, name, phone, address, landmark, point ? point.lat : null, point ? point.lng : null, cleanText(p.note, 300), payMethod, JSON.stringify(lines),
         priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges), account ? account.id : null, JSON.stringify(bill.adjust || {}),
-        payMethod === 'online' ? 'unpaid' : 'pending', slot, dishes])).rows[0];
+        payMethod === 'online' ? 'unpaid' : 'pending', slot, dishes, catering, guests])).rows[0];
     if (account && p.saveAddress && fulfillment === 'delivery') {
       await client.query('UPDATE restaurant_customer_accounts SET address = $2, landmark = $3, lat = $4, lng = $5, updated_at = now() WHERE id = $1', [account.id, address, landmark, point.lat, point.lng]);
     }
     await activity.log(client, { companyId: co.id, employeeId: null, app: 'online', action: 'online.placed',
-      summary: name + ' ordered ' + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + bill.total.toFixed(2) + (payMethod === 'online' ? ', to pay online' : '') + '.',
+      summary: name + ' ordered ' + (catering ? 'catering for ' + guests + ' guests, ' : '') + ref(number) + ' on the website: ' + (fulfillment === 'delivery' ? 'delivery' : 'pickup') + (scheduledFor ? ' for ' + whenText(scheduledFor) : '') + ', ' + bill.total.toFixed(2) + (payMethod === 'online' ? ', to pay online' : '') + '.',
       amount: bill.total, refType: 'online', refId: row.id });
     return row;
   });
@@ -549,7 +599,7 @@ async function trackOut(o) {
     customer: { name: o.customer_name, phone: o.customer_phone, address: o.address, landmark: o.landmark, lat: o.lat, lng: o.lng },
     items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total), charges: o.charges || {},
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), readyMinutes: o.ready_minutes, rejectReason: o.reject_reason,
-    placedAt: o.created_at, decidedAt: o.decided_at, scheduledFor: o.scheduled_for, canCancel: canCancel(o),
+    placedAt: o.created_at, decidedAt: o.decided_at, scheduledFor: o.scheduled_for, canCancel: canCancel(o), catering: o.catering ? { guests: o.guests } : null,
     here: o.here_at ? { at: o.here_at, note: o.here_note || '', broughtAt: o.brought_at || null } : null, canSayHere: canSayHere(o, stage),
     paid: paidRow ? { status: paidRow.status, amount: round2(paidRow.amount), channel: paidRow.channel || '', refund: paidRow.refund_status ? { status: paidRow.refund_status, at: paidRow.refunded_at } : null } : null,
     payBy: o.status === 'unpaid' ? new Date(new Date(o.updated_at).getTime() + UNPAID_MINUTES * 60000).toISOString() : null,
@@ -644,7 +694,7 @@ function staffOut(o) {
     customer: { name: o.customer_name, phone: o.customer_phone, address: o.address, landmark: o.landmark, lat: o.lat, lng: o.lng },
     items: o.items, note: o.note, payMethod: o.pay_method, subtotal: round2(o.subtotal), deliveryFee: round2(o.delivery_fee), total: round2(o.total),
     distanceKm: o.distance_km == null ? null : Number(o.distance_km), rejectReason: o.reject_reason, readyMinutes: o.ready_minutes,
-    scheduledFor: o.scheduled_for, startAt: o.start_at, startError: o.release_error,
+    scheduledFor: o.scheduled_for, startAt: o.start_at, startError: o.release_error, catering: o.catering ? { guests: o.guests } : null,
     placedAt: o.created_at, decidedAt: o.decided_at, waitingMinutes: Math.max(0, Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000))
   };
 }
@@ -657,7 +707,7 @@ function openTab(session, o) {
     adjust: o.adjust || {}, placed: { adjust: o.adjust || {} },
     label: ref(o.number) + ' ' + o.customer_name, fulfillment: o.fulfillment, customerName: o.customer_name, customerPhone: o.customer_phone,
     deliveryAddress: o.fulfillment === 'delivery' ? (o.address + (o.landmark ? ' · ' + o.landmark : '')) : '',
-    items: items, kitchenNote: [ref(o.number) + ' (website)', o.scheduled_for ? 'for ' + hhmmOf(o.scheduled_for) : '', o.note].filter(Boolean).join(' · ')
+    items: items, kitchenNote: [ref(o.number) + ' (website)', o.catering ? 'CATERING for ' + o.guests + ' guests' : '', o.scheduled_for ? 'for ' + hhmmOf(o.scheduled_for) : '', o.note].filter(Boolean).join(' · ')
   });
 }
 function tabOut(tab) { return tab ? { id: tab.id, total: tab.total, kitchenTicket: tab.kitchenTicket || null } : null; }
@@ -680,6 +730,8 @@ async function accept(token, id, p) {
     if (!now) fail('notfound', 'That order is not this restaurant\'s.');
     fail('conflict', now.status === 'cancelled' ? 'The customer cancelled that order.' : 'Someone has answered that order already.');
   }
+  // Catering: the kitchen starts its prep time before (delivery settings).
+  if (o.catering) readyMinutes = settings.catering.prepMinutes;
   var startAt = o.scheduled_for ? startOf(o, readyMinutes) : null;
   if (startAt && startAt.getTime() > Date.now()) {
     var later = (await pool.query("UPDATE restaurant_online_orders SET status = 'accepted', ready_minutes = $2, start_at = $3, release_error = NULL, updated_at = now() WHERE id = $1 RETURNING *",
@@ -781,7 +833,7 @@ module.exports = {
   siteUrlFor: siteUrlFor, shopOf: shopOf,
   modsFrom: modsFrom, billRules: billRules,
   categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start, here: here, curbside: curbside, brought: brought,
-  releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP, slotOf: slotOf, slotLoad: slotLoad, limitsOut: limitsOut,
+  releaseDue: releaseDue, laterOut: laterOut, cateringOut: cateringOut, staffOut: staffOut, ref: ref, STEP: STEP, slotOf: slotOf, slotLoad: slotLoad, limitsOut: limitsOut,
   settlePaid: settlePaid, payAgain: payAgain, sweepUnpaid: sweepUnpaid, refundFor: refundFor, withPaid: withPaid, UNPAID_MINUTES: UNPAID_MINUTES,
   promo: promo, promoByCode: promoByCode, promoThrottle: promoThrottle
 };

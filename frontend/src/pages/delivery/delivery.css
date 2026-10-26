@@ -411,3 +411,8 @@
 .dl-slot.is-full small { color: #dc2626; }
 .dl-slot.is-full i { background: #ef4444; }
 .dl-limits .dl-limits-eg { grid-column: 1 / -1; margin: 0; }
+
+/* Catering (migration 0194): the tag on an order, the settings' long field. */
+.dl-cater { display: inline-flex; align-self: flex-start; width: fit-content; margin-top: 3px; padding: 2px 10px; font-size: 12px; font-weight: 800; color: #fff; border-radius: 999px; background: linear-gradient(135deg, #8b5cf6, #ec4899); }
+.dl-form .dl-span2 { grid-column: span 2; }
+@media (max-width: 720px) { .dl-form .dl-span2 { grid-column: auto; } }

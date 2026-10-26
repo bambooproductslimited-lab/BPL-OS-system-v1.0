@@ -168,6 +168,7 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
           <div>
             <strong>{dayName(o.scheduledFor, now)} · {clockOf(o.scheduledFor)}</strong>
             <small>{o.fulfillment === 'pickup' ? tr('Ready at the counter') : tr('Brought to your door')}</small>
+            {o.catering && <small className="ctg-track">🎉 {tr('Catering for {n} guests', { n: o.catering.guests })}</small>}
           </div>
           <span className="on-cal-count">{countdown(o.scheduledFor, now)}</span>
         </div>

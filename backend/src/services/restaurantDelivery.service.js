@@ -57,7 +57,12 @@ var DEFAULTS = {
   // Order limits (restaurantOnline, migration 0193): no more than `orders`
   // website orders, and (dishes > 0) no more than `dishes` dishes, due in
   // any 15 minutes; a full time is not offered.
-  limits: { on: false, orders: 6, dishes: 0 }
+  limits: { on: false, orders: 6, dishes: 0 },
+  // Catering (restaurantOnline, migration 0194): party trays (dishes that
+  // serve a number of people) ordered at least leadDays and at most maxDays
+  // ahead, between from and to, for minGuests guests or more, minOrder at
+  // the least; the kitchen starts prepMinutes before the time.
+  catering: { on: false, leadDays: 2, maxDays: 30, from: '09:00', to: '19:00', minGuests: 10, minOrder: 0, prepMinutes: 120, note: '' }
 };
 var SITE = { delivery: function (code) { return code ? online().siteUrlFor(code, 'delivery') : config.deliverySiteUrl; } };
 
@@ -129,6 +134,16 @@ function merged(s) {
   if (typeof lm.on === 'boolean') out.limits.on = lm.on;
   out.limits.orders = Math.round(num(lm.orders, 1, 200, out.limits.orders));
   out.limits.dishes = Math.round(num(lm.dishes, 0, 2000, out.limits.dishes));
+  var ct = s.catering || {};
+  if (typeof ct.on === 'boolean') out.catering.on = ct.on;
+  out.catering.leadDays = Math.round(num(ct.leadDays, 1, 30, out.catering.leadDays));
+  out.catering.maxDays = Math.round(num(ct.maxDays, out.catering.leadDays, 120, Math.max(out.catering.leadDays, out.catering.maxDays)));
+  var cf = hhmm(ct.from), cto = hhmm(ct.to);
+  if (cf && cto && minutesOf(cto) > minutesOf(cf)) { out.catering.from = cf; out.catering.to = cto; }
+  out.catering.minGuests = Math.round(num(ct.minGuests, 1, 1000, out.catering.minGuests));
+  out.catering.minOrder = num(ct.minOrder, 0, 1000000, out.catering.minOrder);
+  out.catering.prepMinutes = Math.round(num(ct.prepMinutes, 30, 720, out.catering.prepMinutes));
+  if (typeof ct.note === 'string') out.catering.note = cleanText(ct.note, 300);
   return out;
 }
 async function settingsRow(companyId, db) {
@@ -218,7 +233,13 @@ async function settings(token, p, ip) {
       if (!lf || !lt) fail('invalid', 'Write the times for orders for later as 11:00.');
       if (minutesOf(lt) <= minutesOf(lf)) fail('invalid', 'The last time for orders for later must be after the first.');
     }
-    var next = merged(Object.assign({}, old, s, later ? { later: later } : {}));
+    var catering = s.catering ? Object.assign({}, merged(old).catering, s.catering) : null;
+    if (catering && (s.catering.from !== undefined || s.catering.to !== undefined)) {
+      var cf = hhmm(catering.from), ct = hhmm(catering.to);
+      if (!cf || !ct) fail('invalid', 'Write the catering times as 09:00.');
+      if (minutesOf(ct) <= minutesOf(cf)) fail('invalid', 'The last catering time must be after the first.');
+    }
+    var next = merged(Object.assign({}, old, s, later ? { later: later } : {}, catering ? { catering: catering } : {}));
     if (next.open && !next.delivery && !next.pickup) fail('invalid', 'Offer delivery, pickup or both to take orders online.');
     await pool.query(
       'INSERT INTO restaurant_delivery_settings (company_id, settings, updated_by, updated_at) VALUES ($1,$2,$3,now()) ' +

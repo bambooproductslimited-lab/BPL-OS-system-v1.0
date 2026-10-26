@@ -5,6 +5,7 @@ var multer = require('multer');
 var shop = require('../services/shop.service');
 var reviews = require('../services/shopReviews.service');
 var quotes = require('../services/shopQuotes.service');
+var restock = require('../services/shopRestock.service');
 var fileStore = require('../lib/fileStore');
 var { allowlistFilter } = require('../lib/uploadFilters');
 
@@ -28,8 +29,8 @@ function limiter() {
     message: { error: { code: 'rate_limited', message: 'Too many tries. Wait a few minutes and try again.' } }
   });
 }
-// Each kind of request counted apart: orders, reviews, quote requests.
-var orderLimiter = limiter(), reviewLimiter = limiter(), quoteLimiter = limiter();
+// Each kind of request counted apart: orders, reviews, quote requests, back-in-stock asks.
+var orderLimiter = limiter(), reviewLimiter = limiter(), quoteLimiter = limiter(), alertLimiter = limiter();
 
 router.get('/shop', async function (req, res, next) {
   try { res.json(await shop.view()); } catch (e) { next(e); }
@@ -55,6 +56,10 @@ router.post('/shop/orders/:token/reviews', reviewLimiter, async function (req, r
 router.get('/shop/items/:id/reviews', async function (req, res, next) {
   try { res.json(await reviews.ofItem(req.params.id)); } catch (e) { next(e); }
 });
+// Sold out: told when it is back (shopRestock.service.js).
+router.post('/shop/items/:id/alert', alertLimiter, async function (req, res, next) {
+  try { res.status(201).json(await restock.ask(req.params.id, req.body, req.ip)); } catch (e) { next(e); }
+});
 // Ask for a quote: what to make, with up to four photos.
 router.post('/shop/quotes', quoteLimiter, quotePhotos.array('photos', quotes.MAX_PHOTOS), async function (req, res, next) {
   try { res.status(201).json(await quotes.ask(req.body, req.files || [], req.ip)); } catch (e) { next(e); }
@@ -74,6 +79,12 @@ router.put('/shop/make-days', requireAuth, async function (req, res, next) {
 });
 router.get('/shop-orders', requireAuth, async function (req, res, next) {
   try { res.json(await shop.list(req.ctx, req.query)); } catch (e) { next(e); }
+});
+router.get('/shop-orders/restock', requireAuth, async function (req, res, next) {
+  try { res.json(await restock.list(req.ctx)); } catch (e) { next(e); }
+});
+router.put('/shop-orders/restock/:id', requireAuth, async function (req, res, next) {
+  try { res.json(await restock.setSoldOut(req.ctx, req.params.id, !!(req.body && req.body.soldOut))); } catch (e) { next(e); }
 });
 router.get('/shop-orders/reviews', requireAuth, async function (req, res, next) {
   try { res.json(await reviews.list(req.ctx, req.query)); } catch (e) { next(e); }

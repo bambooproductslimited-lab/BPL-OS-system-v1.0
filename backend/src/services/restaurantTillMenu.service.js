@@ -126,7 +126,7 @@ function itemOut(r, vars) {
     trackStock: r.track_stock, stockQty: Number(r.stock_qty), lowStock: Number(r.low_stock),
     sold30: r.sold30 == null ? 0 : Number(r.sold30), allergens: r.allergens || [],
     sku: r.sku || '', description: r.description || '', itemType: r.item_type || '', containsAlcohol: r.contains_alcohol == null ? null : r.contains_alcohol,
-    goesWith: r.goes_with || [],
+    goesWith: r.goes_with || [], serves: r.serves || 0,
     variations: vars || []
   };
 }
@@ -294,6 +294,12 @@ async function saveItem(companyId, manager, p) {
       var sugg = require('./restaurantSuggestions.service');
       await client.query('UPDATE restaurant_menu_items SET goes_with = $2 WHERE id = $1', [row.id, await sugg.cleanPicks(client, companyId, row.id, p.goesWith)]);
       sugg.forget(companyId);
+    }
+    // A catering tray (migration 0194): how many it serves; 0, not one.
+    if (p.serves !== undefined) {
+      var serves = p.serves === '' || p.serves == null ? 0 : Math.round(Number(p.serves));
+      if (!(serves >= 0 && serves <= 1000)) fail('invalid', 'Serves: from 0 (not a catering tray) to 1000.');
+      await client.query('UPDATE restaurant_menu_items SET serves = $2 WHERE id = $1', [row.id, serves]);
     }
     // A combo's slots (migration 0183), replaced when sent; who it is bought from (purchase orders).
     if (p.combo !== undefined) await saveCombo(client, companyId, row, p.combo);

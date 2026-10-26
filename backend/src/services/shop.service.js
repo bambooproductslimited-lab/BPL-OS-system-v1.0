@@ -99,7 +99,7 @@ async function visibleItems(s) {
   var where = 'i.active = true';
   if (s.categories.length) { args.push(s.categories); where += ' AND i.category_id = ANY($1::uuid[])'; }
   var rows = (await pool.query(
-    'SELECT i.id, i.name, i.description, i.category_id, i.tax_rate_id, i.make_days_min, i.make_days_max, c.name AS category_name, ' +
+    'SELECT i.id, i.name, i.description, i.category_id, i.tax_rate_id, i.make_days_min, i.make_days_max, i.shop_sold_out, c.name AS category_name, ' +
     "coalesce((SELECT json_agg(json_build_object('id', v.id, 'name', v.name, 'code', v.code, 'unit', v.unit, 'price', v.unit_price, 'stock', v.stock_qty, 'options', v.option_values, 'productId', v.product_id) ORDER BY v.position, v.name) " +
     '  FROM catalog_item_variations v WHERE v.item_id = i.id AND v.active AND v.unit_price > 0), \'[]\') AS variations, ' +
     "coalesce((SELECT json_agg(json_build_object('id', p.id, 'variationId', p.variation_id) ORDER BY p.position, p.created_at) FROM catalog_item_photos p WHERE p.item_id = i.id), '[]') AS photos, " +
@@ -112,7 +112,8 @@ async function visibleItems(s) {
 async function view() {
   var s = await settingsOf();
   if (!s.on) fail('notfound', 'The online shop is closed for now.');
-  var items = await visibleItems(s);
+  // Sold out (migration 0194): by hand, or every choice's stock item ran out.
+  var items = await require('./shopRestock.service').markSoldOut(await visibleItems(s));
   var cats = [];
   items.forEach(function (r) { var n = r.category_name || 'More'; if (cats.indexOf(n) < 0) cats.push(n); });
   var stars = s.reviews.on ? await require('./shopReviews.service').summary(items.map(function (r) { return r.id; })) : {};
@@ -122,9 +123,9 @@ async function view() {
     categories: cats,
     items: items.map(function (r) {
       return {
-        id: r.id, name: r.name, description: r.description || '', category: r.category_name || 'More', options: r.options, makeDays: makeDaysOf(r), stars: stars[r.id] || null,
+        id: r.id, name: r.name, description: r.description || '', category: r.category_name || 'More', options: r.options, makeDays: makeDaysOf(r), stars: stars[r.id] || null, soldOut: r.soldOut,
         photos: r.photos.map(function (p) { return { id: p.id, variationId: p.variationId || null }; }),
-        variations: r.variations.map(function (v) { return { id: v.id, name: v.name === 'Regular' ? '' : v.name, unit: v.unit || 'each', price: round2(v.price), options: v.options || {} }; })
+        variations: r.variations.map(function (v) { return { id: v.id, name: v.name === 'Regular' ? '' : v.name, unit: v.unit || 'each', price: round2(v.price), options: v.options || {}, soldOut: v.soldOut }; })
       };
     })
   };
@@ -243,7 +244,7 @@ async function place(p, ip) {
   if (want.length > MAX_LINES) fail('invalid', 'At most ' + MAX_LINES + ' different items in one order.');
 
   // Priced from the catalogue as it is now.
-  var items = await visibleItems(s);
+  var items = await require('./shopRestock.service').markSoldOut(await visibleItems(s));
   var byVar = {};
   items.forEach(function (it) { it.variations.forEach(function (v) { byVar[v.id] = { item: it, v: v }; }); });
   var commercial = (await pool.query('SELECT commercial FROM settings WHERE id = 1')).rows[0].commercial || {};
@@ -251,6 +252,7 @@ async function place(p, ip) {
   var lines = want.map(function (l) {
     var hit = byVar[String((l || {}).variationId || '')];
     if (!hit) fail('conflict', 'Something in your basket is no longer sold. Take it out and try again.');
+    if (hit.v.soldOut) fail('conflict', displayName(hit.item.name, hit.v.name) + ' is sold out just now. Take it out of your basket; on its page you can ask to be told when it is back.');
     var qty = Number(l.qty);
     if (!(Number.isInteger(qty) && qty >= 1 && qty <= 999)) fail('invalid', 'Each quantity is a whole number from 1 to 999.');
     return { variationId: hit.v.id, itemNo: hit.v.code || '', description: displayName(hit.item.name, hit.v.name).slice(0, 160), qty: qty, unit: hit.v.unit || 'each',
@@ -574,4 +576,4 @@ async function saveMakeDays(ctx, p) {
   return getSettings(ctx);
 }
 
-module.exports = { remind: remind, remindUnpaid: remindUnpaid, _placedBy: placedBy, view: view, photoKey: photoKey, place: place, track: track, invoicePaid: invoicePaid, sweepUnpaid: sweepUnpaid, checkCode: checkCode, saveMakeDays: saveMakeDays, readyOf: readyOf, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };
+module.exports = { visibleItems: visibleItems, remind: remind, remindUnpaid: remindUnpaid, _placedBy: placedBy, view: view, photoKey: photoKey, place: place, track: track, invoicePaid: invoicePaid, sweepUnpaid: sweepUnpaid, checkCode: checkCode, saveMakeDays: saveMakeDays, readyOf: readyOf, customerFor: customerFor, list: list, setStatus: setStatus, getSettings: getSettings, saveSettings: saveSettings, settingsOf: settingsOf };

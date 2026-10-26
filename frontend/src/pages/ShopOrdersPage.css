@@ -194,3 +194,27 @@
 .sho-qr-big { position: fixed; inset: 0; z-index: 2; display: grid; place-items: center; padding: 24px; border: 0; cursor: zoom-out; background: rgba(10, 14, 10, .82); }
 .sho-qr-big img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 14px; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .7); }
 @media (prefers-reduced-motion: reduce) { .sho-rv, .sho-qr, .sho-qr-ph, .sho-ask.is-hot .sho-ask-art { animation: none; } }
+
+/* Sold out and waiting (ShopAsks.jsx RestockDialog; migration 0194). */
+.sho-ask.is-restock .sho-ask-art { background: linear-gradient(135deg, #ffe8cc, #ffc078); }
+.rst-warn { margin: 0; padding: 8px 12px; font-size: 13px; font-weight: 700; color: #92400e; border-radius: 12px; background: #fff7e6; }
+.rst-told { margin: 0; }
+.rst-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 58vh; overflow-y: auto; }
+.rst-list > li { padding: 10px 12px; border-radius: 14px; border: 1px solid var(--color-border); background: var(--color-surface, var(--color-bg)); animation: rst-li .3s calc(var(--i) * 30ms) ease both; }
+.rst-list > li.is-out { border-color: #fdba74; background: color-mix(in srgb, #fb923c 6%, var(--color-surface, var(--color-bg))); }
+.rst-list > li.is-wait { box-shadow: inset 4px 0 0 #f97316; }
+@keyframes rst-li { from { opacity: 0; transform: translateY(5px); } }
+.rst-row { display: flex; align-items: center; gap: 10px; }
+.rst-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rst-name small { font-size: 12px; color: var(--color-text-muted); }
+.rst-state { padding: 2px 10px; font-size: 12px; font-weight: 800; border-radius: 999px; color: #047857; background: color-mix(in srgb, #10b981 13%, transparent); white-space: nowrap; }
+.rst-state.is-out { color: #c2410c; background: color-mix(in srgb, #f97316 15%, transparent); }
+.rst-switch { position: relative; width: 46px; height: 26px; flex: none; padding: 0; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 22%, transparent); cursor: pointer; transition: background .2s; }
+.rst-switch i { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .25); transition: transform .2s; }
+.rst-switch.is-on { background: #10b981; }
+.rst-switch.is-on i { transform: translateX(20px); }
+.rst-people { list-style: none; margin: 8px 0 0; padding: 8px 0 0; display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed var(--color-border); }
+.rst-people li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 13px; }
+.rst-people span { color: var(--color-text-muted); }
+.rst-people small { margin-left: auto; font-size: 12px; color: var(--color-text-muted); }
+@media (prefers-reduced-motion: reduce) { .rst-list > li { animation: none; } }

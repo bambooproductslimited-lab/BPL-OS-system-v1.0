@@ -139,6 +139,7 @@ var ALLOWED = {
   'GET /api/shop/orders/:token': 'a shop order\'s own page for its customer: the long random link is the credential; no phone or email on it (salesTenth.test.js)',
   'POST /api/shop/orders/:token/reviews': 'the customer rates what they bought, once the order is done: the order\'s long random link is the credential; shown only once staff approve (or the shop says so)',
   'GET /api/shop/items/:id/reviews': 'an item\'s reviews on the shop: only those shown, first name and an initial only',
+  'POST /api/shop/items/:id/alert': 'tell me when it is back: a sold-out item on the shop takes a phone or an email, once each, limited per address',
   'POST /api/shop/quotes': 'a customer asks for a quote, with up to four photos (checked by their bytes): limited per address, made a customer and a request for staff',
   'POST /api/portal/signup': 'a customer makes an account on the website: a code to their email or phone, and the customer made only once it is typed back; limited like the sign-in codes',
   'POST /api/portal/code': 'a customer asks for a sign-in code to their email or phone: sent only to an address on file, limited per address and per address of the request',

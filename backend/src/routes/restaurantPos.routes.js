@@ -105,6 +105,25 @@ router.post('/team-notes/read', posAuth, async function (req, res, next) {
 router.post('/team-notes/manage', posAuth, async function (req, res, next) {
   try { res.json(await require('../services/restaurantTeamNotes.service').manage(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// The kitchen's prep list, checklists, and stock sent between restaurants (migration 0194).
+router.post('/prep', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantPrep.service').prep(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/checklists', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantChecklists.service').mine(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/checklists/mark', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantChecklists.service').mark(req.posToken, req.body)); } catch (e) { next(e); }
+});
+router.post('/checklists/manage', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantChecklists.service').manage(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/transfers/waiting', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTransfers.service').waiting(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/transfers', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTransfers.service').transfers(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 // Low stock, suppliers and purchase orders, by a manager.
 router.post('/settings/purchasing', posAuth, async function (req, res, next) {
   try { res.json(await access.purchasing(req.posToken, req.body, req.ip)); } catch (e) { next(e); }

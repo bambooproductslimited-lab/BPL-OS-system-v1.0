@@ -11,7 +11,8 @@ import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShar
 import ItemSheet from './ItemSheet';
 import GoesWith from './GoesWith';
 import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
-import { goesWithFor, happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
+import { cateringDays, goesWithFor, happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
+import CateringSheet from './Catering';
 import AccountSheet from './AccountSheet';
 import BookSheet from './BookSheet';
 import { GiftBuySheet } from './GiftBuy';
@@ -77,6 +78,11 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
   const [acctOpen, setAcctOpen] = useState(false);
   const [bookOpen, setBookOpen] = useState(false);
   const [giftOpen, setGiftOpen] = useState(false);
+  // Catering (Catering.jsx): its own basket and guests, then the checkout for it.
+  const [catOpen, setCatOpen] = useState(false);
+  const [catBasket, setCatBasket] = useState([]);
+  const [catGuests, setCatGuests] = useState(0);
+  const [catCheckout, setCatCheckout] = useState(false);
   const sections = useRef({});
   useEffect(() => { applyTheme(theme); saveTheme(theme); }, [theme]);
   useEffect(() => {
@@ -162,8 +168,9 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
           </p>
         )}
         {r.note && <p className="on-note">{r.note}</p>}
-        {(r.book || r.gift) && (
+        {(r.book || r.gift || (r.catering && r.catering.on)) && (
           <div className="on-hero-btns">
+            {r.catering && r.catering.on && <button type="button" className="on-book-btn is-catering" onClick={() => { if (!catGuests) setCatGuests(Math.max(r.catering.minGuests, 20)); setCatOpen(true); }}><span aria-hidden="true">🎉</span>{tr('Catering for events')}<b aria-hidden="true">→</b></button>}
             {r.book && <button type="button" className="on-book-btn" onClick={() => setBookOpen(true)}><span aria-hidden="true">📅</span>{tr('Book a table')}<b aria-hidden="true">→</b></button>}
             {r.gift && <button type="button" className="on-book-btn is-gift" onClick={() => setGiftOpen(true)}><span aria-hidden="true">🎁</span>{tr('Send a gift card')}<b aria-hidden="true">→</b></button>}
           </div>
@@ -249,6 +256,13 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
       {bookOpen && <BookSheet code={code} account={account} onClose={() => setBookOpen(false)} onBooked={(b) => { setBookOpen(false); onBooking(b.token); }} />}
       {acctOpen && <AccountSheet account={account} onAccount={setAccount} onClose={() => setAcctOpen(false)}
         onFollow={(o) => { setAcctOpen(false); onTrackMine(o); }} onReorder={(o) => { reorder(o); setAcctOpen(false); }} />}
+      {catOpen && <CateringSheet c={r.catering} basket={catBasket} setBasket={setCatBasket} guests={catGuests} setGuests={setCatGuests} onClose={() => setCatOpen(false)} onCheckout={() => { setCatOpen(false); setCatCheckout(true); }} />}
+      {catCheckout && (
+        <Checkout code={code} r={r} items={r.catering.items} basket={catBasket} subtotal={Math.round(catBasket.reduce((a, l) => a + l.qty * l.price, 0) * 100) / 100}
+          setQty={(k, qty) => setCatBasket((b) => (qty <= 0 ? b.filter((x) => lineKey(x) !== k) : b.map((x) => (lineKey(x) === k ? { ...x, qty: Math.min(50, qty) } : x))))}
+          catering={{ guests: catGuests }} onClose={() => { setCatCheckout(false); setCatOpen(true); }} account={account} onSignIn={() => { setCatCheckout(false); setAcctOpen(true); }}
+          onPlaced={(res, leaving) => { save(ORDERS_KEY, [{ ref: res.ref, token: res.token, at: Date.now() }].concat(mine).slice(0, 5)); setCatBasket([]); if (!leaving) onTrack(res.token); }} />
+      )}
       {checkout && (
         <Checkout code={code} r={r} items={data.items} basket={basket} subtotal={subtotal} setQty={setQty} onClose={() => setCheckout(false)} account={account} onSignIn={() => { setCheckout(false); setAcctOpen(true); }}
           onPlaced={(res, leaving) => { save(ORDERS_KEY, [{ ref: res.ref, token: res.token, at: Date.now() }].concat(mine).slice(0, 5)); setBasket([]); if (!leaving) onTrack(res.token); }} />
@@ -280,7 +294,10 @@ function Basket({ basket, subtotal, setQty, onCheckout, open, later }) {
 }
 
 // Checkout: delivered or picked up; when; where; who; how they pay.
-function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced, account, onSignIn }) {
+// catering ({ guests }, Catering.jsx): an order for the catering days and
+// times only, outside the order limits, for that many guests.
+function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced, account, onSignIn, catering }) {
+  const cat = catering && r.catering && r.catering.on ? r.catering : null;
   // A deal's promo code typed (till/PromoCode.jsx): its deal, looked up with the restaurant.
   const [promo, setPromo] = useState(null); // { code, deal }
   const [promoOpen, setPromoOpen] = useState(false);
@@ -303,13 +320,13 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const [error, setError] = useState(null);
   const [locating, setLocating] = useState(false);
   const [fitKey, setFitKey] = useState('start');
-  const later = r.later && r.later.on ? r.later : null;
+  const later = cat ? { on: true, step: cat.step, days: cateringDays(cat) } : r.later && r.later.on ? r.later : null;
   // Paused (busy mode on the till): only orders for later.
-  const paused = !!(r.busy && r.busy.mode === 'paused');
+  const paused = !cat && !!(r.busy && r.busy.mode === 'paused');
   // Order limits (backend restaurantOnline limitsOut): full now, the times full, the next with room.
-  const limits = r.limits && r.limits.on ? r.limits : null;
+  const limits = !cat && r.limits && r.limits.on ? r.limits : null;
   const nowFull = !!(limits && limits.nowFull);
-  const [when, setWhen] = useState(r.open && !paused && !nowFull ? 'now' : 'later');
+  const [when, setWhen] = useState(!cat && r.open && !paused && !nowFull ? 'now' : 'later');
   const [day, setDay] = useState(null);
   const [time, setTime] = useState(null);
   const website = useRef(null);
@@ -317,7 +334,8 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const km = how === 'delivery' ? roadKm(here, pin) : null;
   const fee = how === 'delivery' ? (r.fee.freeOver > 0 && subtotal >= r.fee.freeOver ? 0 : Math.round(r.fee.base + (km != null ? r.fee.perKm * km : 0))) : 0;
   const tooFar = how === 'delivery' && km != null && r.maxKm > 0 && km > r.maxKm;
-  const short = r.minOrder > 0 && subtotal < r.minOrder;
+  const minOrder = cat ? cat.minOrder : r.minOrder;
+  const short = minOrder > 0 && subtotal < minOrder;
   // The service charge and taxes the restaurant adds on this kind of order,
   // as the server works them out (restaurantOnline chargesOf).
   // And a deal (till/promos.js): on the dishes it is on, by itself or with its code.
@@ -350,7 +368,7 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
       save(ME_KEY, { name: name.trim(), phone: phone.trim(), address: address.trim(), landmark: landmark.trim(), lat: pin ? pin.lat : null, lng: pin ? pin.lng : null });
       const res = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/orders', account ? account.token : null, {
         name, phone, fulfillment: how, address, landmark, lat: how === 'delivery' && pin ? pin.lat : null, lng: how === 'delivery' && pin ? pin.lng : null,
-        payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined, saveAddress: account && how === 'delivery' ? saveAddress : undefined, promoCode: promo ? promo.code : undefined,
+        payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined, catering: cat ? true : undefined, guests: cat ? catering.guests : undefined, saveAddress: account && how === 'delivery' ? saveAddress : undefined, promoCode: promo ? promo.code : undefined,
         items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })), suggested: l.suggested || undefined }))
       });
       // Paid online: on to Paystack's page; it brings them back to the order's.
@@ -364,8 +382,9 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
       <form className="on-sheet on-checkout" role="dialog" aria-modal="true" aria-labelledby="on-co-title" onClick={(e) => e.stopPropagation()} onSubmit={place}>
         <div className="on-co-head">
           <button type="button" className="on-x is-plain" onClick={onClose} aria-label={tr('Back')}>←</button>
-          <h2 id="on-co-title">{tr('Checkout')}</h2>
+          <h2 id="on-co-title">{cat ? '🎉 ' + tr('Catering order') : tr('Checkout')}</h2>
         </div>
+        {cat && <p className="ctg-co-sum">👥 {tr('For {n} guests', { n: catering.guests })}<button type="button" onClick={onClose}>{tr('Change')}</button></p>}
         <ul className="on-lines">
           {basket.map((l) => (
             <li key={lineKey(l)}>
@@ -385,15 +404,15 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
 
         {later && (
           <fieldset className="on-fs on-when">
-            <legend>{tr('When')}</legend>
-            <div className="on-how" role="radiogroup" aria-label={tr('When')}>
+            <legend>{cat ? tr('The day and time of your event') : tr('When')}</legend>
+            {!cat && <div className="on-how" role="radiogroup" aria-label={tr('When')}>
               <button type="button" role="radio" aria-checked={when === 'now'} className={when === 'now' ? 'is-on' : ''} disabled={!r.open || paused || nowFull} onClick={() => setWhen('now')}>
                 <span aria-hidden="true">⚡</span><strong>{tr('As soon as possible')}</strong><small>{paused ? tr('Paused for now') : !r.open ? tr('Closed now') : nowFull ? tr('Full right now') : tr('about {m}', { m: minText(r.readyMinutes + (how === 'delivery' ? 10 : 0)) })}</small>
               </button>
               <button type="button" role="radio" aria-checked={when === 'later'} className={when === 'later' ? 'is-on' : ''} onClick={() => setWhen('later')}>
                 <span aria-hidden="true">🗓️</span><strong>{tr('Later')}</strong><small>{chosen ? dayName(dayRow.date) + ' · ' + chosen : tr('choose a day and a time')}</small>
               </button>
-            </div>
+            </div>}
             {nowFull && r.open && !paused && (
               <p className="on-full-now" role="note">⏳ {tr('The kitchen has all the website orders it can make for now.')}
                 {next && <button type="button" onClick={takeNext}>{tr('Order for {time}', { time: dayName(next.slice(0, 10)) + ' · ' + next.slice(11, 16) })}</button>}</p>
@@ -483,7 +502,7 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(bill.total)}</strong></div>
           {bill.taxes.filter((t) => t.included).map((t) => <div key={t.name} className="is-incl"><span>{tr('incl. {tax} {rate}%', { tax: t.name, rate: t.rate })}</span><b>{money(t.amount)}</b></div>)}
           {scheduledFor && <p className="on-when-sum">🗓️ {how === 'pickup' ? tr('Pickup {when}', { when: laterText(scheduledFor) }) : tr('Delivery {when}', { when: laterText(scheduledFor) })}</p>}
-          {short && <p className="on-dist is-bad">{tr('The smallest order is {amount}.', { amount: money(r.minOrder) })}</p>}
+          {short && <p className="on-dist is-bad">{cat ? tr('The smallest catering order is {amount}.', { amount: money(minOrder) }) : tr('The smallest order is {amount}.', { amount: money(minOrder) })}</p>}
         </div>
         {promoOpen && (
           <PromoCodeDialog promotions={[]} channel="online" current={promo ? promo.code : null}

@@ -28,3 +28,13 @@ export function goesWithFor(item, items) {
 }
 // Whether a dish needs choosing (a size, an add-on to pick) before it goes in.
 export function needsChoosing(i) { return (i.variations || []).length > 0 || (i.addOns || []).some((g) => (g.minPick || 0) > 0); }
+
+// Catering (Catering.jsx): the days it may be ordered for, as the
+// checkout's day picker takes them.
+export function cateringDays(c) {
+  const out = [];
+  for (let t = Date.parse(c.firstDay + 'T00:00:00Z'), end = Date.parse(c.lastDay + 'T00:00:00Z'); t <= end && out.length < 60; t += 86400000) {
+    out.push({ date: new Date(t).toISOString().slice(0, 10), from: { delivery: c.from, pickup: c.from }, to: c.to });
+  }
+  return out;
+}

@@ -21,6 +21,9 @@ import { OnToday, MyShifts } from './till/Rota';
 import TimeClock from './till/TimeClock';
 import { WasteDialog } from './till/Waste';
 import TeamNotes from './till/TeamNotes';
+import PrepDialog from './till/Prep';
+import { ChecklistsDialog } from './till/Checklists';
+import { IncomingDialog } from './till/Transfers';
 import { TableMapPicker } from './till/TableMap';
 import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
@@ -406,6 +409,12 @@ export default function RestaurantPosPage() {
   const [wasteOpen, setWasteOpen] = useState(false);
   const [notes, setNotes] = useState(null); // notes for the team: { notes, unread, canWrite }
   const [notesOpen, setNotesOpen] = useState(false);
+  // The kitchen's prep list, today's checklists, stock on its way here (migration 0194).
+  const [prepOpen, setPrepOpen] = useState(false);
+  const [checks, setChecks] = useState(null); // { lists, open }
+  const [checksOpen, setChecksOpen] = useState(false);
+  const [incoming, setIncoming] = useState(null); // { waiting, can }
+  const [incomingOpen, setIncomingOpen] = useState(false);
   const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
   const [drawerLeftOpen, setDrawerLeftOpen] = useState(false); // signed out with a drawer open: it stays open
   const can = (k) => !!(tillAccess && tillAccess.can[k]);
@@ -461,6 +470,18 @@ export default function RestaurantPosPage() {
     setNotes(null); setNotesOpen(false);
     if (!sessionToken) return;
     posFetch('GET', '/pos/team-notes', sessionToken).then((r) => { setNotes(r); if (r.unread > 0) setNotesOpen(true); }).catch(() => {});
+  }, [sessionToken]);
+  // Today's checklists and stock coming in, now and every two minutes.
+  useEffect(() => {
+    setChecks(null); setIncoming(null);
+    if (!sessionToken) return undefined;
+    const load = () => {
+      posFetch('GET', '/pos/checklists', sessionToken).then(setChecks).catch(() => {});
+      posFetch('GET', '/pos/transfers/waiting', sessionToken).then(setIncoming).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 120000);
+    return () => clearInterval(t);
   }, [sessionToken]);
   useEffect(() => {
     if (!session || !session.token) return undefined;
@@ -2285,6 +2306,11 @@ export default function RestaurantPosPage() {
               isManager ? { key: 'office', group: 'manage', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
                 : { key: 'settings', group: 'manage', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
               can('stock') && { key: 'stock', group: 'manage', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
+              (can('till') || can('stock') || can('kds')) && { key: 'prep', group: 'manage', icon: <span className="tl-more-emo">🔪</span>, tone: 'prep', label: tr('Prep list'), note: tr('What to have ready today'), onClick: () => setPrepOpen(true) },
+              checks && checks.lists.length > 0 && { key: 'checklists', group: 'manage', icon: <span className="tl-more-emo">✅</span>, tone: 'checklists', label: tr('Checklists'),
+                note: checks.open ? (checks.open === 1 ? tr('1 to finish today') : tr('{n} to finish today', { n: checks.open })) : tr('All done today'), badge: checks.open || null, onClick: () => setChecksOpen(true) },
+              incoming && incoming.can && incoming.waiting > 0 && { key: 'incoming', group: 'manage', icon: <span className="tl-more-emo">🚚</span>, tone: 'incoming', label: tr('Stock coming in'),
+                note: incoming.waiting === 1 ? tr('1 transfer to count in') : tr('{n} transfers to count in', { n: incoming.waiting }), badge: incoming.waiting, onClick: () => setIncomingOpen(true) },
               (can('till') || can('stock') || can('kds')) && { key: 'waste', group: 'manage', icon: <span className="tl-more-emo">🗑️</span>, tone: 'waste', label: tr('Throw something away'), note: tr('Waste: what, how many, why'), onClick: () => setWasteOpen(true) },
               notes && (notes.notes.length > 0 || notes.canWrite) && { key: 'notes', group: 'manage', icon: <span className="tl-more-emo">📌</span>, tone: 'notes', label: tr('Notes for the team'),
                 note: notes.unread ? (notes.unread === 1 ? tr('1 new note') : tr('{n} new notes', { n: notes.unread })) : notes.notes.length ? tr('{n} up now', { n: notes.notes.length }) : tr('Write one for everyone'), badge: notes.unread || null, onClick: () => setNotesOpen(true) },
@@ -2853,6 +2879,9 @@ export default function RestaurantPosPage() {
           </div>
         </div>
       )}
+      {prepOpen && <PrepDialog token={session.token} onClose={() => setPrepOpen(false)} />}
+      {checksOpen && <ChecklistsDialog token={session.token} onClose={(d) => { if (d) setChecks(d); setChecksOpen(false); }} />}
+      {incomingOpen && <IncomingDialog token={session.token} onClose={(d) => { if (d) setIncoming({ waiting: d.waiting, can: true }); setIncomingOpen(false); }} />}
       {wasteOpen && <WasteDialog token={session.token} onClose={() => setWasteOpen(false)} onToast={setToast} />}
       {notesOpen && <TeamNotes token={session.token} isManager={!!(notes && notes.canWrite)} initial={notes} onClose={(r) => { if (r) setNotes(r); setNotesOpen(false); }} />}
       {dutyBlocks && can('charge') && !drawer && dutyNotice && (

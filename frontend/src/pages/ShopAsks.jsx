@@ -209,3 +209,65 @@ export function QuoteRequestsDialog({ openId, onClose, onChanged }) {
     </div>, document.body
   );
 }
+
+// Sold out on the shop, and who is waiting for it (backend shopRestock
+// .service, migration 0194): staff switch an item sold out by hand, or back
+// on sale — then everyone waiting is told at once (by email or text).
+export function RestockDialog({ onClose, onChanged }) {
+  const { can } = useAuth();
+  const [d, setD] = useState(null);
+  const [q, setQ] = useState('');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [told, setTold] = useState(null);
+  useEffect(() => { api.get('/shop-orders/restock').then(setD).catch((e) => setError(e.message)); }, []);
+  async function flip(it) {
+    setBusy(it.id); setError(null); setTold(null);
+    try {
+      const r = await api.put('/shop-orders/restock/' + it.id, { soldOut: !it.byHand });
+      setD(r); onChanged(r);
+      if (it.byHand) setTold({ name: it.name, n: r.told || 0, left: (r.items.find((x) => x.id === it.id) || {}).waiting || 0 });
+    } catch (e) { setError(e.message); } finally { setBusy(null); }
+  }
+  const words = q.trim().toLowerCase();
+  const items = d ? d.items.filter((it) => !words || (it.name + ' ' + it.category).toLowerCase().includes(words)) : [];
+  return createPortal(
+    <div className="dialog-backdrop" onClick={() => !busy && onClose()}>
+      <div className="dialog sho-dlg is-wide" role="dialog" aria-modal="true" aria-labelledby="rst-title" onClick={(e) => e.stopPropagation()}>
+        <div className="sho-dlg-head">
+          <h2 id="rst-title">🔔 {tr('Sold out and waiting')}</h2>
+          <button type="button" className="sho-code-x" onClick={onClose} aria-label={tr('Close')}>✕</button>
+        </div>
+        <p className="muted">{tr('A sold-out item cannot be bought; customers leave a phone or an email instead. Put it back on sale, or let its stock come in: each is told once.')}</p>
+        {d && (!d.canSend.email || !d.canSend.sms) && (
+          <p className="rst-warn">⚠️ {!d.canSend.email && !d.canSend.sms ? tr('Neither email nor texts are set up: nobody can be told yet. They stay waiting.') : !d.canSend.sms ? tr('Texts are not set up: those who left only a phone wait until they are.') : tr('Email is not set up: those who left only an email wait until it is.')}</p>
+        )}
+        {told && <div className="ts-flash rst-told" role="status">🎉 {told.n === 1 ? tr('{name} is back on sale: 1 person told.', { name: told.name }) : tr('{name} is back on sale: {n} people told.', { name: told.name, n: told.n })}{told.left ? ' ' + tr('{n} still to tell.', { n: told.left }) : ''}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Find an item')} aria-label={tr('Find an item')} />
+        {!d ? <p className="muted">{tr('Loading…')}</p> : !items.length ? <div className="sho-empty is-small"><span aria-hidden="true">🔎</span><strong>{tr('Nothing called that')}</strong></div> : (
+          <ul className="rst-list">
+            {items.map((it, i) => (
+              <li key={it.id} className={(it.soldOut ? 'is-out' : '') + (it.waiting ? ' is-wait' : '')} style={{ '--i': Math.min(i, 12) }}>
+                <div className="rst-row">
+                  <span className="rst-name"><strong>{it.name}</strong>
+                    <small>{it.category}{it.madeToOrder ? ' · 🛠️ ' + tr('made to order') : ''}{it.told ? ' · ' + tr('{n} told in 30 days', { n: it.told }) : ''}</small></span>
+                  <span className={'rst-state' + (it.soldOut ? ' is-out' : '')}>{it.byHand ? tr('Sold out') : it.ranOut ? tr('Ran out of stock') : tr('On sale')}</span>
+                  {it.waiting > 0 && <em className="sho-count">{it.waiting}</em>}
+                  {can('catalog.manage') && (
+                    <button type="button" role="switch" aria-checked={!it.byHand} className={'rst-switch' + (it.byHand ? '' : ' is-on')} disabled={busy === it.id} onClick={() => flip(it)}
+                      title={it.byHand ? tr('Back on sale') : tr('Mark sold out')}><i /></button>
+                  )}
+                </div>
+                {it.people.length > 0 && (
+                  <ul className="rst-people">
+                    {it.people.map((p, k) => <li key={k}><b>{p.name || tr('Someone')}</b><span>{[p.phone, p.email].filter(Boolean).join(' · ')}</span><small>{day(p.at)}</small></li>)}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>, document.body);
+}

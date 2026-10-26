@@ -5,7 +5,7 @@ import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { money } from '../lib/currency';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
-import { QuoteRequestsDialog, ReviewsDialog } from './ShopAsks';
+import { QuoteRequestsDialog, RestockDialog, ReviewsDialog } from './ShopAsks';
 import './ShopOrdersPage.css';
 
 // Online shop (Quotations & Invoicing → Online shop; backend
@@ -202,6 +202,10 @@ export default function ShopOrdersPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [makeOpen, setMakeOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(() => params.get('reviews') === '1');
+  // Sold out and who is waiting (ShopAsks.jsx RestockDialog; migration 0194).
+  const [restock, setRestock] = useState(null);
+  const [restockOpen, setRestockOpen] = useState(() => params.get('restock') === '1');
+  useEffect(() => { api.get('/shop-orders/restock').then(setRestock).catch(() => {}); }, []);
   const [quotesOpen, setQuotesOpen] = useState(() => params.get('quotes') === '1');
   const openId = params.get('open');
   const load = useCallback(() => api.get('/shop-orders' + (filter ? '?status=' + filter : '')).then(setData).catch((e) => setError(e.message)), [filter]);
@@ -269,6 +273,13 @@ export default function ShopOrdersPage() {
           <span><strong>{tr('Quote requests')}</strong><small>{t.quotes ? (t.quotes === 1 ? tr('1 new to price') : tr('{n} new to price', { n: t.quotes })) : tr('None waiting')}</small></span>
           {t.quotes > 0 && <em className="sho-count">{t.quotes}</em>}
         </button>
+        {restock && (
+          <button type="button" className={'sho-ask is-restock' + (restock.waiting ? ' is-hot' : '')} onClick={() => setRestockOpen(true)}>
+            <span className="sho-ask-art" aria-hidden="true">🔔</span>
+            <span><strong>{tr('Sold out and waiting')}</strong><small>{restock.waiting ? (restock.waiting === 1 ? tr('1 customer waiting') : tr('{n} customers waiting', { n: restock.waiting })) : restock.soldOut ? tr('{n} sold out', { n: restock.soldOut }) : tr('Everything on sale')}</small></span>
+            {restock.waiting > 0 && <em className="sho-count">{restock.waiting}</em>}
+          </button>
+        )}
       </div>
 
       <div className="sho-filters" role="tablist" aria-label={tr('Which orders')}>
@@ -333,6 +344,7 @@ export default function ShopOrdersPage() {
       )}
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} onSaved={() => { setSettingsOpen(false); setToast(tr('Shop settings saved.')); load(); }} />}
       {reviewsOpen && <ReviewsDialog onClose={() => setReviewsOpen(false)} onChanged={load} />}
+      {restockOpen && <RestockDialog onClose={() => setRestockOpen(false)} onChanged={setRestock} />}
       {quotesOpen && <QuoteRequestsDialog openId={params.get('quotes') === '1' ? openId : null} onClose={() => setQuotesOpen(false)} onChanged={load} />}
       {makeOpen && <MakeDaysDialog onClose={() => setMakeOpen(false)} onSaved={(n) => { setMakeOpen(false); setToast(tr('Days to make saved for {n} items.', { n })); }} />}
       {toast && <div className="toast" role="status">{toast}</div>}

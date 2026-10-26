@@ -4,7 +4,8 @@ var shop = require('../services/shop.service');
 // Payment links (paymentLinks.service.js sweep): invoices raised from a link
 // and left unpaid, voided after three days; and shop checkouts never paid
 // (shop.service.js sweepUnpaid), reminded once (remindUnpaid) and
-// cancelled after two. Checked every hour.
+// cancelled after two; and those waiting for a sold-out item told when it
+// is back (shopRestock.service.js notifyBack). Checked every hour.
 var INTERVAL_MS = 60 * 60 * 1000;
 
 async function runOnce() {
@@ -22,6 +23,13 @@ async function runOnce() {
     if (reminded) console.log('Shop: ' + reminded + ' unpaid orders reminded.');
   } catch (e) {
     console.error('Shop unpaid sweep failed:', e.message);
+  }
+  // Back in stock (shopRestock.service): those waiting are told.
+  try {
+    var back = await require('../services/shopRestock.service').notifyBack();
+    if (back.told) console.log('Shop: ' + back.told + ' told an item is back in stock.');
+  } catch (e) {
+    console.error('Shop back-in-stock round failed:', e.message);
   }
 }
 

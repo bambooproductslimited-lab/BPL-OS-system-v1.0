@@ -11,6 +11,7 @@ import { buildKitchenChitBytes, buildRunnerTicketBytes, bluetoothSupported, reco
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
 import { allergenWords, clashes } from './till/tillService';
+import PrepDialog from './till/Prep';
 import './till/till.css';
 import '../components/DashKit.css';
 import './RestaurantPosPage.css';
@@ -121,6 +122,7 @@ function whereOf(t) {
 
 export default function KdsPage() {
   const [session, setSession] = useState(null);
+  const [prepOpen, setPrepOpen] = useState(false); // the prep list (till/Prep.jsx)
   const [checked, setChecked] = useState(false);
   const [pin, setPin] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
@@ -494,11 +496,13 @@ export default function KdsPage() {
             : (usbSupported() || bluetoothSupported()) && (
               <button type="button" className="kds-tool is-text" onClick={() => pair(usbSupported() ? 'usb' : 'bluetooth')} title={tr('Tickets print through the print dialog until a printer is connected.')}>🖨 {tr('Connect printer')}</button>
             ))}
+          <button type="button" className="kds-tool is-text" onClick={() => setPrepOpen(true)}>🔪 {tr('Prep list')}</button>
           <DeviceLanguage className="kds-lang" />
           {themeButton}
           <button type="button" className="kds-tool is-text" onClick={logOut}>{tr('Log out')}</button>
         </div>
       </header>
+      {prepOpen && session && <PrepDialog token={session.token} onClose={() => setPrepOpen(false)} />}
 
       {offline && <div className="kds-banner is-offline" role="status">{tr('Cannot reach the server. Showing the last tickets; new ones will come in when it is back.')}</div>}
       {problem && <div className="kds-banner is-bad" role="alert">{problem}</div>}

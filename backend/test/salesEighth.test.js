@@ -18,6 +18,7 @@ var invoicePay = require('../src/services/invoicePay.service');
 var invoices = require('../src/services/invoices.service');
 var reviews = require('../src/services/shopReviews.service');
 var quotes = require('../src/services/shopQuotes.service');
+var restock = require('../src/services/shopRestock.service');
 var fileStore = require('../src/lib/fileStore');
 var mail = require('../src/services/mail.service');
 var { buildContext } = require('../src/services/context.service');
@@ -64,6 +65,7 @@ async function cleanup() {
   await pool.query("DELETE FROM catalog_item_variations WHERE item_id IN (SELECT id FROM catalog_items WHERE name LIKE 'Zqh %')");
   await pool.query("DELETE FROM catalog_items WHERE name LIKE 'Zqh %'");
   await pool.query("DELETE FROM catalog_categories WHERE name LIKE 'Zqh %'");
+  await pool.query("DELETE FROM products WHERE name LIKE 'Zqh %'");
 }
 
 test.before(async function () {
@@ -760,4 +762,60 @@ test('ask for a quote: what, how big, how many, with photos (checked by their by
   assert.equal(closed.status, 'closed');
   assert.deepEqual(await quotes.ofCustomers([mine.customerId]), []);
   assert.equal((await quotes.setStatus(boss, mine.id, { status: 'new' })).status, 'quoted', 'opened again: still priced');
+});
+
+test('tell me when it\'s back: an item sold out by hand, or its stock run out, takes a phone or an email; told once when it is back', async function () {
+  await shop.saveSettings(boss, { on: true, title: 'Zqh Bamboo shop', categories: [catA], delivery: true, pickup: true, pickupAddress: 'Zqh showroom' });
+  config.paystackBpl.secretKey = '';
+  // Sold out by hand: on the shop as such, not bought, asked for.
+  var r = await restock.setSoldOut(boss, item, true);
+  assert.equal(r.items.find(function (i) { return i.id === item; }).byHand, true);
+  var page = await http('GET', '/api/shop');
+  var blind = page.body.items.find(function (i) { return i.id === item; });
+  assert.deepEqual([blind.soldOut, blind.variations.every(function (v) { return v.soldOut; })], [true, true]);
+  await assert.rejects(shop.place({ name: 'Zqh Ama', phone: '0244000123', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] }, '10.7.9.1'), /sold out just now/);
+  var bad = await http('POST', '/api/shop/items/' + item + '/alert', { name: 'Zqh Ama', phone: '12' });
+  assert.equal(bad.status, 400);
+  var none = await http('POST', '/api/shop/items/' + item + '/alert', { name: 'Zqh Ama' });
+  assert.match(none.body.error.message, /phone number or an email/);
+  var ok = await http('POST', '/api/shop/items/' + item + '/alert', { name: 'Zqh Ama Boateng', email: 'zqh.ama@example.com' });
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.by, 'email');
+  await http('POST', '/api/shop/items/' + item + '/alert', { name: 'Zqh Ama Boateng', email: 'ZQH.ama@example.com' });
+  await http('POST', '/api/shop/items/' + item + '/alert', { name: 'Zqh Yaw', phone: '0244000124' });
+  var list = await restock.list(boss);
+  var row = list.items.find(function (i) { return i.id === item; });
+  assert.equal(row.waiting, 2, 'once per address');
+  assert.equal(row.people.length, 2);
+
+  // Its stock item run out: sold out by itself; a made-to-order item never is.
+  var prod = (await pool.query("INSERT INTO products (sku, name, current_stock) VALUES ('ZQH-TRAY', 'Zqh bamboo tray stock', 0) RETURNING id")).rows[0].id;
+  var tray = (await pool.query("INSERT INTO catalog_items (name, category_id, tax_rate_id, active) VALUES ('Zqh bamboo tray', $1, 'tx_zero', true) RETURNING id", [catA])).rows[0].id;
+  await pool.query("INSERT INTO catalog_item_variations (item_id, name, code, unit, unit_price, active, product_id) VALUES ($1, 'Regular', 'ZQH-T', 'each', 80, true, $2)", [tray, prod]);
+  page = await http('GET', '/api/shop');
+  assert.equal(page.body.items.find(function (i) { return i.id === tray; }).soldOut, true);
+  await pool.query('UPDATE catalog_items SET make_days_min = 3, make_days_max = 5 WHERE id = $1', [tray]);
+  page = await http('GET', '/api/shop');
+  assert.equal(page.body.items.find(function (i) { return i.id === tray; }).soldOut, false, 'made to order');
+  await pool.query('UPDATE catalog_items SET make_days_min = NULL, make_days_max = NULL WHERE id = $1', [tray]);
+  await http('POST', '/api/shop/items/' + tray + '/alert', { name: 'Zqh Efua', email: 'zqh.efua@example.com' });
+  var inStock = await http('POST', '/api/shop/items/' + other + '/alert', { email: 'zqh.x@example.com' });
+  assert.equal(inStock.status, 404, 'not on the shop');
+
+  // Back: told once, by email (texts are not set up here: those wait).
+  sent.length = 0;
+  r = await restock.setSoldOut(boss, item, false);
+  assert.equal(r.told, 1);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].subject, /Zqh roller blind is back in stock/);
+  assert.ok(sent[0].text.indexOf('/?item=' + item) > 0);
+  assert.equal((await restock.notifyBack()).told, 0, 'nobody twice; the tray is still out');
+  var waitingSms = (await pool.query("SELECT count(*)::int AS n FROM shop_stock_alerts WHERE item_id = $1 AND notified_at IS NULL AND phone <> ''", [item])).rows[0].n;
+  assert.equal(waitingSms, 1);
+  await pool.query('UPDATE products SET current_stock = 6 WHERE id = $1', [prod]);
+  var round = await restock.notifyBack();
+  assert.equal(round.told, 1);
+  assert.match(sent[sent.length - 1].subject, /Zqh bamboo tray is back in stock/);
+  var placed = await shop.place({ name: 'Zqh Ama', phone: '0244000123', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] }, '10.7.9.2');
+  assert.ok(placed.orderNo, 'back on sale: bought again');
 });

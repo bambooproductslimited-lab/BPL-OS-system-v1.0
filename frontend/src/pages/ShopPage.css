@@ -203,3 +203,27 @@ html:has(.shp), body:has(.shp) { background: #fbfaf5; }
 .shp-quote-btn small { font-size: 12px; color: #3f7d3b; font-weight: 800; }
 @keyframes shp-lift { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .shp-reviews li { animation: none; } }
+
+/* Sold out, and "Tell me when it's back" (migration 0194). */
+.shp-card.is-out .shp-card-pic img, .shp-card.is-out .shp-card-pic > span { filter: grayscale(.7) opacity(.7); }
+.rst-card-out { position: absolute; left: 10px; bottom: 10px; padding: 3px 10px; font-size: 12px; font-weight: 800; font-style: normal; color: #fff; border-radius: 999px; background: rgba(31, 41, 55, .82); backdrop-filter: blur(6px); }
+.rst-out { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; font-size: 15px; font-weight: 800; color: #9a3412; }
+.rst-out span { font-size: 22px; }
+.rst-var-out { display: block; font-size: 11px; font-weight: 800; color: #b45309; }
+.shp-vars button.is-out { opacity: .75; }
+.rst-form { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 18px; border: 1px solid #fcd9a5; background: linear-gradient(135deg, #fff8ec, #fffdf8); animation: rst-in .35s ease both; }
+.rst-form-head { display: flex; align-items: center; gap: 10px; }
+.rst-form-head > span { display: grid; place-items: center; width: 40px; height: 40px; flex: none; font-size: 21px; border-radius: 12px; background: #ffedd1; animation: rst-ring 1.8s ease-in-out 2; }
+.rst-form-head div { display: flex; flex-direction: column; }
+.rst-form-head small { font-size: 12.5px; color: #6b7280; }
+.rst-two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rst-error { margin: 0; font-size: 13px; font-weight: 700; color: #b91c1c; }
+.rst-go { align-self: stretch; }
+.rst-done { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 18px; color: #14532d; background: linear-gradient(135deg, #dcfce7, #f0fdf4); animation: rst-in .35s ease both; }
+.rst-done span { font-size: 26px; animation: rst-ring 1s ease-in-out 2; }
+.rst-done div { display: flex; flex-direction: column; }
+.rst-done small { font-size: 12.5px; opacity: .8; }
+@keyframes rst-in { from { opacity: 0; transform: translateY(6px); } }
+@keyframes rst-ring { 20%, 60% { transform: rotate(-14deg); } 40%, 80% { transform: rotate(14deg); } }
+@media (max-width: 460px) { .rst-two { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .rst-form, .rst-done, .rst-form-head > span, .rst-done span { animation: none; } }

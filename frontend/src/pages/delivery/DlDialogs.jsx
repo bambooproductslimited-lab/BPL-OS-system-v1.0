@@ -276,6 +276,32 @@ export function SettingsDialog({ token, canSettings, onClose, onSaved }) {
                 </div>
               )}
             </fieldset>
+            {form.catering && (
+              <fieldset className="dl-fs">
+                <legend>🎉 {tr('Catering')}</legend>
+                <div className="dl-toggles">
+                  <button type="button" role="switch" aria-checked={form.catering.on} className={'dl-toggle' + (form.catering.on ? ' is-on' : '')} onClick={() => set({ catering: { ...form.catering, on: !form.catering.on } })}>
+                    <span><strong>{tr('Catering on the website')}</strong><small>{tr('Party trays ordered days ahead for an event. A dish is a tray when it serves a number of people: set it on the dish, under Menu.')}</small></span>
+                    <span className={'ts-switch' + (form.catering.on ? ' is-on' : '')} aria-hidden="true"><i /></span>
+                  </button>
+                </div>
+                {form.catering.on && (
+                  <div className="dl-form is-3">
+                    <label><span>{tr('At least, days ahead')}</span><input className="input" type="number" min="1" max="30" value={form.catering.leadDays} onChange={(e) => set({ catering: { ...form.catering, leadDays: e.target.value } })} /></label>
+                    <label><span>{tr('At most, days ahead')}</span><input className="input" type="number" min="1" max="120" value={form.catering.maxDays} onChange={(e) => set({ catering: { ...form.catering, maxDays: e.target.value } })} /></label>
+                    <label><span>{tr('The kitchen starts')}</span>
+                      <select className="input" value={form.catering.prepMinutes} onChange={(e) => set({ catering: { ...form.catering, prepMinutes: Number(e.target.value) } })}>
+                        {[60, 90, 120, 180, 240, 360, 480, 720].map((m) => <option key={m} value={m}>{tr('{m} before', { m: minText(m) })}</option>)}
+                      </select></label>
+                    <label><span>{tr('First time')}</span><input className="input" type="time" step="1800" value={form.catering.from} onChange={(e) => set({ catering: { ...form.catering, from: e.target.value } })} /></label>
+                    <label><span>{tr('Last time')}</span><input className="input" type="time" step="1800" value={form.catering.to} onChange={(e) => set({ catering: { ...form.catering, to: e.target.value } })} /></label>
+                    <label><span>{tr('Guests, at least')}</span><input className="input" type="number" min="1" max="1000" value={form.catering.minGuests} onChange={(e) => set({ catering: { ...form.catering, minGuests: e.target.value } })} /></label>
+                    <label><span>{tr('Smallest order')}</span><input className="input" type="number" min="0" value={form.catering.minOrder} onChange={(e) => set({ catering: { ...form.catering, minOrder: e.target.value } })} /></label>
+                    <label className="dl-span2"><span>{tr('A line for the customers (optional)')}</span><input className="input" maxLength={300} value={form.catering.note} onChange={(e) => set({ catering: { ...form.catering, note: e.target.value } })} placeholder={tr('e.g. Trays come with plates and serving spoons.')} /></label>
+                  </div>
+                )}
+              </fieldset>
+            )}
             {error && <div className="error-banner" role="alert">{error}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>{tr('Cancel')}</button>
