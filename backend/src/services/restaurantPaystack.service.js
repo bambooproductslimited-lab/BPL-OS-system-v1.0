@@ -80,9 +80,9 @@ async function begin(companyId, amount, purpose, employeeId, kioskOrderId, callb
     metadata: { restaurant: co.code, purpose: purpose }
   });
   var row = (await pool.query(
-    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer, meta, online_order_id, booking_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *',
+    'INSERT INTO restaurant_paystack_payments (company_id, reference, amount, purpose, url, created_by, kiosk_order_id, tab_id, tip, payer, meta, online_order_id, booking_id, event_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *',
     [companyId, reference, amount, purpose, String(data.authorization_url || ''), employeeId || null, kioskOrderId || null, extra.tabId || null, round2(extra.tip || 0), String(extra.payer || '').slice(0, 60), extra.meta || {},
-      extra.onlineOrderId || null, extra.bookingId || null])).rows[0];
+      extra.onlineOrderId || null, extra.bookingId || null, extra.eventId || null])).rows[0];
   return out(row);
 }
 
@@ -144,6 +144,7 @@ async function claimFor(client, companyId, refs) {
   for (var i = 0; i < refs.length; i++) {
     var r = await rowOf(companyId, refs[i]);
     if (r.purpose === 'gift') fail('conflict', 'That Paystack payment bought a gift card on the website.');
+    if (r.purpose === 'event') fail('conflict', 'That Paystack payment was the deposit for an event.');
     if (r.status === 'pending') r = await check(r, true);
     if (r.status !== 'success') fail('conflict', r.status === 'pending' ? 'That Paystack payment is not paid yet.' : 'That Paystack payment did not go through.');
     var locked = (await client.query('SELECT * FROM restaurant_paystack_payments WHERE id = $1 FOR UPDATE', [r.id])).rows[0];
@@ -202,6 +203,7 @@ async function webhook(rawBody, signature) {
     if (row && row.purpose === 'gift' && row.status === 'success') await require('./restaurantGiftCards.service').settleOnline(row);
     if (row && row.purpose === 'online' && row.status === 'success') await online().settlePaid(row);
     if (row && row.purpose === 'deposit' && row.status === 'success') await require('./restaurantBookings.service').settleDeposit(row);
+    if (row && row.purpose === 'event' && row.status === 'success') await require('./restaurantEvents.service').settleDeposit(row);
   }
   return { ok: true };
 }

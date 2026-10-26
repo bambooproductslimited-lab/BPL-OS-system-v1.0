@@ -512,7 +512,9 @@ async function track(token) {
     steps: o.steps || {}, placedAt: o.created_at, pickupAddress: o.fulfilment === 'pickup' ? s.pickupAddress : '',
     invoice: o.invoice_no ? { invoiceNo: o.invoice_no, status: o.invoice_status, paid: o.invoice_status === 'paid', balance: round2(o.balance_due), amountPaid: round2(o.amount_paid), token: o.share_token || null } : null,
     payOnline: require('./invoicePay.service').configured(),
-    reviews: await require('./shopReviews.service').forOrder(o)
+    reviews: await require('./shopReviews.service').forOrder(o),
+    // Its delivery or fitting, repair requests and the warranty (migration 0195).
+    after: await require('./bplVisits.service').forOrder(o)
   };
 }
 

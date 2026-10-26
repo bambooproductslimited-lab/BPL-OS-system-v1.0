@@ -89,8 +89,9 @@ async function viewOf(d) {
 // POST /api/pos/display/hello { key } — a screen with its key (as it was),
 // or a new one: its key (kept on the screen) and its code.
 async function hello(key, ip, ua, kind) {
-  // A screen facing the customer, a self-order kiosk, or the ready-for-pickup board.
-  kind = kind === 'kiosk' || kind === 'board' ? kind : 'screen';
+  // A screen facing the customer, a self-order kiosk, the ready-for-pickup
+  // board, or a menu board (migration 0195).
+  kind = ['kiosk', 'board', 'menu'].indexOf(kind) >= 0 ? kind : 'screen';
   var d = key ? await byKey(key) : null;
   if (d && d.kind !== kind) d = null;
   if (d) return Object.assign({ key: key }, kind !== 'screen' ? { kind: kind } : await viewOf(d));

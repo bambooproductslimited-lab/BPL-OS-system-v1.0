@@ -46,6 +46,21 @@ router.get('/online/bookings/:token', h(function (req) { return bookings.onlineM
 router.post('/online/bookings/:token/cancel', h(function (req) { return bookings.onlineCancel(req.params.token); }));
 router.post('/online/bookings/:token/pay', h(function (req) { return bookings.payDeposit(req.params.token); }));
 
+// ── private events (migration 0195): asked for on the website, the guest's
+// own page and its deposit; on the till, the week's events ──
+var events = require('../services/restaurantEvents.service');
+router.post('/online/:code/events', h(function (req) { return events.ask(req.params.code, body(req), req.ip); }));
+router.get('/online/events/:token', h(function (req) { return events.guestView(req.params.token); }));
+router.post('/online/events/:token/pay', h(function (req) { return events.payDeposit(req.params.token); }));
+router.get('/events', h(function (req) { return events.soon(posToken(req)); }));
+router.post('/settings/events', h(function (req) { return events.manage(posToken(req), body(req), req.ip); }));
+
+// ── menu boards (migration 0195): the TV (its key as the bearer token), and the back office ──
+var menuBoards = require('../services/restaurantMenuBoards.service');
+router.post('/menu-board/hello', h(function (req) { return menuBoards.hello(body(req).key, req.ip, req.headers['user-agent']); }));
+router.get('/menu-board', h(function (req) { return menuBoards.view(posToken(req)); }));
+router.post('/settings/menu-boards', h(function (req) { return menuBoards.manage(posToken(req), body(req), req.ip); }));
+
 // ── the customer's screen (its key as the bearer token) and the till's side of it ──
 router.post('/display/hello', h(function (req) { return displays.hello(body(req).key, req.ip, req.headers['user-agent']); }));
 router.get('/display', h(function (req) { return displays.view(posToken(req)); }));

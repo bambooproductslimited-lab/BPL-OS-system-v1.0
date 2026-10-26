@@ -307,8 +307,9 @@ async function menu(code) {
   // gift: gift cards sold on it (restaurantGiftCards buyOnline).
   // limits: times full (order limits, migration 0193).
   // catering: its days and times, and its trays (migration 0194).
+  // events: its spaces hired for private events (migration 0195).
   return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online, gift: require('./restaurantGiftCards.service').onlineOptions(till), limits: await limitsOut(co, new Date()),
-    catering: await cateringOut(co, new Date()) }), categories: m.categories, items: m.items };
+    catering: await cateringOut(co, new Date()), events: await require('./restaurantEvents.service').publicOf(co.id) }), categories: m.categories, items: m.items };
 }
 // The service charge (on the order types it is charged on) and the taxes,
 // for a customer's phone to show the same total the restaurant charges

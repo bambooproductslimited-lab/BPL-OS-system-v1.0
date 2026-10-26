@@ -30,7 +30,13 @@ function limiter() {
   });
 }
 // Each kind of request counted apart: orders, reviews, quote requests, back-in-stock asks.
-var orderLimiter = limiter(), reviewLimiter = limiter(), quoteLimiter = limiter(), alertLimiter = limiter();
+var orderLimiter = limiter(), reviewLimiter = limiter(), quoteLimiter = limiter(), alertLimiter = limiter(), repairLimiter = limiter();
+var visits = require('../services/bplVisits.service');
+var repairPhotos = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: visits.MAX_PHOTO_BYTES, files: visits.MAX_PHOTOS, fields: 20 },
+  fileFilter: allowlistFilter(['jpg', 'jpeg', 'png', 'webp'], 'Add photos (JPG, PNG or WebP).')
+});
 
 router.get('/shop', async function (req, res, next) {
   try { res.json(await shop.view()); } catch (e) { next(e); }
@@ -49,6 +55,13 @@ router.get('/shop/code', async function (req, res, next) {
 });
 router.get('/shop/orders/:token', async function (req, res, next) {
   try { res.json(await shop.track(req.params.token)); } catch (e) { next(e); }
+});
+// Something wrong with what was bought: a repair asked for from the order's page, and followed (migration 0195).
+router.post('/shop/orders/:token/service', repairLimiter, repairPhotos.array('photos', visits.MAX_PHOTOS), async function (req, res, next) {
+  try { res.json(await visits.ask(req.params.token, req.body, req.files, req.ip)); } catch (e) { next(e); }
+});
+router.get('/shop/service/:token', async function (req, res, next) {
+  try { res.json(await visits.serviceView(req.params.token)); } catch (e) { next(e); }
 });
 router.post('/shop/orders/:token/reviews', reviewLimiter, async function (req, res, next) {
   try { res.json(await reviews.rate(req.params.token, req.body)); } catch (e) { next(e); }

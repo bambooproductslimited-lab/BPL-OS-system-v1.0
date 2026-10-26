@@ -52,18 +52,20 @@ async function plan(companyId, day) {
       m.set(l.menuItemId, (m.get(l.menuItemId) || 0) + Number(l.qty || 0));
     });
   });
-  var ids = Array.from(new Set(Array.from(usual.keys()).concat(Array.from(ahead.keys()), Array.from(catering.keys()))));
+  // Private events booked that day (migration 0195): so many portions a guest.
+  var ev = await require('./restaurantEvents.service').forPrep(companyId, day);
+  var ids = Array.from(new Set(Array.from(usual.keys()).concat(Array.from(ahead.keys()), Array.from(catering.keys()), Array.from(ev.dishes.keys()))));
   var menu = ids.length ? (await pool.query('SELECT id, name, category, serves FROM restaurant_menu_items WHERE company_id = $1 AND id = ANY($2::uuid[]) AND active', [companyId, ids])).rows : [];
   var ticks = new Map((await pool.query(
     "SELECT t.item_key, t.qty, t.done_at, e.first_name, e.last_name FROM restaurant_prep_ticks t LEFT JOIN employees e ON e.id = t.done_by WHERE t.company_id = $1 AND t.day = $2", [companyId, day])).rows
     .map(function (r) { return [r.item_key, { qty: r.qty == null ? null : Number(r.qty), at: r.done_at, by: nameOf(r) }]; }));
   var dishes = menu.map(function (m) {
-    var u = usual.get(m.id) || 0, a = ahead.get(m.id) || 0, c = catering.get(m.id) || 0;
+    var u = usual.get(m.id) || 0, a = ahead.get(m.id) || 0, c = catering.get(m.id) || 0, e = ev.dishes.get(m.id) || 0;
     var fromUsual = u > 0 ? Math.ceil(u * (1 + s.buffer / 100) - 1e-9) : 0;
-    return { id: m.id, key: 'menu:' + m.id, name: m.name, category: m.category || '', serves: m.serves || 0, usual: round2(u), fromUsual: fromUsual, ahead: a, catering: c,
-      total: fromUsual + a + c, done: ticks.get('menu:' + m.id) || null };
+    return { id: m.id, key: 'menu:' + m.id, name: m.name, category: m.category || '', serves: m.serves || 0, usual: round2(u), fromUsual: fromUsual, ahead: a, catering: c, event: e,
+      total: fromUsual + a + c + e, done: ticks.get('menu:' + m.id) || null };
   }).filter(function (d) { return d.total > 0; })
-    .sort(function (x, y) { return (y.catering - x.catering) || (y.ahead - x.ahead) || (y.total - x.total) || x.name.localeCompare(y.name); });
+    .sort(function (x, y) { return (y.catering + y.event - x.catering - x.event) || (y.ahead - x.ahead) || (y.total - x.total) || x.name.localeCompare(y.name); });
   // The ingredients those take (the dish's own recipe; a dish with sizes only: its first size's).
   var need = new Map();
   if (dishes.length) {
@@ -95,7 +97,8 @@ async function plan(companyId, day) {
       return { id: o.id, ref: 'W-' + String(o.number).padStart(4, '0'), name: o.customer_name, at: o.scheduled_for, status: o.status, fulfillment: o.fulfillment,
         catering: o.catering ? { guests: o.guests } : null, dishes: (o.items || []).reduce(function (a, l) { return a + Number(l.qty || 0); }, 0) };
     }),
-    bookings: { count: booked.n, guests: booked.guests }
+    bookings: { count: booked.n, guests: booked.guests },
+    events: ev.events
   };
 }
 

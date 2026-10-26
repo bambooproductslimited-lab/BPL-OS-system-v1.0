@@ -185,6 +185,8 @@ app.use('/api/production', productionRoutes);
 app.use('/api/procurement', procurementRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/waybills', waybillsRoutes);
+// Bamboo Products' deliveries, fitting and repairs (migration 0195).
+app.use('/api/visits', require('./routes/bplVisits.routes'));
 app.use('/api/tool-room', toolRoomRoutes);
 app.use('/api/restaurant', restaurantRoutes);
 app.use('/api/restaurant-crm', restaurantCrmRoutes);

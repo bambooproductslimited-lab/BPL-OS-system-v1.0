@@ -1464,16 +1464,22 @@ async function buildReport(session, client) {
   // Cash kept in cedis (a foreign-money sale gives its change in cedis),
   // and foreign notes, which are counted apart.
   var sales = await money.cashSales(db, session.cashier_id, session.company_id, session.opened_at, endTime);
+  // Out of the drawer: paid out, put in the safe (drop) or petty cash spent
+  // (the cash office, migration 0195) — each its own line.
   var movementsRes = await db.query(
-    "SELECT direction, coalesce(sum(amount), 0) AS total FROM restaurant_drawer_movements WHERE session_id = $1 GROUP BY direction",
+    "SELECT direction, kind, coalesce(sum(amount), 0) AS total FROM restaurant_drawer_movements WHERE session_id = $1 GROUP BY direction, kind",
     [session.id]
   );
-  var paidIn = 0, paidOut = 0;
+  var paidIn = 0, paidOut = 0, safeDrops = 0, pettyCash = 0;
   movementsRes.rows.forEach(function (r) {
-    if (r.direction === 'in') paidIn = Number(r.total); else paidOut = Number(r.total);
+    var t = Number(r.total);
+    if (r.direction === 'in') paidIn += t;
+    else if (r.kind === 'drop') safeDrops += t;
+    else if (r.kind === 'petty') pettyCash += t;
+    else paidOut += t;
   });
   var movementsListRes = await db.query(
-    'SELECT id, direction, amount, note, created_at FROM restaurant_drawer_movements WHERE session_id = $1 ORDER BY created_at',
+    'SELECT id, direction, amount, note, created_at, kind, category, paid_to, (photo IS NOT NULL) AS has_photo FROM restaurant_drawer_movements WHERE session_id = $1 ORDER BY created_at',
     [session.id]
   );
   var startingCash = Number(session.starting_cash);
@@ -1484,16 +1490,16 @@ async function buildReport(session, client) {
   var other = await money.drawerCash(db, session.cashier_id, session.company_id, session.opened_at, endTime);
   var cashRefunds = other.refunds;
   var netPaidInOut = paidIn - paidOut;
-  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps + other.giftSold - cashRefunds - other.vipCashOuts - other.iouLent - other.giftVoided + netPaidInOut) * 100) / 100;
+  var expected = Math.round((startingCash + cashSales + other.iouPaid + other.vipTopUps + other.giftSold - cashRefunds - other.vipCashOuts - other.iouLent - other.giftVoided + netPaidInOut - safeDrops - pettyCash) * 100) / 100;
   var actual = session.closing_actual_cash == null ? null : Number(session.closing_actual_cash);
   return {
     session: rowToSession(session),
     startingCash: startingCash, cashSales: cashSales, cashRefunds: cashRefunds, iouPaidCash: other.iouPaid, vipTopUpsCash: other.vipTopUps, foreignCash: sales.foreign,
     vipCashOutsCash: other.vipCashOuts, iouLentCash: other.iouLent, giftSoldCash: other.giftSold, giftVoidedCash: other.giftVoided,
-    paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut,
+    paidIn: paidIn, paidOut: paidOut, netPaidInOut: netPaidInOut, safeDrops: Math.round(safeDrops * 100) / 100, pettyCash: Math.round(pettyCash * 100) / 100,
     expected: expected, actual: actual, difference: actual == null ? null : Math.round((actual - expected) * 100) / 100,
     movements: movementsListRes.rows.map(function (m) {
-      return { id: m.id, direction: m.direction, account: null, amount: Number(m.amount), note: m.note, createdAt: m.created_at };
+      return { id: m.id, direction: m.direction, account: null, amount: Number(m.amount), note: m.note, createdAt: m.created_at, kind: m.kind, category: m.category || null, paidTo: m.paid_to || null, hasPhoto: !!m.has_photo };
     }).concat(await money.accountMoves(db, session.cashier_id, session.company_id, session.opened_at, endTime))
       .sort(function (a, b) { return new Date(a.createdAt) - new Date(b.createdAt); })
   };
@@ -1700,5 +1706,5 @@ module.exports = {
   guestsForSession: guestsForSession, createGuestForSession: createGuestForSession, guestContact: guestContact,
   listTabs: listTabs, saveTab: saveTab, saveTabFor: saveTabFor, removeTab: removeTab, fireCourse: fireCourse, tabRows: tabRows, priceLines: priceLines, FEE_NAME: FEE_NAME,
   shiftSummary: shiftSummary, receiptForSession: receiptForSession, verifyPosToken: verifyPosToken,
-  closeDrawerFor: closeDrawerFor, signOut: signOut, drawerHistory: drawerHistory, raiseDispute: raiseDispute
+  closeDrawerFor: closeDrawerFor, signOut: signOut, drawerHistory: drawerHistory, raiseDispute: raiseDispute, buildReport: buildReport
 };

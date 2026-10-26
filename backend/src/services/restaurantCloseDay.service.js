@@ -80,7 +80,9 @@ async function summary(companyId, day) {
     }),
     drawerTotals: drawers.totals,
     openOrders: { count: openTabs.length, amount: round2(openTabs.reduce(function (a, x) { return a + Number(x.total || 0); }, 0)) },
-    lowStock: { count: low.length, items: low.slice(0, 6).map(function (x) { return { name: x.name, stock: x.stock, unit: x.unit, out: x.out }; }) }
+    lowStock: { count: low.length, items: low.slice(0, 6).map(function (x) { return { name: x.name, stock: x.stock, unit: x.unit, out: x.out }; }) },
+    // The cash office (migration 0195): put in the safe, petty cash, banked.
+    cash: await require('./restaurantCashOffice.service').dayOf(companyId, day)
   };
 }
 
@@ -112,6 +114,15 @@ function words(s, by) {
     s.drawers.forEach(function (d) {
       L.push('• ' + d.cashier + ': ' + (d.status === 'open' ? 'still open' : d.difference === 0 ? 'counted right' : d.difference < 0 ? money(-d.difference) + ' short' : money(d.difference) + ' over'));
     });
+  }
+  var c = s.cash;
+  if (c && (c.drops.count || c.petty.count || c.banked.count)) {
+    L.push('');
+    L.push('Cash office:');
+    if (c.drops.count) L.push('• Into the safe: ' + money(c.drops.amount));
+    if (c.petty.count) L.push('• Petty cash: ' + money(c.petty.amount) + (c.petty.noReceipt ? ' (' + c.petty.noReceipt + ' without a receipt)' : ''));
+    if (c.banked.count) L.push('• Banked: ' + money(c.banked.amount));
+    L.push('• The safe should hold: ' + money(c.safe));
   }
   if (s.openOrders.count) L.push('Orders still open: ' + s.openOrders.count + ', ' + money(s.openOrders.amount));
   if (s.sales.iouOpen) L.push('IOUs not paid: ' + s.sales.iouOpen + ', ' + money(s.sales.iouOwed));

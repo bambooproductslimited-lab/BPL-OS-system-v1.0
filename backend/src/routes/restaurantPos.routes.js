@@ -124,6 +124,23 @@ router.get('/transfers/waiting', posAuth, async function (req, res, next) {
 router.post('/transfers', posAuth, async function (req, res, next) {
   try { res.json(await require('../services/restaurantTransfers.service').transfers(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// The cash office (migration 0195): cash into the safe and petty cash from
+// the drawer; the safe, the bank and petty cash in the back office.
+router.post('/cash-office/drop', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantCashOffice.service').drop(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/cash-office/petty', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantCashOffice.service').petty(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/cash-office/photo/:kind/:id', posAuth, async function (req, res, next) {
+  try {
+    var f = await require('../services/restaurantCashOffice.service').photoOf(req.posToken, req.params.kind, req.params.id);
+    await require('../lib/fileStore').send(res, f.key, f.name, true);
+  } catch (e) { next(e); }
+});
+router.post('/settings/cash-office', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantCashOffice.service').office(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 // Low stock, suppliers and purchase orders, by a manager.
 router.post('/settings/purchasing', posAuth, async function (req, res, next) {
   try { res.json(await access.purchasing(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
