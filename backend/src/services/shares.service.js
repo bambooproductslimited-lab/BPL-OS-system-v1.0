@@ -88,8 +88,10 @@ async function documentView(documentType, documentId) {
     [share.document_type, share.document_id]
   );
   var items = itemsRes.rows.map(function (r) {
-    return { description: r.description, notes: r.notes, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), packageLabel: r.package_label || '' };
+    return { description: r.description, notes: r.notes, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), packageLabel: r.package_label || '', optionKey: r.option_key || '' };
   });
+  // A quotation's options for the customer to choose from (migration 0193).
+  var options = share.document_type === 'quotation' && (d.options || []).length ? require('./quotations.service').optionsOut(d, items) : [];
 
   var custRes = await pool.query('SELECT name, email, phone, address FROM customers WHERE id = $1', [d.customer_id]);
   var cust = custRes.rows[0] || { name: '', email: '', phone: '', address: '' };
@@ -170,7 +172,8 @@ async function documentView(documentType, documentId) {
     creditTotal: Number(d.credit_total || 0),
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,
     notes: notes || '', terms: d.terms || '', customer: cust, paymentSchedule: d.payment_schedule || [],
-    payments: payments, answer: answer, answerState: answerState, pay: pay
+    payments: payments, answer: answer, answerState: answerState, pay: pay,
+    options: options, optionChosen: share.document_type === 'quotation' ? d.option_chosen || null : null
   };
 }
 

@@ -6,6 +6,7 @@ import { groupPackageItems } from '../lib/packages';
 import { tr, docTr, msg } from '../lib/i18n.jsx';
 import './DocWizard.css';
 import { docCodeLabel } from '../lib/codeLabels.js';
+import { linesForOption, optionLetter } from '../lib/docOptions';
 
 // Shared 3-step create flow for Quotations/Estimates/Invoices, modeled on
 // Square's own "Details -> Estimate/Invoice -> Finish & update" wizard
@@ -25,12 +26,16 @@ export default function DocWizard({
   title, docKind, detailsSlot, message, onMessageChange, messageLabel,
   items, onItemsChange, catalogOptions, stockProducts, currency,
   docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
-  paymentSchedule, onPaymentScheduleChange,
+  paymentSchedule, onPaymentScheduleChange, options, onOptionsChange,
   recapBlocks, submitLabel, saving, error, onSubmit, onClose
 }) {
   const [step, setStep] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const totals = computeRecapTotals(items, docDiscount, docTaxRate);
+  // A quotation's options: the totals shown are the first option's, as
+  // the server keeps them, and each option's on the last step.
+  const opts = options || [];
+  const optName = (o) => o.name || tr('Option {letter}', { letter: optionLetter(o.key) });
+  const totals = computeRecapTotals(opts.length ? linesForOption(items, opts[0].key) : items, docDiscount, docTaxRate);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -44,7 +49,7 @@ export default function DocWizard({
   const customerName = (recapBlocks && recapBlocks[0] && recapBlocks[0].value) || '';
   const secondBlock = (recapBlocks && recapBlocks[1]) || null;
   const kindLabel = docKind ? docCodeLabel(docKind) : docTr('Document');
-  const previewItems = groupPackageItems(items, currency);
+  const previewItems = groupPackageItems(opts.length ? items.map((it) => (it.optionKey ? { ...it, description: '[' + optName(opts.find((o) => o.key === it.optionKey) || { key: it.optionKey }) + '] ' + it.description } : it)) : items, currency);
   const previewSchedule = (paymentSchedule || []).filter((r) => Number(r.value) > 0).map((r) => ({
     label: r.label || docTr('Installment'),
     dueDate: r.dueDate || '—',
@@ -88,6 +93,7 @@ export default function DocWizard({
               docDiscount={docDiscount} onDocDiscountChange={onDocDiscountChange}
               docTaxRate={docTaxRate} onDocTaxRateChange={onDocTaxRateChange}
               paymentSchedule={paymentSchedule} onPaymentScheduleChange={onPaymentScheduleChange}
+              options={options} onOptionsChange={onOptionsChange}
             />
           </div>
         )}
@@ -102,7 +108,9 @@ export default function DocWizard({
               <div className="docwizard-recap-row"><span>{tr('Subtotal')}</span><span>{money(totals.subtotal, currency)}</span></div>
               <div className="docwizard-recap-row"><span>{tr('Discount')}</span><span>{money(totals.discountTotal, currency)}</span></div>
               <div className="docwizard-recap-row"><span>{tr('Tax')}</span><span>{money(totals.taxTotal, currency)}</span></div>
-              <div className="docwizard-recap-row docwizard-recap-total"><span>{tr('Total')}</span><span>{money(totals.grandTotal, currency)}</span></div>
+              {opts.length ? opts.map((o) => (
+                <div className="docwizard-recap-row docwizard-recap-total" key={o.key}><span>{optionLetter(o.key)} · {optName(o)}</span><span>{money(computeRecapTotals(linesForOption(items, o.key), docDiscount, docTaxRate).grandTotal, currency)}</span></div>
+              )) : <div className="docwizard-recap-row docwizard-recap-total"><span>{tr('Total')}</span><span>{money(totals.grandTotal, currency)}</span></div>}
               {message && <div className="docwizard-recap-message">"{message}"</div>}
             </div>
             {previewSchedule.length > 0 && (

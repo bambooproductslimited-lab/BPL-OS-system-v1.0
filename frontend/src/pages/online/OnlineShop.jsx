@@ -9,8 +9,9 @@ import DeviceLanguage from '../../components/DeviceLanguage';
 import DeliveryMap from '../delivery/DeliveryMap';
 import { dayName, kmText, laterText, minText, payName } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
+import GoesWith from './GoesWith';
 import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
-import { happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
+import { goesWithFor, happySaved, lineKey, loadAccount, photo, saveAccount, tint } from './onlineShared';
 import AccountSheet from './AccountSheet';
 import BookSheet from './BookSheet';
 import { GiftBuySheet } from './GiftBuy';
@@ -59,6 +60,7 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [item, setItem] = useState(null);
+  const [goes, setGoes] = useState(null); // { item, list }: "goes well with" after adding
   const [basket, setBasket] = useState([]);
   const [checkout, setCheckout] = useState(false);
   const [mine] = useState(() => load(ORDERS_KEY, []));
@@ -234,7 +236,15 @@ export default function OnlineShop({ code, onTrack, onTrackMine, onBooking }) {
           <span className="on-bar-n">{count}</span><span>{tr('View basket')}</span><strong>{money(subtotal - happySaved(basket))}</strong>
         </button>
       )}
-      {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => { add(line); setItem(null); }} />}
+      {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => {
+        add(item.suggested ? { ...line, suggested: true } : line); setItem(null);
+        // What goes well with it, not in the basket yet.
+        const list = item.suggested ? [] : goesWithFor(item, data.items).filter((x) => !basket.some((b) => b.id === x.id));
+        if (list.length) setGoes({ item, list });
+      }} />}
+      {goes && <GoesWith item={goes.item} list={goes.list} onClose={() => setGoes(null)}
+        onAdd={(line) => { add(line); const left = goes.list.filter((x) => x.id !== line.id); setGoes(left.length ? { ...goes, list: left } : null); }}
+        onOpen={(x) => { setGoes(null); setItem({ ...x, suggested: true }); }} />}
       {giftOpen && <GiftBuySheet code={code} restaurant={r} account={account} onClose={() => setGiftOpen(false)} />}
       {bookOpen && <BookSheet code={code} account={account} onClose={() => setBookOpen(false)} onBooked={(b) => { setBookOpen(false); onBooking(b.token); }} />}
       {acctOpen && <AccountSheet account={account} onAccount={setAccount} onClose={() => setAcctOpen(false)}
@@ -296,7 +306,10 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const later = r.later && r.later.on ? r.later : null;
   // Paused (busy mode on the till): only orders for later.
   const paused = !!(r.busy && r.busy.mode === 'paused');
-  const [when, setWhen] = useState(r.open && !paused ? 'now' : 'later');
+  // Order limits (backend restaurantOnline limitsOut): full now, the times full, the next with room.
+  const limits = r.limits && r.limits.on ? r.limits : null;
+  const nowFull = !!(limits && limits.nowFull);
+  const [when, setWhen] = useState(r.open && !paused && !nowFull ? 'now' : 'later');
   const [day, setDay] = useState(null);
   const [time, setTime] = useState(null);
   const website = useRef(null);
@@ -317,7 +330,10 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
   const days = later ? later.days.filter((d) => d.from[how]) : [];
   const dayRow = days.find((d) => d.date === day) || days[0] || null;
   const slots = dayRow ? slotsOf(dayRow.from[how], dayRow.to, later.step) : [];
-  const chosen = when === 'later' && slots.includes(time) ? time : null;
+  const isFull = (t) => !!(limits && dayRow && (limits.full[dayRow.date] || []).includes(t));
+  const chosen = when === 'later' && slots.includes(time) && !isFull(time) ? time : null;
+  const next = limits && limits.next ? limits.next[how] : null;
+  function takeNext() { setWhen('later'); setDay(next.slice(0, 10)); setTime(next.slice(11, 16)); }
   const scheduledFor = chosen ? dayRow.date + 'T' + chosen + ':00.000Z' : null;
   const ready = name.trim() && phone.replace(/\D/g, '').length >= 9 && (how === 'pickup' || (pin && address.trim())) && !tooFar && !short && basket.length && (when === 'now' ? r.open && !paused : !!chosen);
 
@@ -335,7 +351,7 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
       const res = await posFetch('POST', '/pos/online/' + encodeURIComponent(code) + '/orders', account ? account.token : null, {
         name, phone, fulfillment: how, address, landmark, lat: how === 'delivery' && pin ? pin.lat : null, lng: how === 'delivery' && pin ? pin.lng : null,
         payMethod: pay, note, website: website.current ? website.current.value : '', scheduledFor: scheduledFor || undefined, saveAddress: account && how === 'delivery' ? saveAddress : undefined, promoCode: promo ? promo.code : undefined,
-        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) }))
+        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })), suggested: l.suggested || undefined }))
       });
       // Paid online: on to Paystack's page; it brings them back to the order's.
       if (res.payUrl) { save(ME_KEY, { name: name.trim(), phone: phone.trim(), address: address.trim(), landmark: landmark.trim(), lat: pin ? pin.lat : null, lng: pin ? pin.lng : null }); onPlaced(res, true); window.location.assign(res.payUrl); return; }
@@ -371,13 +387,17 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
           <fieldset className="on-fs on-when">
             <legend>{tr('When')}</legend>
             <div className="on-how" role="radiogroup" aria-label={tr('When')}>
-              <button type="button" role="radio" aria-checked={when === 'now'} className={when === 'now' ? 'is-on' : ''} disabled={!r.open || paused} onClick={() => setWhen('now')}>
-                <span aria-hidden="true">⚡</span><strong>{tr('As soon as possible')}</strong><small>{paused ? tr('Paused for now') : r.open ? tr('about {m}', { m: minText(r.readyMinutes + (how === 'delivery' ? 10 : 0)) }) : tr('Closed now')}</small>
+              <button type="button" role="radio" aria-checked={when === 'now'} className={when === 'now' ? 'is-on' : ''} disabled={!r.open || paused || nowFull} onClick={() => setWhen('now')}>
+                <span aria-hidden="true">⚡</span><strong>{tr('As soon as possible')}</strong><small>{paused ? tr('Paused for now') : !r.open ? tr('Closed now') : nowFull ? tr('Full right now') : tr('about {m}', { m: minText(r.readyMinutes + (how === 'delivery' ? 10 : 0)) })}</small>
               </button>
               <button type="button" role="radio" aria-checked={when === 'later'} className={when === 'later' ? 'is-on' : ''} onClick={() => setWhen('later')}>
                 <span aria-hidden="true">🗓️</span><strong>{tr('Later')}</strong><small>{chosen ? dayName(dayRow.date) + ' · ' + chosen : tr('choose a day and a time')}</small>
               </button>
             </div>
+            {nowFull && r.open && !paused && (
+              <p className="on-full-now" role="note">⏳ {tr('The kitchen has all the website orders it can make for now.')}
+                {next && <button type="button" onClick={takeNext}>{tr('Order for {time}', { time: dayName(next.slice(0, 10)) + ' · ' + next.slice(11, 16) })}</button>}</p>
+            )}
             {when === 'later' && (days.length ? (
               <>
                 <div className="on-days" role="radiogroup" aria-label={tr('Day')}>
@@ -395,7 +415,9 @@ function Checkout({ code, r, items, basket, subtotal, setQty, onClose, onPlaced,
                       <div key={k} className="on-times-part" role="radiogroup" aria-label={label()}>
                         <span className="on-times-label"><span aria-hidden="true">{icon}</span> {label()}</span>
                         <div className="on-times-row">
-                          {list.map((t) => <button key={t} type="button" role="radio" aria-checked={chosen === t} className={chosen === t ? 'is-on' : ''} onClick={() => setTime(t)}>{t}</button>)}
+                          {list.map((t) => (isFull(t)
+                            ? <button key={t} type="button" className="is-full" disabled title={tr('Full')} aria-label={tr('{time}, full', { time: t })}>{t}</button>
+                            : <button key={t} type="button" role="radio" aria-checked={chosen === t} className={chosen === t ? 'is-on' : ''} onClick={() => setTime(t)}>{t}</button>))}
                         </div>
                       </div>
                     );

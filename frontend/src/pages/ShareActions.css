@@ -175,3 +175,18 @@
 .sa-card.sa-deposit .sa-btn { margin-top: 6px; text-decoration: none; }
 .sa-card.sa-deposit.is-paid { background: linear-gradient(135deg, #ebfbee, #fff 55%); }
 .sa-card.sa-deposit.is-paid::before { background: linear-gradient(90deg, #2f9e44, #74b816); }
+
+/* Quotation options: the customer picks one (migration 0193). */
+.sa-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+.sa-opt { --c: #7048e8; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; font: inherit; text-align: left; color: inherit; border: 2px solid rgba(0, 0, 0, .1); border-radius: 16px; background: #fff; cursor: pointer; transition: transform .15s, border-color .15s, box-shadow .15s; animation: sa-opt-in .35s calc(var(--i) * 80ms) ease both; }
+.sa-opt.is-b { --c: #1c7ed6; }
+.sa-opt.is-c { --c: #e8590c; }
+.sa-opt:hover { transform: translateY(-2px); border-color: var(--c); }
+.sa-opt.is-on { border-color: var(--c); box-shadow: 0 10px 24px -14px var(--c), 0 0 0 3px color-mix(in srgb, var(--c) 18%, transparent); background: color-mix(in srgb, var(--c) 5%, #fff); }
+@keyframes sa-opt-in { from { opacity: 0; transform: translateY(8px); } }
+.sa-opt-tick { display: grid; place-items: center; width: 28px; height: 28px; font-weight: 900; color: #fff; border-radius: 9px; background: var(--c); }
+.sa-opt strong { font-size: 16px; }
+.sa-opt small { font-size: 12.5px; opacity: .7; }
+.sa-opt b { margin-top: auto; padding-top: 4px; font-size: 20px; }
+.sa-chosen { display: inline-block; width: fit-content; align-self: flex-start; margin: 0 0 8px; padding: 4px 12px; font-weight: 800; border-radius: 999px; background: rgba(46, 160, 67, .12); color: #1f7a33; }
+@media (prefers-reduced-motion: reduce) { .sa-opt { animation: none; transition: none; } }

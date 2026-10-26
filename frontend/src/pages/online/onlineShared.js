@@ -20,3 +20,11 @@ export function lineKey(l) { return l.id + ':' + (l.variationId || '') + ':' + (
 const ACCOUNT_KEY = 'bamboo.online.account';
 export function loadAccount() { try { const a = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null'); return a && a.token ? a : null; } catch { return null; } }
 export function saveAccount(a) { try { if (a) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(a)); else localStorage.removeItem(ACCOUNT_KEY); } catch { /* this phone only */ } }
+
+// "Goes well with" (GoesWith.jsx): the suggestions for a dish that can be ordered now.
+export function goesWithFor(item, items) {
+  if (!item || !(item.goesWith || []).length) return [];
+  return item.goesWith.map((id) => items.find((i) => i.id === id)).filter((i) => i && !i.soldOut && !i.notNow).slice(0, 3);
+}
+// Whether a dish needs choosing (a size, an add-on to pick) before it goes in.
+export function needsChoosing(i) { return (i.variations || []).length > 0 || (i.addOns || []).some((g) => (g.minPick || 0) > 0); }

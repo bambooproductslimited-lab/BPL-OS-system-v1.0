@@ -53,7 +53,11 @@ var DEFAULTS = {
   later: { on: true, days: 2, from: '11:00', to: '22:00', whenClosed: true },
   // Customers may pay online when ordering (needs Paystack on in the till's
   // settings): the order reaches the restaurant once it is paid.
-  payOnline: false
+  payOnline: false,
+  // Order limits (restaurantOnline, migration 0193): no more than `orders`
+  // website orders, and (dishes > 0) no more than `dishes` dishes, due in
+  // any 15 minutes; a full time is not offered.
+  limits: { on: false, orders: 6, dishes: 0 }
 };
 var SITE = { delivery: function (code) { return code ? online().siteUrlFor(code, 'delivery') : config.deliverySiteUrl; } };
 
@@ -121,6 +125,10 @@ function merged(s) {
   out.later.days = Math.round(num(l.days, 0, 7, out.later.days));
   var from = hhmm(l.from), to = hhmm(l.to);
   if (from && to && minutesOf(to) > minutesOf(from)) { out.later.from = from; out.later.to = to; }
+  var lm = s.limits || {};
+  if (typeof lm.on === 'boolean') out.limits.on = lm.on;
+  out.limits.orders = Math.round(num(lm.orders, 1, 200, out.limits.orders));
+  out.limits.dishes = Math.round(num(lm.dishes, 0, 2000, out.limits.dishes));
   return out;
 }
 async function settingsRow(companyId, db) {
@@ -405,6 +413,15 @@ async function board(token) {
   var toHandIn = (await pool.query(DELIVERY_SELECT + 'WHERE d.company_id = $1 AND d.collected_at IS NOT NULL AND d.handed_at IS NULL ORDER BY d.collected_at', [company])).rows
     .map(function (d) { return deliveryOut(d); });
   var avg = delivered.length ? Math.round(delivered.reduce(function (a, d) { return a + Math.max(0, (new Date(d.endedAt) - new Date(d.createdAt)) / 60000); }, 0) / delivered.length) : null;
+  // The next two hours of website orders by the 15 minutes they are due in
+  // (order limits, migration 0193): how full each is.
+  var first = online.slotOf(new Date()), load = await online.slotLoad(pool, company, first, new Date(first.getTime() + 8 * online.STEP * 60000));
+  var slots = [];
+  for (var k = 0; k < 8; k++) {
+    var at = new Date(first.getTime() + k * online.STEP * 60000), l = load.get(at.getTime()) || { orders: 0, dishes: 0 };
+    slots.push({ at: at.toISOString(), orders: l.orders, dishes: l.dishes,
+      full: settings.limits.on && (l.orders >= settings.limits.orders || (settings.limits.dishes > 0 && l.dishes >= settings.limits.dishes)) });
+  }
   return {
     company: { code: co.code, name: co.name }, settings: settings, siteUrl: shopUrl(co.code),
     pending: pending, later: later, cooking: waiting.filter(function (w) { return w.stage === 'cooking'; }), ready: waiting.filter(function (w) { return w.stage === 'ready'; }),
@@ -412,7 +429,7 @@ async function board(token) {
     totals: { delivered: delivered.length, failed: done.filter(function (d) { return d.status === 'failed'; }).length, averageMinutes: avg,
       collected: round2(delivered.reduce(function (a, d) { return a + d.toCollect; }, 0)),
       withRiders: round2(toHandIn.reduce(function (a, d) { return a + d.money.collected.amount; }, 0)), toHandIn: toHandIn.length, later: later.length },
-    toHandIn: toHandIn,
+    toHandIn: toHandIn, slots: slots,
     can: { settings: session.access.role === 'manager' }
   };
 }

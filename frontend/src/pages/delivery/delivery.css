@@ -397,3 +397,17 @@
 :root[data-theme='dark'] .dl-paid-online { color: #69db7c; }
 :root[data-theme='dark'] .dl-refund { color: #74c0fc; }
 :root[data-theme='dark'] .dl-refund.is-failed { color: #ff8787; }
+
+/* Order limits: the next two hours (DlCards SlotStrip), the settings. */
+.dl-slots { display: flex; align-items: stretch; gap: 6px; margin: 0 14px 8px; padding: 8px 10px; overflow-x: auto; border-radius: 16px; background: var(--color-surface, var(--color-bg)); border: 1px solid var(--color-border); }
+.dl-slots-label { display: flex; flex-direction: column; justify-content: center; flex: none; padding-right: 8px; font-size: 13px; font-weight: 800; }
+.dl-slots-label small { font-size: 11px; font-weight: 600; color: var(--color-text-muted); }
+.dl-slot { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1 0 64px; padding: 6px 4px 10px; overflow: hidden; border-radius: 12px; background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.dl-slot b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.dl-slot small { font-size: 11px; font-weight: 700; color: var(--color-text-muted); }
+.dl-slot i { position: absolute; left: 0; bottom: 0; height: 4px; width: calc(var(--fill) * 100%); background: #16a34a; border-radius: 0 4px 4px 0; transition: width .4s ease; }
+.dl-slot.is-some i { background: #f59e0b; }
+.dl-slot.is-full { background: color-mix(in srgb, #ef4444 14%, transparent); }
+.dl-slot.is-full small { color: #dc2626; }
+.dl-slot.is-full i { background: #ef4444; }
+.dl-limits .dl-limits-eg { grid-column: 1 / -1; margin: 0; }

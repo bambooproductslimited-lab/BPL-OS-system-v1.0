@@ -19,6 +19,7 @@ import { tr, msg, docTr } from '../lib/i18n.jsx';
 import ClientAnswers, { AnswerTag } from '../components/ClientAnswers';
 import { formatDocDate } from '../lib/dates';
 import { codeLabel } from '../lib/codeLabels.js';
+import { optionLetter, optionsOpen } from '../lib/docOptions';
 import './EmployeesPage.css';
 import './ToolRoomPage.css';
 import './RestaurantsPage.css';
@@ -103,6 +104,7 @@ export default function QuotationsPage() {
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
   const [paymentSchedule, setPaymentSchedule] = useState([]);
+  const [options, setOptions] = useState([]); // two or three for the customer to pick from, or none
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -158,13 +160,17 @@ export default function QuotationsPage() {
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
     setPaymentSchedule([]);
+    setOptions([]);
     setDialogOpen(true);
   }
   function openEdit(q) {
     setDialogError(null);
     setEditId(q.id);
     setForm({ customerId: q.customerId, title: q.title || '', validUntil: q.validUntil || '', notes: q.notes || '', currency: q.currency || '' });
-    setItems(q.items.map((it) => ({ ...it })));
+    // Once the customer picked an option, the quotation is that option.
+    const offered = optionsOpen(q) ? q.options.map((o) => ({ key: o.key, name: o.name, note: o.note || '' })) : [];
+    setOptions(offered);
+    setItems(q.items.map((it) => ({ ...it, optionKey: offered.length ? it.optionKey || '' : '' })));
     setDocDiscount(q.discount || { value: 0, type: 'fixed' });
     setDocTaxRate(q.taxRate || 0);
     setPaymentSchedule((q.paymentSchedule || []).map((r) => ({ label: r.label, type: r.type, value: r.value, dueDate: r.dueDate || '' })));
@@ -178,7 +184,7 @@ export default function QuotationsPage() {
     try {
       const payload = {
         customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule, options
       };
       if (editId) await api.put('/quotations/' + editId, payload);
       else await api.post('/quotations', payload);
@@ -206,11 +212,17 @@ export default function QuotationsPage() {
     }
   }
   const setStatus = (q, status) => run(q, () => api.post('/quotations/' + q.id + '/status', { status }), () => tr('{quoteNo} set to {status}.', { quoteNo: q.quoteNo, status: codeLabel(status) }));
+  const choose = (q, o) => run(q, () => api.post('/quotations/' + q.id + '/choose', { option: o.key }), () => tr('{quoteNo}: the customer chose {name}.', { quoteNo: q.quoteNo, name: o.name }));
   const convertToInvoice = (q) => run(q, () => api.post('/invoices/from-quotation', { quotationId: q.id }), (inv) => tr('{invoiceNo} issued from quotation.', { invoiceNo: inv.invoiceNo }));
 
   function openPreview(q) {
     const cust = customers.find((c) => c.id === q.customerId) || {};
-    setPreviewQ({ ...q, customerName: cust.name || q.customerName, customerEmail: cust.email || q.customerEmail || '' });
+    // Options not yet chosen: each line says which it is in.
+    const named = optionsOpen(q) ? q.items.map((it) => {
+      const o = it.optionKey && q.options.find((x) => x.key === it.optionKey);
+      return o ? { ...it, description: '[' + o.name + '] ' + it.description } : it;
+    }) : q.items;
+    setPreviewQ({ ...q, items: named, customerName: cust.name || q.customerName, customerEmail: cust.email || q.customerEmail || '' });
   }
 
   if (loading) return <div className="eyebrow">{tr('Loading…')}</div>;
@@ -285,7 +297,7 @@ export default function QuotationsPage() {
       canManage && q.status === 'draft' && { label: tr('Edit'), onClick: () => openEdit(q) },
       canManage && q.status === 'draft' && { label: tr('Mark as sent'), onClick: () => setStatus(q, 'sent') },
       canManage && q.status === 'sent' && { label: tr('Client has seen it'), onClick: () => setStatus(q, 'viewed') },
-      canManage && (isWaiting(q) || q.status === 'draft') && { label: tr('Client accepted'), onClick: () => setStatus(q, 'accepted') },
+      canManage && (isWaiting(q) || q.status === 'draft') && !optionsOpen(q) && { label: tr('Client accepted'), onClick: () => setStatus(q, 'accepted') },
       canManage && isWaiting(q) && { label: tr('Client turned it down'), onClick: () => setStatus(q, 'rejected') },
       canInvoice && toInvoice(q) && { label: tr('Make the invoice'), onClick: () => convertToInvoice(q) },
       inv && { label: tr('Open {no}', { no: inv.invoiceNo }), to: '/invoices?open=' + inv.id },
@@ -374,7 +386,7 @@ export default function QuotationsPage() {
                   <p className="dk-muted tl-small es-items">{whatFor(q)}</p>
                   <div className="tl-tags"><Status tone={st.tone}>{st.text}</Status><AnswerTag doc={q} /></div>
                   <div className="tl-foot">
-                    <span className="es-total">{money(q.grandTotal, q.currency)}</span>
+                    <span className="es-total">{optionsOpen(q) ? tr('{n} options · from {amount}', { n: q.options.length, amount: money(Math.min(...q.options.map((o) => o.totals.grandTotal)), q.currency) }) : money(q.grandTotal, q.currency)}</span>
                     <ContactButtons name={q.customerName} phone={q.customerPhone} email={q.customerEmail} />
                   </div>
                 </article>
@@ -431,9 +443,28 @@ export default function QuotationsPage() {
             <ol className="es-path" aria-label={tr('Where it stands')}>
               {pathSteps.map((s, i) => <li key={i} className={(s.done ? 'is-done' : '') + (s.failed ? ' is-failed' : '')}>{s.label}</li>)}
             </ol>
+            {(cur.options || []).length > 0 && (
+              <div className="qt-opts">
+                <h3 className="tl-h3">{optionsOpen(cur) ? tr('The customer picks one of these') : tr('The options offered')}</h3>
+                <div className="qt-opts-grid">
+                  {cur.options.map((o, i) => (
+                    <div key={o.key} className={'qt-opt is-' + o.key + (o.chosen ? ' is-chosen' : '') + (o.dropped ? ' is-dropped' : '')} style={{ '--i': i }}>
+                      <span className="qt-opt-letter">{o.chosen ? '✓' : optionLetter(o.key)}</span>
+                      <strong>{o.name}</strong>
+                      {o.note && <small>{o.note}</small>}
+                      <span className="qt-opt-total">{money(o.totals.grandTotal, cur.currency)}</span>
+                      {o.chosen && <span className="qt-opt-tag">{tr('Chosen')}</span>}
+                      {canManage && optionsOpen(cur) && !isLost(cur) && (
+                        <button type="button" className="btn btn-secondary qt-opt-pick" disabled={busyId === cur.id} onClick={() => choose(cur, o)}>{tr('They chose this')}</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <ul className="rs-lines">
-              {cur.items.map((it, i) => <li key={i}><span className="rs-qty">{it.qty}×</span><span>{it.description}<span className="dk-muted tl-small"> · {money(it.unitPrice, cur.currency)}</span></span><strong>{money(lineAmount(it), cur.currency)}</strong></li>)}
-              {curTotals.map((r) => <li key={r.label} className={r.strong ? 'rs-total' : ''}><span /><span>{r.label}</span><strong>{r.value}</strong></li>)}
+              {cur.items.map((it, i) => <li key={i}><span className="rs-qty">{it.qty}×</span><span>{it.optionKey && optionsOpen(cur) && <span className={'qt-line-opt is-' + it.optionKey}>{optionLetter(it.optionKey)}</span>}{it.description}<span className="dk-muted tl-small"> · {money(it.unitPrice, cur.currency)}</span></span><strong>{money(lineAmount(it), cur.currency)}</strong></li>)}
+              {!optionsOpen(cur) && curTotals.map((r) => <li key={r.label} className={r.strong ? 'rs-total' : ''}><span /><span>{r.label}</span><strong>{r.value}</strong></li>)}
             </ul>
             <dl className="tl-facts">
               <div><dt>{tr('Made')}</dt><dd>{fmtDate(cur.createdAt)}{cur.createdByName ? ' · ' + cur.createdByName : ''}</dd></div>
@@ -458,7 +489,7 @@ export default function QuotationsPage() {
               {canManage && cur.status === 'draft' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Edit')}</button>}
               <button type="button" className="btn btn-secondary" onClick={() => openPreview(cur)}>{tr('Preview')}</button>
               {canManage && isWaiting(cur) && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'rejected')}>{tr('Client turned it down')}</button>}
-              {canManage && isWaiting(cur) && <button type="button" className="btn btn-primary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'accepted')}>{tr('Client accepted')}</button>}
+              {canManage && isWaiting(cur) && <button type="button" className="btn btn-primary" disabled={busyId === cur.id || optionsOpen(cur)} title={optionsOpen(cur) ? tr('Press "They chose this" on the option first.') : undefined} onClick={() => setStatus(cur, 'accepted')}>{tr('Client accepted')}</button>}
               {canManage && cur.status === 'draft' && <button type="button" className="btn btn-primary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'sent')}>{tr('Mark as sent')}</button>}
               {canInvoice && toInvoice(cur) && <button type="button" className="btn btn-primary" disabled={busyId === cur.id} onClick={() => convertToInvoice(cur)}>{tr('Make the invoice')}</button>}
               {curInv && <Link className="btn btn-primary" to={'/invoices?open=' + curInv.id}>{tr('Open {no}', { no: curInv.invoiceNo })}</Link>}
@@ -499,6 +530,7 @@ export default function QuotationsPage() {
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
+          options={options} onOptionsChange={setOptions}
           recapBlocks={[
             { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },
             { label: tr('Valid until'), value: form.validUntil ? fmtDate(form.validUntil) : '—' }

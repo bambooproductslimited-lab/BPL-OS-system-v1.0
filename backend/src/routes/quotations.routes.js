@@ -17,5 +17,9 @@ router.put('/:id', async function (req, res, next) {
 router.post('/:id/status', async function (req, res, next) {
   try { res.json(await quotationsService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
 });
+// The option the customer picked, recorded by the rep (migration 0193).
+router.post('/:id/choose', async function (req, res, next) {
+  try { res.json(await quotationsService.choose(req.ctx, req.params.id, req.body && req.body.option)); } catch (e) { next(e); }
+});
 
 module.exports = router;

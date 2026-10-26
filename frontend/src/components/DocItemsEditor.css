@@ -82,3 +82,31 @@
 .doc-items-stock-select { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12.5px; height: auto; border-style: none; background: transparent; color: var(--color-text-muted); }
 .doc-items-stock-unlink { border: 0; background: transparent; color: var(--color-text-muted); font-size: 17px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .doc-items-stock-unlink:hover { color: var(--color-text); }
+
+/* Quotation options (DocOptions.jsx; migration 0193). */
+.dop { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; padding: 12px; border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, #8b5cf6 9%, transparent), color-mix(in srgb, #0ea5e9 7%, transparent)); border: 1px solid color-mix(in srgb, #8b5cf6 22%, transparent); }
+.dop-head { display: flex; align-items: center; gap: 10px; }
+.dop-head > div { flex: 1; display: flex; flex-direction: column; }
+.dop-head small { color: var(--color-text-muted); font-size: 12.5px; }
+.dop-art { display: grid; place-items: center; width: 38px; height: 38px; flex: none; font-size: 20px; border-radius: 12px; background: color-mix(in srgb, #8b5cf6 16%, var(--color-surface, #fff)); }
+.dop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.dop-card { --c: #8b5cf6; display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 14px; background: var(--color-surface, var(--color-bg)); border: 1px solid var(--color-border); border-top: 4px solid var(--c); animation: dop-in .3s calc(var(--i) * 70ms) ease both; }
+.dop-card.is-b { --c: #0ea5e9; }
+.dop-card.is-c { --c: #f59e0b; }
+@keyframes dop-in { from { opacity: 0; transform: translateY(6px); } }
+.dop-card-top { display: flex; align-items: center; gap: 6px; }
+.dop-card-top .input { flex: 1; min-width: 0; font-weight: 700; }
+.dop-letter { display: grid; place-items: center; width: 28px; height: 28px; flex: none; font-weight: 900; color: #fff; border-radius: 9px; background: var(--c); }
+.dop-x { width: 26px; height: 26px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--color-text-muted); cursor: pointer; }
+.dop-x:hover { background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+.dop-note { font-size: 13px; }
+.dop-sum { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--color-text-muted); }
+.dop-sum .is-none { color: #b45309; font-weight: 700; }
+.dop-sum strong { font-size: 17px; color: var(--color-text); }
+.dop-add { min-height: 90px; font: inherit; font-weight: 800; color: var(--color-text-muted); border: 2px dashed var(--color-border); border-radius: 14px; background: transparent; cursor: pointer; }
+.dop-add:hover { color: var(--color-text); border-color: #8b5cf6; }
+.doc-items-option { margin-top: 6px; font-size: 13px; font-weight: 700; }
+.doc-items-option.is-a { border-color: #8b5cf6; box-shadow: inset 4px 0 0 #8b5cf6; }
+.doc-items-option.is-b { border-color: #0ea5e9; box-shadow: inset 4px 0 0 #0ea5e9; }
+.doc-items-option.is-c { border-color: #f59e0b; box-shadow: inset 4px 0 0 #f59e0b; }
+@media (prefers-reduced-motion: reduce) { .dop-card { animation: none; } }

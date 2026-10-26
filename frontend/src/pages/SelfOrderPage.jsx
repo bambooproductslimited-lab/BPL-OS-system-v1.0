@@ -5,8 +5,9 @@ import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import DeviceLanguage from '../components/DeviceLanguage';
 import { tr } from '../lib/i18n.jsx';
 import ItemSheet from './online/ItemSheet';
+import GoesWith from './online/GoesWith';
 import { DishAllergens, DishFlags, DishPrice } from './online/DishBits';
-import { lineKey, photo, tint } from './online/onlineShared';
+import { goesWithFor, lineKey, photo, tint } from './online/onlineShared';
 import { billOf, modsWords } from './till/tillBill';
 import { dealWords } from './till/promos';
 import PromoCodeDialog from './till/PromoCode';
@@ -38,6 +39,7 @@ export default function SelfOrderPage() {
   const [dining, setDining] = useState('away');
   const [cat, setCat] = useState('');
   const [item, setItem] = useState(null);
+  const [goes, setGoes] = useState(null); // { item, list }: "goes well with" after adding
   const [basket, setBasket] = useState([]);
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
@@ -136,7 +138,7 @@ export default function SelfOrderPage() {
     setBusy(true); setError(null);
     try {
       const r = await posFetch('POST', '/pos/kiosk/orders', key, {
-        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) })),
+        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })), suggested: l.suggested || undefined })),
         dining, name: name.trim(), note: note.trim() || undefined, pay, back: window.location.origin + window.location.pathname, promoCode: promo ? promo.code : undefined
       });
       if (r.pay && r.pay.url) { window.location.href = r.pay.url; return; }
@@ -315,7 +317,14 @@ export default function SelfOrderPage() {
           </>
         )}
       </aside>
-      {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={add} />}
+      {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => {
+        add(item.suggested ? { ...line, suggested: true } : line);
+        const list = item.suggested ? [] : goesWithFor(item, menu.items).filter((x) => !basket.some((b) => b.id === x.id));
+        if (list.length) setGoes({ item, list });
+      }} />}
+      {goes && <GoesWith big item={goes.item} list={goes.list} onClose={() => setGoes(null)}
+        onAdd={(line) => { add(line); const left = goes.list.filter((x) => x.id !== line.id); setGoes(left.length ? { ...goes, list: left } : null); }}
+        onOpen={(x) => { setGoes(null); setItem({ ...x, suggested: true }); }} />}
       {promoOpen && (
         <PromoCodeDialog promotions={[]} channel="kiosk" current={promo ? promo.code : null}
           lookup={(c) => posFetch('GET', '/pos/kiosk/promo?code=' + encodeURIComponent(c), key).then((x) => x.promo)}

@@ -8,6 +8,7 @@ import ComboEditor from './Combos';
 import { comboBodyOf, comboDraftOf } from './comboDraft';
 import { ALLERGENS, allergenIcon, allergenWords } from './tillService';
 import LabelSheet from '../../components/LabelSheet';
+import './twelfth.css';
 import { saveFile } from '../../lib/saveFile';
 
 // The menu and the stock, kept from the till (restaurantTillMenu.service.js):
@@ -142,6 +143,7 @@ export function MenuTab({ token, pin, onFail }) {
             })}
           </div>
         </div>
+        <GoesWithPicker edit={edit} items={data.items} onChange={(goesWith) => setEdit({ ...edit, goesWith })} />
         <button type="button" role="switch" aria-checked={edit.active} className="ts-toggle-row" onClick={() => setEdit({ ...edit, active: !edit.active })}>
           <span><strong>{tr('On the till')}</strong><small>{tr('Off: hidden from the till for now (sold out for the day, out of season), kept on the menu.')}</small></span>
           <span className={'ts-switch' + (edit.active ? ' is-on' : '')} aria-hidden="true"><i /></span>
@@ -189,6 +191,7 @@ export function MenuTab({ token, pin, onFail }) {
         {cats.map((c) => <button key={c} type="button" role="radio" aria-checked={cat === c} className={cat === c ? 'is-on' : ''} onClick={() => setCat(c)}>{c}</button>)}
       </div>
       {flash && <div className="ts-flash" role="status"><Icon name="check" />{flash}</div>}
+      {data.suggestions && <SuggestionsCard s={data.suggestions} />}
       {!shown.length ? <div className="dk-empty"><Icon name="info" /><p>{tr('No dish matches.')}</p></div> : (
         <ul className="ts-mn-list">
           {shown.map((i) => (
@@ -208,6 +211,49 @@ export function MenuTab({ token, pin, onFail }) {
         </ul>
       )}
     </section>
+  );
+}
+
+// "Goes well with" (backend restaurantSuggestions, migration 0193): up to
+// three dishes the website, the kiosk and the table's QR page suggest with
+// this one; none picked, the till's own (what is most often ordered with it).
+function GoesWithPicker({ edit, items, onChange }) {
+  const picked = edit.goesWith || [];
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const auto = (edit.goesWithAuto || []).map((id) => byId.get(id)).filter(Boolean);
+  const others = items.filter((i) => i.active && i.id !== edit.id && !picked.includes(i.id));
+  return (
+    <div className="ts-mn-goes">
+      <span className="ts-label">✨ {tr('Goes well with')}</span>
+      <small className="dk-muted">{tr('Suggested with it on the website, the kiosk and the table\'s QR page, up to three.')}</small>
+      <div className="ts-chips">
+        {picked.map((id) => byId.get(id)).filter(Boolean).map((i) => (
+          <button key={i.id} type="button" className="ts-chip is-on" onClick={() => onChange(picked.filter((x) => x !== i.id))} aria-label={tr('Take {name} off', { name: i.name })}>{i.name} <span aria-hidden="true">✕</span></button>
+        ))}
+        {picked.length < 3 && (
+          <select className="input ts-mn-goes-add" value="" onChange={(e) => e.target.value && onChange(picked.concat([e.target.value]))} aria-label={tr('Add a dish it goes well with')}>
+            <option value="">＋ {tr('Add a dish')}</option>
+            {others.map((i) => <option key={i.id} value={i.id}>{i.name}{i.category ? ' · ' + i.category : ''}</option>)}
+          </select>
+        )}
+      </div>
+      {!picked.length && <p className="ts-mn-goes-auto">{auto.length ? tr('None picked: the till suggests what is ordered with it most: {names}.', { names: auto.map((i) => i.name).join(', ') }) : tr('None picked, and not enough sales yet for the till to suggest its own.')}</p>}
+    </div>
+  );
+}
+// How the suggestions did in the last 30 days.
+function SuggestionsCard({ s }) {
+  const ch = [['online', '🌐', tr('Website')], ['kiosk', '🖥️', tr('Kiosk')], ['table', '📱', tr('Table QR')]];
+  return (
+    <div className="ts-sugg" role="note">
+      <span className="ts-sugg-art" aria-hidden="true">✨</span>
+      <div className="ts-sugg-main">
+        <strong>{tr('Goes well with: the last 30 days')}</strong>
+        <p>{s.taken ? tr('Taken {n} times, adding {amount}.', { n: s.taken, amount: money(s.added) }) : tr('No suggestion taken yet. Pick what goes well with your best sellers.')}</p>
+        {s.taken > 0 && <div className="ts-sugg-ch">{ch.map(([k, icon, label]) => <span key={k}><i aria-hidden="true">{icon}</i>{label}<b>{s.byChannel[k].taken}</b></span>)}</div>}
+      </div>
+      {s.top.length > 0 && <ol className="ts-sugg-top">{s.top.slice(0, 3).map((d) => <li key={d.name}><span>{d.name}</span><b>×{d.taken}</b></li>)}</ol>}
+    </div>
   );
 }
 

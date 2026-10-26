@@ -8,9 +8,10 @@ import ThemeSwitch from '../../components/ThemeSwitch';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { timeOf } from '../delivery/dlShared';
 import ItemSheet from './ItemSheet';
+import GoesWith from './GoesWith';
 import { TablePaidBanner, TablePaySheet } from './TablePay';
 import { DishAllergens, DishFlags, DishPrice, LineAmount } from './DishBits';
-import { happySaved, lineKey, photo, tint } from './onlineShared';
+import { goesWithFor, happySaved, lineKey, photo, tint } from './onlineShared';
 import { modsWords, serviceWords } from '../till/tillBill';
 import './online.css';
 
@@ -47,6 +48,7 @@ export default function TableShop({ code }) {
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [item, setItem] = useState(null);
+  const [goes, setGoes] = useState(null); // { item, list }: "goes well with" after adding
   const [basket, setBasket] = useState([]);
   const [checkout, setCheckout] = useState(false);
   const [mine, setMine] = useState(() => loadMine(code));
@@ -266,7 +268,14 @@ export default function TableShop({ code }) {
           <span className="on-bar-n">{count}</span><span>{tr('Your order')}</span><strong>{money(subtotal - happySaved(basket))}</strong>
         </button>
       )}
-      {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => { add(line); setItem(null); }} />}
+      {item && <ItemSheet item={item} onClose={() => setItem(null)} onAdd={(line) => {
+        add(item.suggested ? { ...line, suggested: true } : line); setItem(null);
+        const list = item.suggested ? [] : goesWithFor(item, data.items).filter((x) => !basket.some((b) => b.id === x.id));
+        if (list.length) setGoes({ item, list });
+      }} />}
+      {goes && <GoesWith item={goes.item} list={goes.list} onClose={() => setGoes(null)}
+        onAdd={(line) => { add(line); const left = goes.list.filter((x) => x.id !== line.id); setGoes(left.length ? { ...goes, list: left } : null); }}
+        onOpen={(x) => { setGoes(null); setItem({ ...x, suggested: true }); }} />}
       {checkout && (
         <SendSheet code={code} table={data.table} straight={data.straight} basket={basket} subtotal={subtotal} setQty={setQty} onClose={() => setCheckout(false)}
           onSent={(res) => {
@@ -299,7 +308,7 @@ function SendSheet({ code, table, straight, basket, subtotal, setQty, onClose, o
       try { localStorage.setItem('bamboo.table.name', name.trim()); } catch { /* not kept */ }
       onSent(await posFetch('POST', '/pos/table/' + encodeURIComponent(code) + '/orders', null, {
         name: name.trim(), note: note.trim(), website: website.current ? website.current.value : '',
-        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })) }))
+        items: basket.map((l) => ({ menuItemId: l.id, variationId: l.variationId || undefined, qty: l.qty, note: l.note || undefined, modifiers: (l.modifiers || []).map((m) => ({ id: m.id })), suggested: l.suggested || undefined }))
       }));
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }

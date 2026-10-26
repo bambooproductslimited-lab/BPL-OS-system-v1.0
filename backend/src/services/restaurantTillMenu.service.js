@@ -126,6 +126,7 @@ function itemOut(r, vars) {
     trackStock: r.track_stock, stockQty: Number(r.stock_qty), lowStock: Number(r.low_stock),
     sold30: r.sold30 == null ? 0 : Number(r.sold30), allergens: r.allergens || [],
     sku: r.sku || '', description: r.description || '', itemType: r.item_type || '', containsAlcohol: r.contains_alcohol == null ? null : r.contains_alcohol,
+    goesWith: r.goes_with || [],
     variations: vars || []
   };
 }
@@ -144,7 +145,11 @@ async function menu(companyId) {
   var combos = await combosOf(rows.map(function (r) { return r.id; }));
   var items = rows.map(function (r) { return Object.assign(itemOut(r, byItem.get(r.id)), { combo: combos.get(r.id) || [], supplierId: r.supplier_id || null }); });
   var categories = Array.from(new Set(items.map(function (i) { return i.category; }))).sort();
-  return { items: items, categories: categories, groups: await groups(companyId) };
+  // "Goes well with" (migration 0193): the till's own for each dish (the
+  // manager's picks replace them), and how the suggestions did in 30 days.
+  var sugg = require('./restaurantSuggestions.service'), often = await sugg.together(companyId);
+  items.forEach(function (i) { i.goesWithAuto = (often.get(i.id) || []).slice(0, sugg.MAX); });
+  return { items: items, categories: categories, groups: await groups(companyId), suggestions: await sugg.report(companyId, 30) };
 }
 
 // ── add-ons (migration 0168): groups of choices, put on dishes ──
@@ -282,6 +287,13 @@ async function saveItem(companyId, manager, p) {
       var vsku = v.sku === undefined ? undefined : text(v.sku, 80);
       if (v.id) await client.query('UPDATE restaurant_menu_item_variations SET name = $3, price = $4, sort_order = $5, sku = coalesce($6, sku) WHERE id = $1 AND menu_item_id = $2', [v.id, row.id, vname, vprice, i, vsku === undefined ? null : vsku]);
       else await client.query('INSERT INTO restaurant_menu_item_variations (menu_item_id, name, price, sort_order, sku) VALUES ($1,$2,$3,$4,$5)', [row.id, vname, vprice, i, vsku || '']);
+    }
+    // What goes well with it (migration 0193): up to three dishes the
+    // website, kiosk and table page suggest with it; none, the till's own.
+    if (p.goesWith !== undefined) {
+      var sugg = require('./restaurantSuggestions.service');
+      await client.query('UPDATE restaurant_menu_items SET goes_with = $2 WHERE id = $1', [row.id, await sugg.cleanPicks(client, companyId, row.id, p.goesWith)]);
+      sugg.forget(companyId);
     }
     // A combo's slots (migration 0183), replaced when sent; who it is bought from (purchase orders).
     if (p.combo !== undefined) await saveCombo(client, companyId, row, p.combo);

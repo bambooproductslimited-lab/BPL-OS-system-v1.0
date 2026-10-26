@@ -120,6 +120,63 @@ function startOf(o, readyMinutes) {
   return new Date(new Date(o.scheduled_for).getTime() - (readyMinutes + ride + START_SPARE) * 60000);
 }
 
+// ── order limits (migration 0193) ──
+// Each website order counts in the 15 minutes it is due in: as soon as it
+// can be, when it will be ready; for later, the time chosen. A slot is full
+// at the restaurant's limit of orders, or of dishes (a first order bigger
+// than that still fits an empty slot). Full times are not offered.
+var SLOT_MS = STEP * 60000;
+function slotOf(d) { return new Date(Math.floor(new Date(d).getTime() / SLOT_MS) * SLOT_MS); }
+function dueOf(s, scheduledFor, now) { return scheduledFor ? new Date(scheduledFor) : new Date(now.getTime() + s.readyMinutes * 60000); }
+// How full each slot is from `from` to `to`: Map(slot time → { orders, dishes }).
+async function slotLoad(db, companyId, from, to) {
+  var rows = (await db.query(
+    "SELECT slot_at, count(*)::int AS orders, coalesce(sum(dish_count), 0)::int AS dishes FROM restaurant_online_orders " +
+    "WHERE company_id = $1 AND slot_at >= $2 AND slot_at < $3 AND status NOT IN ('rejected', 'cancelled') GROUP BY slot_at", [companyId, from, to])).rows;
+  var m = new Map();
+  rows.forEach(function (r) { m.set(new Date(r.slot_at).getTime(), { orders: r.orders, dishes: r.dishes }); });
+  return m;
+}
+function hasRoom(lim, load, dishes) {
+  if (!load) return true;
+  if (load.orders >= lim.orders) return false;
+  return !(lim.dishes > 0 && load.dishes > 0 && load.dishes + (dishes || 1) > lim.dishes);
+}
+// The first time on offer for later with room (from `after` on, if given), or null.
+function nextFree(s, load, dishes, fulfillment, now, after) {
+  var l = laterOut(s, now);
+  for (var i = 0; i < l.days.length; i++) {
+    var day = l.days[i], first = day.from[fulfillment];
+    if (!first) continue;
+    for (var m = minutesOf(first); m <= minutesOf(day.to); m += STEP) {
+      var at = new Date(day.date + 'T' + clock(m) + ':00Z');
+      if (after && at <= after) continue;
+      if (hasRoom(s.limits, load.get(slotOf(at).getTime()), dishes)) return at;
+    }
+  }
+  return null;
+}
+// For the website: whether limits are on, whether "as soon as it can be"
+// is full now, the times full for later ({ date: ['18:30'] }), and the
+// first time with room for each way.
+async function limitsOut(co, now) {
+  var s = co.settings, lim = s.limits;
+  if (!lim || !lim.on) return { on: false };
+  var load = await slotLoad(pool, co.id, slotOf(now), new Date(now.getTime() + (s.later.days + 2) * 86400000));
+  var full = {};
+  laterOut(s, now).days.forEach(function (day) {
+    var first = [day.from.delivery, day.from.pickup].filter(Boolean).sort()[0];
+    for (var m = minutesOf(first); m <= minutesOf(day.to); m += STEP) {
+      var at = new Date(day.date + 'T' + clock(m) + ':00Z');
+      if (!hasRoom(lim, load.get(slotOf(at).getTime()), 1)) (full[day.date] = full[day.date] || []).push(clock(m));
+    }
+  });
+  var nowFull = !hasRoom(lim, load.get(slotOf(dueOf(s, null, now)).getTime()), 1);
+  var next = {};
+  ['delivery', 'pickup'].forEach(function (f) { var at = s[f] ? nextFree(s, load, 1, f, now) : null; next[f] = at ? at.toISOString() : null; });
+  return { on: true, nowFull: nowFull, full: full, next: next };
+}
+
 // The codes a restaurant may go by. Company codes are set by hand (Star Bar
 // Restaurant is 'SB' on the live system, 'SBR' in the demo data), so the
 // website's code stands for all of the restaurant's — the same aliases the
@@ -200,6 +257,8 @@ async function menuItems(companyId, online) {
   // Each dish's add-ons (restaurantTillCheck), picked on the dish's sheet.
   var groups = await require('./restaurantTillCheck.service').groupsFor(pool, items.map(function (i) { return i.id; }));
   items.forEach(function (i) { i.addOns = groups.get(i.id) || []; });
+  // What goes well with each (migration 0193): the manager's picks or the till's own.
+  await require('./restaurantSuggestions.service').forMenu(companyId, items);
   var categories = [];
   items.forEach(function (i) { if (categories.indexOf(i.category) < 0) categories.push(i.category); });
   return { categories: categories, items: items };
@@ -213,7 +272,8 @@ async function menu(code) {
   var till = await access.settingsOf(co.id);
   // book: tables booked on the website (restaurantBookings onlineOptions);
   // gift: gift cards sold on it (restaurantGiftCards buyOnline).
-  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online, gift: require('./restaurantGiftCards.service').onlineOptions(till) }), categories: m.categories, items: m.items };
+  // limits: times full (order limits, migration 0193).
+  return { restaurant: Object.assign(shopOut(co), { bill: billRules(till), book: !!till.bookings.online, gift: require('./restaurantGiftCards.service').onlineOptions(till), limits: await limitsOut(co, new Date()) }), categories: m.categories, items: m.items };
 }
 // The service charge (on the order types it is charged on) and the taxes,
 // for a customer's phone to show the same total the restaurant charges
@@ -310,10 +370,11 @@ async function place(code, p, ip, accountToken) {
   var items = p.items.map(function (i) {
     var qty = Math.round(Number(i && i.qty));
     if (!(qty >= 1 && qty <= MAX_QTY)) fail('invalid', 'Choose between 1 and ' + MAX_QTY + ' of each dish.');
-    return { menuItemId: String(i.menuItemId || ''), variationId: i.variationId || undefined, qty: qty, note: cleanText(i.note, 140), modifiers: modsFrom(i.modifiers) };
+    return { menuItemId: String(i.menuItemId || ''), variationId: i.variationId || undefined, qty: qty, note: cleanText(i.note, 140), modifiers: modsFrom(i.modifiers), suggested: !!i.suggested };
   });
   var priced = await pos().priceLines(pool, co.id, items, false);
   await tillMenu.checkOrder(pool, co.id, priced.lines, null, null);
+  var dishes = items.reduce(function (a, i) { return a + i.qty; }, 0);
   // Served then (breakfast in the morning), and a happy hour on now goes on its dishes.
   var tillSettings = await access.settingsOf(co.id);
   times.checkHours(tillSettings, priced.lines, null, scheduledFor || null);
@@ -333,14 +394,25 @@ async function place(code, p, ip, accountToken) {
   var bill = await chargesOf(co.id, priced.lines, q.fee, fulfillment, p.promoCode);
   var saved = await withTransaction(async function (client) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('online:' || $1))", [co.id]);
+    // Room in its 15 minutes, when the restaurant limits them.
+    var now = new Date(), slot = slotOf(dueOf(s, scheduledFor, now));
+    if (s.limits.on) {
+      var load = await slotLoad(client, co.id, slot, new Date(slot.getTime() + SLOT_MS));
+      if (!hasRoom(s.limits, load.get(slot.getTime()), dishes)) {
+        var wide = await slotLoad(client, co.id, slotOf(now), new Date(now.getTime() + (s.later.days + 2) * 86400000));
+        var next = nextFree(s, wide, dishes, fulfillment, now, scheduledFor);
+        var then = next ? ' The next time with room is ' + whenText(next) + (later ? '.' : ': order for then.') : later ? '' : ' Try again in a few minutes.';
+        fail('conflict', (later ? 'That time is full now: choose another one.' : co.name + ' has all the website orders it can make for now.') + then);
+      }
+    }
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_online_orders WHERE company_id = $1', [co.id])).rows[0].n;
-    var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}); });
+    var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}, items[i].suggested ? { suggested: true } : {}); });
     var row = (await client.query(
-      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id, adjust, status) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *',
+      'INSERT INTO restaurant_online_orders (company_id, number, token_hash, fulfillment, customer_name, customer_phone, address, landmark, lat, lng, note, pay_method, items, subtotal, delivery_fee, total, distance_km, ip, scheduled_for, charges, account_id, adjust, status, slot_at, dish_count) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING *',
       [co.id, number, hash(token), fulfillment, name, phone, address, landmark, point ? point.lat : null, point ? point.lng : null, cleanText(p.note, 300), payMethod, JSON.stringify(lines),
         priced.subtotal, q.fee, bill.total, q.distanceKm, String(ip || '').slice(0, 60), scheduledFor, JSON.stringify(bill.charges), account ? account.id : null, JSON.stringify(bill.adjust || {}),
-        payMethod === 'online' ? 'unpaid' : 'pending'])).rows[0];
+        payMethod === 'online' ? 'unpaid' : 'pending', slot, dishes])).rows[0];
     if (account && p.saveAddress && fulfillment === 'delivery') {
       await client.query('UPDATE restaurant_customer_accounts SET address = $2, landmark = $3, lat = $4, lng = $5, updated_at = now() WHERE id = $1', [account.id, address, landmark, point.lat, point.lng]);
     }
@@ -709,7 +781,7 @@ module.exports = {
   siteUrlFor: siteUrlFor, shopOf: shopOf,
   modsFrom: modsFrom, billRules: billRules,
   categoriesOff: categoriesOff, aliasesOf: aliasesOf, menu: menu, menuItems: menuItems, cleanText: cleanText, place: place, track: track, trackMine: trackMine, cancel: cancel, accept: accept, reject: reject, start: start, here: here, curbside: curbside, brought: brought,
-  releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP,
+  releaseDue: releaseDue, laterOut: laterOut, staffOut: staffOut, ref: ref, STEP: STEP, slotOf: slotOf, slotLoad: slotLoad, limitsOut: limitsOut,
   settlePaid: settlePaid, payAgain: payAgain, sweepUnpaid: sweepUnpaid, refundFor: refundFor, withPaid: withPaid, UNPAID_MINUTES: UNPAID_MINUTES,
   promo: promo, promoByCode: promoByCode, promoThrottle: promoThrottle
 };

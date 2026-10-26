@@ -26,6 +26,12 @@ export function AnswerPanel({ doc, token, onAnswered }) {
   const [strokes, setStrokes] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // A quotation with options (migration 0193): the customer picks one.
+  const opts = doc.options || [];
+  const choosing = opts.length > 0 && !doc.optionChosen;
+  const [pick, setPick] = useState(null);
+  const picked = opts.find((o) => o.key === pick) || null;
+  const chosen = opts.find((o) => o.chosen) || null;
   const a = doc.answer, st = doc.answerState;
   const word = DOC_WORD[doc.documentType];
   if (!st) return null;
@@ -33,7 +39,7 @@ export function AnswerPanel({ doc, token, onAnswered }) {
   async function send(action) {
     setBusy(true); setError('');
     try {
-      await api.post('/share/' + token + '/answer', { action, name, note, signature: action === 'approved' ? strokes : undefined });
+      await api.post('/share/' + token + '/answer', { action, name, note, signature: action === 'approved' ? strokes : undefined, option: action === 'approved' && choosing ? pick : undefined });
       setMode(null); setNote('');
       onAnswered();
     } catch (e) { setError(e.message); }
@@ -49,6 +55,7 @@ export function AnswerPanel({ doc, token, onAnswered }) {
           <div className="sa-badge" aria-hidden="true">✓</div>
           <div className="sa-body">
             <h2>{docTr('Approved — thank you!')}</h2>
+            {chosen && <p className="sa-chosen">✓ {docTr('You chose {name}: {total}.', { name: chosen.name, total: money(chosen.totals.grandTotal, doc.currency) })}</p>}
             <p>{docTr('Signed by {name} on {date}. We will be in touch about the next steps.', { name: a.name, date: when(a.at) })}</p>
             <SignatureView strokes={a.signature} className="sa-sig" />
           </div>
@@ -101,10 +108,22 @@ export function AnswerPanel({ doc, token, onAnswered }) {
           <div className="sa-head">
             <div className="sa-emoji" aria-hidden="true">🤝</div>
             <div>
-              <h2>{docTr('Happy with this {document}?', { document: word })}</h2>
-              <p className="sa-muted">{docTr('Approve it here and sign with your finger or mouse. It takes a few seconds.')}</p>
+              <h2>{choosing ? docTr('Which option would you like?') : docTr('Happy with this {document}?', { document: word })}</h2>
+              <p className="sa-muted">{choosing ? docTr('Choose one, then approve it and sign with your finger or mouse.') : docTr('Approve it here and sign with your finger or mouse. It takes a few seconds.')}</p>
             </div>
           </div>
+          {choosing && (
+            <div className="sa-opts" role="radiogroup" aria-label={docTr('Choose an option')}>
+              {opts.map((o, i) => (
+                <button key={o.key} type="button" role="radio" aria-checked={pick === o.key} className={'sa-opt is-' + o.key + (pick === o.key ? ' is-on' : '')} style={{ '--i': i }} onClick={() => setPick(o.key)}>
+                  <span className="sa-opt-tick" aria-hidden="true">{pick === o.key ? '✓' : String(o.key).toUpperCase()}</span>
+                  <strong>{o.name}</strong>
+                  {o.note && <small>{o.note}</small>}
+                  <b>{money(o.totals.grandTotal, doc.currency)}</b>
+                </button>
+              ))}
+            </div>
+          )}
           {a && a.action === 'changes' && (
             <div className="sa-changes">
               <strong>{docTr('You asked for changes on {date}:', { date: when(a.at) })}</strong> “{a.note}”
@@ -112,7 +131,7 @@ export function AnswerPanel({ doc, token, onAnswered }) {
             </div>
           )}
           <div className="sa-buttons">
-            <button type="button" className="sa-btn sa-btn-go" onClick={() => setMode('approve')}>✍️ {docTr('Approve and sign')}</button>
+            <button type="button" className="sa-btn sa-btn-go" disabled={choosing && !picked} onClick={() => setMode('approve')}>✍️ {picked ? docTr('Approve {name} and sign', { name: picked.name }) : choosing ? docTr('Choose an option first') : docTr('Approve and sign')}</button>
             <button type="button" className="sa-btn sa-btn-soft" onClick={() => setMode('changes')}>✎ {docTr('Ask for changes')}</button>
             <button type="button" className="sa-btn sa-btn-ghost" onClick={() => setMode('decline')}>{docTr('Decline')}</button>
           </div>
@@ -121,6 +140,7 @@ export function AnswerPanel({ doc, token, onAnswered }) {
       {mode === 'approve' && (
         <div className="sa-form">
           <h2>{docTr('Approve and sign')}</h2>
+          {picked && <p className="sa-chosen">✓ {docTr('Your choice: {name}', { name: picked.name })}</p>}
           <label className="sa-label">{docTr('Your full name')}
             <input className="sa-input" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoComplete="name" />
           </label>
@@ -128,7 +148,7 @@ export function AnswerPanel({ doc, token, onAnswered }) {
           <SignaturePad strokes={strokes} onChange={setStrokes} label={docTr('Sign here')} />
           <div className="sa-row">
             <button type="button" className="sa-link" onClick={() => setStrokes([])} disabled={!strokes.length}>{docTr('Clear')}</button>
-            <span className="sa-muted">{docTr('By signing you approve this {document} for {total} and its terms.', { document: word, total: money(doc.grandTotal, doc.currency) })}</span>
+            <span className="sa-muted">{docTr('By signing you approve this {document} for {total} and its terms.', { document: word, total: money(picked ? picked.totals.grandTotal : doc.grandTotal, doc.currency) })}</span>
           </div>
           {error && <div className="sa-error">{error}</div>}
           <div className="sa-buttons">

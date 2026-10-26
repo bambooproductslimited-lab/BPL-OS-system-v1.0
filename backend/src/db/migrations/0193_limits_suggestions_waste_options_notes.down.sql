@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS restaurant_team_note_reads;
+DROP TABLE IF EXISTS restaurant_team_notes;
+ALTER TABLE document_line_items DROP COLUMN IF EXISTS option_key;
+ALTER TABLE quotations DROP COLUMN IF EXISTS option_chosen;
+ALTER TABLE quotations DROP COLUMN IF EXISTS options;
+DROP TABLE IF EXISTS restaurant_stock_takes;
+DROP TABLE IF EXISTS restaurant_waste;
+ALTER TABLE restaurant_menu_items DROP COLUMN IF EXISTS goes_with;
+DROP INDEX IF EXISTS idx_restaurant_online_orders_slot;
+ALTER TABLE restaurant_online_orders DROP COLUMN IF EXISTS dish_count;
+ALTER TABLE restaurant_online_orders DROP COLUMN IF EXISTS slot_at;

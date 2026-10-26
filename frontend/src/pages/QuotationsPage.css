@@ -15,3 +15,21 @@
   .qt-stage.is-lost { grid-column: 1 / -1; }
   .quotations-dialog-fields { grid-template-columns: 1fr; }
 }
+
+/* Options for the customer (migration 0193). */
+.qt-opts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.qt-opt { --c: #8b5cf6; position: relative; display: flex; flex-direction: column; gap: 3px; padding: 12px; border-radius: 14px; border: 1px solid var(--color-border); border-top: 4px solid var(--c); background: var(--color-surface, var(--color-bg)); animation: qt-opt-in .3s calc(var(--i) * 70ms) ease both; }
+.qt-opt.is-b { --c: #0ea5e9; }
+.qt-opt.is-c { --c: #f59e0b; }
+.qt-opt.is-chosen { box-shadow: 0 0 0 2px var(--c); background: color-mix(in srgb, var(--c) 7%, var(--color-surface, var(--color-bg))); }
+.qt-opt.is-dropped { opacity: .55; }
+@keyframes qt-opt-in { from { opacity: 0; transform: translateY(6px); } }
+.qt-opt-letter { display: grid; place-items: center; width: 26px; height: 26px; font-weight: 900; color: #fff; border-radius: 8px; background: var(--c); }
+.qt-opt small { color: var(--color-text-muted); font-size: 12px; }
+.qt-opt-total { font-size: 18px; font-weight: 800; }
+.qt-opt-tag { position: absolute; top: 10px; right: 10px; padding: 2px 8px; font-size: 11px; font-weight: 800; color: #fff; border-radius: 999px; background: var(--c); }
+.qt-opt-pick { margin-top: 4px; }
+.qt-line-opt { display: inline-grid; place-items: center; width: 18px; height: 18px; margin-right: 6px; font-size: 11px; font-weight: 900; color: #fff; border-radius: 5px; background: #8b5cf6; vertical-align: 1px; }
+.qt-line-opt.is-b { background: #0ea5e9; }
+.qt-line-opt.is-c { background: #f59e0b; }
+@media (prefers-reduced-motion: reduce) { .qt-opt { animation: none; } }

@@ -334,3 +334,22 @@ export function TurnedDownCard({ o }) {
     </article>
   );
 }
+
+// The next two hours of website orders by the 15 minutes they are due in,
+// against the limit (backend restaurantDelivery board slots, migration 0193).
+export function SlotStrip({ slots, limits }) {
+  if (!slots || !slots.length) return null;
+  return (
+    <div className="dl-slots" role="list" aria-label={tr('Website orders, the next two hours')}>
+      <span className="dl-slots-label">⏱ {tr('Next two hours')}<small>{tr('{n} orders every 15 minutes', { n: limits.orders })}</small></span>
+      {slots.map((x) => {
+        const fill = Math.min(1, x.orders / Math.max(1, limits.orders));
+        return (
+          <span key={x.at} role="listitem" className={'dl-slot' + (x.full ? ' is-full' : x.orders ? ' is-some' : '')} style={{ '--fill': fill }} title={tr('{n} orders, {d} dishes', { n: x.orders, d: x.dishes })}>
+            <b>{clockOf(x.at)}</b><small>{x.full ? tr('full') : x.orders + '/' + limits.orders}</small><i aria-hidden="true" />
+          </span>
+        );
+      })}
+    </div>
+  );
+}

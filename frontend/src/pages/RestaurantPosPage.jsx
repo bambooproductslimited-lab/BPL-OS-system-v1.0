@@ -19,6 +19,8 @@ import HandInDialog from './till/HandInDialog';
 import MoreMenu from './till/MoreMenu';
 import { OnToday, MyShifts } from './till/Rota';
 import TimeClock from './till/TimeClock';
+import { WasteDialog } from './till/Waste';
+import TeamNotes from './till/TeamNotes';
 import { TableMapPicker } from './till/TableMap';
 import ManagerHome from './till/ManagerHome';
 import AzRail, { azGroups, sectionId } from './till/AzRail';
@@ -401,6 +403,9 @@ export default function RestaurantPosPage() {
   const [settingsOpen, setSettingsOpen] = useState(false); // true, or the tab to open at
   const [disputeFor, setDisputeFor] = useState(null); // a problem reported: { orderId?, tabId?, label, customerName }
   const [stockOpen, setStockOpen] = useState(false);
+  const [wasteOpen, setWasteOpen] = useState(false);
+  const [notes, setNotes] = useState(null); // notes for the team: { notes, unread, canWrite }
+  const [notesOpen, setNotesOpen] = useState(false);
   const [idleNote, setIdleNote] = useState(null); // minutes, after signing out for being unused
   const [drawerLeftOpen, setDrawerLeftOpen] = useState(false); // signed out with a drawer open: it stays open
   const can = (k) => !!(tillAccess && tillAccess.can[k]);
@@ -451,6 +456,12 @@ export default function RestaurantPosPage() {
     const t = setInterval(() => setNow(new Date()), 20000);
     return () => clearInterval(t);
   }, []);
+  // Notes for the team: whoever signs in sees the new ones first.
+  useEffect(() => {
+    setNotes(null); setNotesOpen(false);
+    if (!sessionToken) return;
+    posFetch('GET', '/pos/team-notes', sessionToken).then((r) => { setNotes(r); if (r.unread > 0) setNotesOpen(true); }).catch(() => {});
+  }, [sessionToken]);
   useEffect(() => {
     if (!session || !session.token) return undefined;
     loadSoon(session.token);
@@ -2217,6 +2228,9 @@ export default function RestaurantPosPage() {
           )}
           <CurbsidePill outside={outside} onClick={() => setCurbOpen(true)} />
           <BusyPill busy={busyMode} onClick={() => setBusyOpen(true)} />
+          {notes && notes.unread > 0 && !notesOpen && (
+            <button type="button" className="crew-pill" onClick={() => setNotesOpen(true)}>📣 {notes.unread === 1 ? tr('1 new note') : tr('{n} new notes', { n: notes.unread })}</button>
+          )}
           {soon && soon.can && (soon.requested > 0 || soon.waiting > 0) && (
             <button type="button" className="pos-stat is-bookings is-asking" onClick={() => setBookingsOpen(true)}>
               <span className="pos-stat-ico" aria-hidden="true">📅</span>
@@ -2271,6 +2285,9 @@ export default function RestaurantPosPage() {
               isManager ? { key: 'office', group: 'manage', icon: 'key', tone: 'settings', label: tr('Back office'), note: tr('Reports, menu and stock, setup'), onClick: () => setOfficeOpen(true) }
                 : { key: 'settings', group: 'manage', icon: 'key', tone: 'settings', label: tr('Till settings'), note: tr('Sales, activity, roles, payments'), onClick: () => setSettingsOpen(true) },
               can('stock') && { key: 'stock', group: 'manage', icon: 'layers', tone: 'stock', label: tr('Stock'), note: tr('Count it, enter what came in'), onClick: () => setStockOpen(true) },
+              (can('till') || can('stock') || can('kds')) && { key: 'waste', group: 'manage', icon: <span className="tl-more-emo">🗑️</span>, tone: 'waste', label: tr('Throw something away'), note: tr('Waste: what, how many, why'), onClick: () => setWasteOpen(true) },
+              notes && (notes.notes.length > 0 || notes.canWrite) && { key: 'notes', group: 'manage', icon: <span className="tl-more-emo">📌</span>, tone: 'notes', label: tr('Notes for the team'),
+                note: notes.unread ? (notes.unread === 1 ? tr('1 new note') : tr('{n} new notes', { n: notes.unread })) : notes.notes.length ? tr('{n} up now', { n: notes.notes.length }) : tr('Write one for everyone'), badge: notes.unread || null, onClick: () => setNotesOpen(true) },
               { key: 'downloads', group: 'manage', icon: <span className="tl-more-emo">⬇️</span>, tone: 'downloads', label: tr('Downloads (Square format)'), note: tr('Item library and item sales'), onClick: () => setDownloadsOpen(true) },
             ]}
             extra={<div className="tl-more-look"><ThemeChoice theme={theme} onChange={setTheme} compact /><DeviceLanguage className="pos-lang tl-more-lang" /></div>}
@@ -2836,6 +2853,8 @@ export default function RestaurantPosPage() {
           </div>
         </div>
       )}
+      {wasteOpen && <WasteDialog token={session.token} onClose={() => setWasteOpen(false)} onToast={setToast} />}
+      {notesOpen && <TeamNotes token={session.token} isManager={!!(notes && notes.canWrite)} initial={notes} onClose={(r) => { if (r) setNotes(r); setNotesOpen(false); }} />}
       {dutyBlocks && can('charge') && !drawer && dutyNotice && (
         <div className="dialog-backdrop">
           <div className="dialog tl-dialog tl-duty" role="alertdialog" aria-modal="true" aria-labelledby="tl-duty-title">

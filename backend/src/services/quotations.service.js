@@ -4,6 +4,55 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause } = require('../utils/documents');
 
+// Options (migration 0193; Square's estimate packages): a quotation may
+// offer two or three options (Standard, Premium…), each made of the lines
+// put in it plus the lines in all of them; the customer picks one when
+// approving it online (documentAnswers), or the rep does for them. The
+// quotation's totals are the first option's until one is chosen; then the
+// other options' lines are kept in options[].dropped and taken off, and the
+// quotation is the chosen option — its invoice, its PDF, everything after.
+var OPTION_KEYS = ['a', 'b', 'c'];
+function cleanOptions(raw, items) {
+  var list = (Array.isArray(raw) ? raw : []).filter(function (o) { return o && String(o.name || '').trim(); });
+  if (!list.length) { items.forEach(function (it) { it.optionKey = ''; }); return []; }
+  if (list.length < 2 || list.length > OPTION_KEYS.length) fail('invalid', 'Give the customer two or three options to choose from.');
+  var opts = list.map(function (o, i) { return { key: OPTION_KEYS[i], name: V.text(o.name, 'Option name', 60), note: String(o.note || '').trim().slice(0, 300) }; });
+  var keys = opts.map(function (o) { return o.key; });
+  items.forEach(function (it) { if (keys.indexOf(it.optionKey) < 0) it.optionKey = ''; });
+  opts.forEach(function (o) { if (!items.some(function (it) { return it.optionKey === o.key; })) fail('invalid', 'Put at least one line in the option "' + o.name + '".'); });
+  return opts;
+}
+function linesOf(items, key) { return items.filter(function (it) { return !it.optionKey || it.optionKey === key; }); }
+function docDiscount(r) { return { value: Number(r.discount_value), type: r.discount_type }; }
+// Each option with its totals (as they stand, or as they were when one was chosen).
+function optionsOut(r, items) {
+  return (r.options || []).map(function (o) {
+    var lines = o.dropped ? o.dropped.concat(items.filter(function (it) { return !it.optionKey; })) : linesOf(items, o.key);
+    return { key: o.key, name: o.name, note: o.note || '', totals: o.totals || computeDocTotals(lines, docDiscount(r), Number(r.tax_rate)), chosen: r.option_chosen === o.key, dropped: !!o.dropped };
+  });
+}
+// The option chosen: the others' lines kept aside and taken off, the totals
+// and the payment schedule the chosen one's. In the caller's transaction.
+async function chooseOption(db, q, key) {
+  var opts = q.options || [];
+  if (!opts.length) return q;
+  if (q.option_chosen) fail('conflict', 'An option was chosen already.');
+  if (!opts.some(function (o) { return o.key === key; })) fail('invalid', 'Choose one of the options.');
+  var items = await loadLineItems(db, 'quotation', q.id);
+  var disc = docDiscount(q), rate = Number(q.tax_rate);
+  var next = opts.map(function (o) {
+    var out = Object.assign({}, o, { totals: computeDocTotals(linesOf(items, o.key), disc, rate) });
+    if (o.key !== key) out.dropped = items.filter(function (it) { return it.optionKey === o.key; });
+    return out;
+  });
+  var totals = computeDocTotals(linesOf(items, key), disc, rate);
+  var schedule = (q.payment_schedule || []).map(function (s) { return Object.assign({}, s, { amount: s.type === 'percent' ? Math.round(totals.grandTotal * Number(s.value)) / 100 : s.amount }); });
+  await db.query("DELETE FROM document_line_items WHERE document_type = 'quotation' AND document_id = $1 AND option_key <> '' AND option_key <> $2", [q.id, key]);
+  return (await db.query(
+    'UPDATE quotations SET options = $2, option_chosen = $3, subtotal = $4, discount_total = $5, tax_total = $6, grand_total = $7, payment_schedule = $8 WHERE id = $1 RETURNING *',
+    [q.id, JSON.stringify(next), key, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, JSON.stringify(schedule)])).rows[0];
+}
+
 // kernel.js: autoExpireQuotations()
 async function autoExpireQuotations() {
   await pool.query(
@@ -21,7 +70,8 @@ async function rowToQuotation(db, r, extra) {
     createdAt: r.created_at, validUntil: r.valid_until, notes: r.notes, terms: r.terms, fromEstimateId: r.from_estimate_id,
     sentAt: r.sent_at || null, answeredAt: r.answered_at || null,
     clientAnswer: r.client_answer || null, clientAnsweredAt: r.client_answered_at || null, viewedAt: r.viewed_at || null,
-    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || []
+    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || [],
+    options: optionsOut(r, items), optionChosen: r.option_chosen || null
   }, extra || {});
 }
 
@@ -63,7 +113,8 @@ async function create(ctx, p) {
 
   var rawItems = (p.items && p.items.length) ? p.items : (p.description ? [{ description: p.description, qty: p.qty, unitPrice: p.unitPrice }] : []);
   var items = buildLineItems(rawItems);
-  var totals = computeDocTotals(items, p.discount, p.taxRate);
+  var options = cleanOptions(p.options, items);
+  var totals = computeDocTotals(options.length ? linesOf(items, options[0].key) : items, p.discount, p.taxRate);
   var title = V.text(p.title || 'Quotation for ' + cust.name, 'Title', 120);
 
   var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
@@ -79,9 +130,9 @@ async function create(ctx, p) {
   var newId = await withTransaction(async function (client) {
     var quoteNo = await nextDocNumber(client, 'quotation');
     var res = await client.query(
-      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency, discount_value, discount_type, tax_rate, payment_schedule) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *",
-      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule)]
+      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency, discount_value, discount_type, tax_rate, payment_schedule, options) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
+      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), JSON.stringify(options)]
     );
     var q = res.rows[0];
     await insertLineItems(client, 'quotation', q.id, items);
@@ -99,8 +150,9 @@ async function create(ctx, p) {
 async function setStatus(ctx, id, status) {
   if (!ctx.can('quotation.manage')) fail('forbidden', 'Your role does not allow this action (quotation.manage).');
   status = V.oneOf(status, ['draft', 'sent', 'viewed', 'accepted', 'rejected', 'expired', 'cancelled'], 'Status');
-  var cur = await pool.query('SELECT id FROM quotations WHERE id = $1', [id]);
+  var cur = await pool.query('SELECT id, options, option_chosen FROM quotations WHERE id = $1', [id]);
   if (!cur.rows[0]) fail('notfound', 'Quotation not found.');
+  if (status === 'accepted' && (cur.rows[0].options || []).length && !cur.rows[0].option_chosen) fail('conflict', 'Choose the option the customer picked first.');
   var inv = await pool.query("SELECT invoice_no FROM invoices WHERE quotation_id = $1 AND status <> 'void' LIMIT 1", [id]);
   if (inv.rows[0]) fail('conflict', 'Invoice ' + inv.rows[0].invoice_no + ' was made from this quotation, so it stays accepted. Void the invoice first.');
   var res = await pool.query(
@@ -123,7 +175,8 @@ async function update(ctx, id, p) {
   var cust = (await pool.query('SELECT * FROM customers WHERE id = $1', [p.customerId || existing.customer_id])).rows[0];
   if (!cust) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
-  var totals = computeDocTotals(items, p.discount, p.taxRate);
+  var options = cleanOptions(p.options, items);
+  var totals = computeDocTotals(options.length ? linesOf(items, options[0].key) : items, p.discount, p.taxRate);
   var title = V.text(p.title || 'Quotation for ' + cust.name, 'Title', 120);
   var commercial = (await pool.query('SELECT commercial FROM settings WHERE id = 1')).rows[0].commercial;
   var validUntil = p.validUntil ? V.date(p.validUntil, 'Valid until') : existing.valid_until;
@@ -135,8 +188,8 @@ async function update(ctx, id, p) {
 
   await withTransaction(async function (client) {
     await client.query(
-      'UPDATE quotations SET customer_id = $1, title = $2, subtotal = $3, discount_total = $4, tax_total = $5, grand_total = $6, valid_until = $7, notes = $8, currency = $9, discount_value = $10, discount_type = $11, tax_rate = $12, payment_schedule = $13 WHERE id = $14',
-      [cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.notes || '').trim(), currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), id]
+      'UPDATE quotations SET customer_id = $1, title = $2, subtotal = $3, discount_total = $4, tax_total = $5, grand_total = $6, valid_until = $7, notes = $8, currency = $9, discount_value = $10, discount_type = $11, tax_rate = $12, payment_schedule = $13, options = $15, option_chosen = NULL WHERE id = $14',
+      [cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.notes || '').trim(), currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), id, JSON.stringify(options)]
     );
     await client.query('DELETE FROM document_line_items WHERE document_type = $1 AND document_id = $2', ['quotation', id]);
     await insertLineItems(client, 'quotation', id, items);
@@ -146,4 +199,21 @@ async function update(ctx, id, p) {
   return rowToQuotation(pool, final.rows[0]);
 }
 
-module.exports = { list: list, create: create, update: update, setStatus: setStatus, rowToQuotation: rowToQuotation };
+// POST /api/quotations/:id/choose { option } — the rep records the option
+// the customer picked (on the phone, in person).
+async function choose(ctx, id, key) {
+  if (!ctx.can('quotation.manage')) fail('forbidden', 'Your role does not allow this action (quotation.manage).');
+  var q = await withTransaction(async function (client) {
+    var cur = (await client.query('SELECT * FROM quotations WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    if (!cur) fail('notfound', 'Quotation not found.');
+    if (!(cur.options || []).length) fail('invalid', 'This quotation has no options.');
+    if (['rejected', 'cancelled', 'expired'].indexOf(cur.status) >= 0) fail('conflict', 'This quotation is ' + cur.status + '.');
+    var next = await chooseOption(client, cur, String(key || ''));
+    var o = next.options.find(function (x) { return x.key === next.option_chosen; });
+    await audit(client, ctx, 'quotation.option', 'quotation', id, cur.quote_no + ': the customer chose "' + o.name + '" (' + next.currency + ' ' + Number(next.grand_total).toLocaleString() + ').');
+    return next;
+  });
+  return rowToQuotation(pool, q);
+}
+
+module.exports = { list: list, create: create, update: update, setStatus: setStatus, rowToQuotation: rowToQuotation, choose: choose, chooseOption: chooseOption, optionsOut: optionsOut };

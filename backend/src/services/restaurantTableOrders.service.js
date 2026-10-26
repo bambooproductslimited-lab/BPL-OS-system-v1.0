@@ -112,7 +112,7 @@ async function place(code, p, ip) {
   var items = p.items.map(function (i) {
     var qty = Math.round(Number(i && i.qty));
     if (!(qty >= 1 && qty <= MAX_QTY)) fail('invalid', 'Choose between 1 and ' + MAX_QTY + ' of each dish.');
-    return { menuItemId: String(i.menuItemId || ''), variationId: i.variationId || undefined, qty: qty, note: cleanText(i.note, 140), modifiers: require('./restaurantOnline.service').modsFrom(i.modifiers) };
+    return { menuItemId: String(i.menuItemId || ''), variationId: i.variationId || undefined, qty: qty, note: cleanText(i.note, 140), modifiers: require('./restaurantOnline.service').modsFrom(i.modifiers), suggested: !!i.suggested };
   });
   var priced = await pos().priceLines(pool, t.company_id, items, false);
   await tillMenu.checkOrder(pool, t.company_id, priced.lines, null, null);
@@ -127,7 +127,7 @@ async function place(code, p, ip) {
   var saved = await withTransaction(async function (client) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext('table-orders:' || $1))", [t.company_id]);
     var number = (await client.query('SELECT coalesce(max(number), 0) + 1 AS n FROM restaurant_table_orders WHERE company_id = $1', [t.company_id])).rows[0].n;
-    var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}); });
+    var lines = priced.lines.map(function (l, i) { return Object.assign({ menuItemId: l.menuItemId, variationId: l.variationId, name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineTotal: l.lineTotal, note: items[i].note || '', modifiers: l.modifiers || [] }, l.discount ? { discount: l.discount } : {}, items[i].suggested ? { suggested: true } : {}); });
     var row = (await client.query(
       'INSERT INTO restaurant_table_orders (company_id, table_id, number, token_hash, customer_name, note, items, subtotal, ip) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
       [t.company_id, t.id, number, hash(token), name, cleanText(p.note, 200), JSON.stringify(lines), priced.subtotal, String(ip || '').slice(0, 60)])).rows[0];

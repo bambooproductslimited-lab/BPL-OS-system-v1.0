@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { money } from '../lib/currency';
 import CatalogPicker from './CatalogPicker';
+import DocOptions from './DocOptions';
+import { linesForOption, optionLetter } from '../lib/docOptions';
 import { tr } from '../lib/i18n.jsx';
 import './DocItemsEditor.css';
 
@@ -144,7 +146,7 @@ function CatalogStockLine({ item, cat, stockMode }) {
 
 export default function DocItemsEditor({
   items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
-  paymentSchedule, onPaymentScheduleChange, stockProducts, stockMode
+  paymentSchedule, onPaymentScheduleChange, stockProducts, stockMode, options, onOptionsChange
 }) {
   const stockList = stockProducts || null;
   // A catalogue item's stock: its linked product's, else its own (shown when it has any).
@@ -153,7 +155,10 @@ export default function DocItemsEditor({
     const code = String(it.itemNo || '').toUpperCase();
     return code ? (catalogOptions || []).find((c) => String(c.code || '').toUpperCase() === code) : null;
   }
-  const totals = computeDocTotals(items, docDiscount, docTaxRate);
+  // A quotation with options (DocOptions.jsx): its totals are the first
+  // option's, as the server keeps them until the customer picks one.
+  const opts = (onOptionsChange && options) || [];
+  const totals = computeDocTotals(opts.length ? linesForOption(items, opts[0].key) : items, docDiscount, docTaxRate);
   const cur = currency || 'GHS';
   const [discountOpen, setDiscountOpen] = useState(!!(docDiscount && docDiscount.value));
   const [scheduleOpen, setScheduleOpen] = useState(!!(paymentSchedule && paymentSchedule.length));
@@ -202,6 +207,9 @@ export default function DocItemsEditor({
 
   return (
     <div className="doc-items-editor">
+      {opts.length > 0 && (
+        <DocOptions options={opts} items={items} onChange={onOptionsChange} onItemsChange={onChange} docDiscount={docDiscount} docTaxRate={docTaxRate} currency={cur} />
+      )}
       <div className="doc-items-scroll">
         <table className="table doc-items-table">
           <thead>
@@ -238,6 +246,12 @@ export default function DocItemsEditor({
                     placeholder={tr('Package name (optional) — groups with other lines under one price')}
                     onChange={(e) => setField(idx, 'packageLabel', e.target.value)}
                   />
+                  {opts.length > 0 && (
+                    <select className={'input doc-items-option' + (it.optionKey ? ' is-' + it.optionKey : '')} value={it.optionKey || ''} onChange={(e) => setField(idx, 'optionKey', e.target.value)} aria-label={tr('Which option')}>
+                      <option value="">{tr('In every option')}</option>
+                      {opts.map((o) => <option key={o.key} value={o.key}>{tr('Only in {name}', { name: optionLetter(o.key) + (o.name ? ': ' + o.name : '') })}</option>)}
+                    </select>
+                  )}
                   {(() => {
                     // A Products & Services item with its own stock (not a stock product):
                     // the invoice takes it off that item's count.
@@ -270,6 +284,9 @@ export default function DocItemsEditor({
         <button type="button" className="btn btn-secondary doc-items-add" onClick={addShippingLine}>{tr('+ Add shipping fee or service charge')}</button>
         {onDocDiscountChange && !discountOpen && (
           <button type="button" className="btn btn-secondary doc-items-add" onClick={() => setDiscountOpen(true)}>{tr('+ Add discount')}</button>
+        )}
+        {onOptionsChange && !opts.length && (
+          <button type="button" className="btn btn-secondary doc-items-add" onClick={() => onOptionsChange([{ key: 'a', name: '', note: '' }, { key: 'b', name: '', note: '' }])}>{tr('+ Give the customer options')}</button>
         )}
         {onPaymentScheduleChange && !scheduleOpen && (
           <button type="button" className="btn btn-secondary doc-items-add" onClick={() => { setScheduleOpen(true); if (!schedule.length) addScheduleRow(); }}>{tr('+ Add payment schedule')}</button>
@@ -331,7 +348,7 @@ export default function DocItemsEditor({
             </span>
           )}
         </div>
-        <div>{tr('Total')} <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
+        <div>{opts.length ? tr('Total of {name}', { name: opts[0].name || tr('option {letter}', { letter: 'A' }) }) : tr('Total')} <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
       </div>
     </div>
   );

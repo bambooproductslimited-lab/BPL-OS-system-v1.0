@@ -5,6 +5,7 @@ import { money } from '../lib/currency';
 import { groupPackageItems } from '../lib/packages';
 import { adjustmentRows, creditRows, paymentsForDocument } from '../lib/docItems';
 import { formatPaymentSchedule } from '../lib/paymentSchedule';
+import { optionLetter, optionSections, optionsOpen } from '../lib/docOptions';
 import { docTr, DOCUMENT_INTL_LOCALE } from '../lib/i18n.jsx';
 import { AnswerPanel, PayPanel } from './ShareActions';
 import { SignatureView } from '../components/SignaturePad';
@@ -54,8 +55,13 @@ export default function SharePage() {
   if (!doc) return null;
 
   const cur = doc.currency;
-  const displayItems = groupPackageItems(doc.items, cur);
-  const schedule = formatPaymentSchedule(doc.paymentSchedule, cur);
+  // A quotation with options still to choose from: its lines by option,
+  // each option's total, and the payment schedule once one is chosen.
+  const choosing = optionsOpen(doc);
+  const chosen = (doc.options || []).find((o) => o.chosen);
+  const sections = choosing ? optionSections(doc.items, doc.options).map((sec) => ({ ...sec, rows: groupPackageItems(sec.items, cur) }))
+    : [{ key: '', rows: groupPackageItems(doc.items, cur) }];
+  const schedule = choosing ? [] : formatPaymentSchedule(doc.paymentSchedule, cur);
   const isInvoice = doc.documentType === 'invoice';
   // A Poki letting offer reads as it does in the OS (PokiEstimatesPage.jsx).
   const letting = doc.documentType === 'estimate' && doc.docKind === 'letting';
@@ -112,6 +118,7 @@ export default function SharePage() {
         <div className="doc-preview-rule" />
         <h1 className="doc-preview-heading">{letting ? docTr('Letting offer for {customerName}', { customerName: doc.customer.name }) : doc.title || (docTr('{document} for {name}', { document: DOC_LABEL[doc.documentType], name: doc.customer.name }))}</h1>
         <div className="doc-preview-subheading">{letting && unitLine ? unitLine : subHeadingText}</div>
+        {chosen && <div className={'share-opt-chosen is-' + chosen.key}>✓ {docTr('Option chosen: {name}', { name: chosen.name })}</div>}
         {letting ? (
         <div className="doc-preview-blocks">
           <div>
@@ -140,19 +147,25 @@ export default function SharePage() {
           <div>
             <div className="doc-preview-block-title">{DOC_LABEL[doc.documentType]} {docTr('Details')}</div>
             <div className="doc-preview-block-line">{docTr('Issued')} {dateValue}</div>
-            <div className="doc-preview-block-line">{money(doc.grandTotal, cur)}</div>
+            <div className="doc-preview-block-line">{choosing ? docTr('{n} options to choose from', { n: doc.options.length }) : money(doc.grandTotal, cur)}</div>
           </div>
           <div>
             <div className="doc-preview-block-title">{isInvoice ? docTr('Payment') : docTr('Validity')}</div>
             <div className="doc-preview-block-line">{subHeadingText}</div>
-            <div className="doc-preview-block-line">{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
+            <div className="doc-preview-block-line">{choosing ? docTr('from {amount}', { amount: money(Math.min(...doc.options.map((o) => o.totals.grandTotal)), cur) }) : money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
           </div>
         </div>
         )}
         <table className="doc-preview-table">
           <thead><tr><th>{docTr('Items')}</th><th className="doc-preview-num">{docTr('Quantity')}</th><th className="doc-preview-num">{docTr('Price')}</th><th className="doc-preview-num">{docTr('Amount')}</th></tr></thead>
-          <tbody>
-            {displayItems.map((it, i) => (
+          {sections.map((sec) => (
+          <tbody key={sec.key || 'all'}>
+            {choosing && (
+              <tr className={'share-opt-head is-' + (sec.key || 'all')}>
+                <td colSpan={4}>{sec.option ? <><span className="share-opt-letter">{optionLetter(sec.key)}</span>{docTr('Option: {name}', { name: sec.option.name })}{sec.option.note && <small> · {sec.option.note}</small>}</> : docTr('In every option')}</td>
+              </tr>
+            )}
+            {sec.rows.map((it, i) => (
               <tr key={i}>
                 <td className="doc-preview-desc">
                   {it.description}
@@ -166,7 +179,14 @@ export default function SharePage() {
               </tr>
             ))}
           </tbody>
+          ))}
         </table>
+        {choosing ? doc.options.map((o) => (
+          <div className={'doc-preview-grand-row share-opt-total is-' + o.key} key={o.key}>
+            <div><span className="share-opt-letter">{optionLetter(o.key)}</span>{docTr('Total, {name}', { name: o.name })}</div>
+            <div>{money(o.totals.grandTotal, cur)}</div>
+          </div>
+        )) : <>
         <div className="doc-preview-row">
           <div>{docTr('Subtotal')}</div><div>{money(doc.subtotal, cur)}</div>
         </div>
@@ -206,6 +226,7 @@ export default function SharePage() {
           <div>{isInvoice ? docTr('Total Due') : letting ? docTr('Total') : docTr('Grand Total')}</div>
           <div>{money(isInvoice ? doc.balanceDue : doc.grandTotal, cur)}</div>
         </div>
+        </>}
         {schedule.length > 0 && (
           <div className="doc-preview-schedule">
             <div className="doc-preview-notes-label">{docTr('Payment schedule')}</div>

@@ -315,6 +315,21 @@ async function documentPdf(documentType, documentId) {
     ]);
   }
   tableHead(doc);
+  // A quotation offering options not chosen yet (quotations.service, migration
+  // 0193): the lines in every option, then each option with its own lines
+  // and its total; the totals are each option's.
+  var opts = (v.options || []).length && !v.optionChosen ? v.options : null;
+  if (opts) {
+    var heading = function (description, notes, total) { tableRow(doc, { description: description, notes: notes || '', qty: '', unitPrice: '', lineTotal: total || '' }); };
+    var shared = v.items.filter(function (it) { return !it.optionKey; });
+    if (shared.length) { heading('In every option'); displayItems(shared, cur).forEach(function (it) { tableRow(doc, it); }); }
+    opts.forEach(function (o) {
+      heading('Option: ' + o.name, o.note, money(o.totals.grandTotal, cur));
+      displayItems(v.items.filter(function (it) { return it.optionKey === o.key; }), cur).forEach(function (it) { tableRow(doc, it); });
+    });
+    doc.y += 2;
+    opts.forEach(function (o, i) { row(doc, o.name + ' — total', money(o.totals.grandTotal, cur), { grand: i === opts.length - 1 }); });
+  } else {
   displayItems(v.items, cur).forEach(function (it) { tableRow(doc, it); });
   doc.y += 2;
   row(doc, 'Subtotal', money(v.subtotal, cur));
@@ -330,8 +345,9 @@ async function documentPdf(documentType, documentId) {
     if (v.amountPaid > 0 && v.balanceDue > 0 && !(v.payments || []).length) row(doc, 'Amount paid', money(v.amountPaid, cur));
   }
   row(doc, isInvoice ? 'Total Due' : letting ? 'Total' : 'Grand Total', money(isInvoice ? v.balanceDue : v.grandTotal, cur), { grand: true });
+  }
 
-  if ((v.paymentSchedule || []).length) {
+  if ((v.paymentSchedule || []).length && !opts) {
     room(doc, 40);
     doc.y += 12;
     doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text('Payment schedule', left(doc), doc.y);

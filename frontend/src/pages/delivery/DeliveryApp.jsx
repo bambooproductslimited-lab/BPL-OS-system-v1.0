@@ -8,7 +8,7 @@ import { playNewTicket, unlockAudio } from '../../kiosk/kioskSounds';
 import DeviceLanguage from '../../components/DeviceLanguage';
 import { Icon } from '../../components/DashKit';
 import DeliveryMap from './DeliveryMap';
-import { ActiveCard, DoneCard, LaterCard, MoneyLine, NewOrderCard, TurnedDownCard, WaitingCard } from './DlCards';
+import { ActiveCard, DoneCard, LaterCard, MoneyLine, NewOrderCard, SlotStrip, TurnedDownCard, WaitingCard } from './DlCards';
 import { SendDialog, SettingsDialog } from './DlDialogs';
 import RidersPanel from './DlRiders';
 import OnlineMenuDialog from './DlMenu';
@@ -255,6 +255,7 @@ function Desk({ session, onSignOut, themeButton }) {
         </div>
       </header>
       {offline && <div className="dl-banner is-bad">{tr('Cannot reach the server. Showing what was there a moment ago.')}</div>}
+      {board.settings.limits && board.settings.limits.on && <SlotStrip slots={board.slots} limits={board.settings.limits} />}
       {!here && <div className="dl-banner"><Icon name="map" />{tr('Set where the restaurant is (Delivery settings), so the map, the distances and the delivery fees work.')}<button type="button" className="pos-link" onClick={() => setSettingsOpen(true)}>{tr('Set it now')}</button></div>}
 
       <div className="dl-body">

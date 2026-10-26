@@ -90,7 +90,8 @@ async function repsOf(db, documentType, d) {
 }
 
 // POST /api/share/:token/answer { action: approved | declined | changes,
-// name, note, signature } — the customer's answer.
+// name, note, signature, option } — the customer's answer; a quotation with
+// options is approved with the one they chose (quotations.service options).
 async function answer(token, p, ip, ua) {
   p = p || {};
   var action = ACTIONS.indexOf(p.action) >= 0 ? p.action : fail('invalid', 'Approve, decline or ask for changes?');
@@ -114,6 +115,13 @@ async function answer(token, p, ip, ua) {
       fail('conflict', state.why === 'approved' ? 'This ' + LABEL[type] + ' was approved already.' : state.why === 'declined' ? 'This ' + LABEL[type] + ' was declined already. Ask for a new one to change your mind.'
         : state.why === 'expired' ? 'This ' + LABEL[type] + ' has expired. Ask for a new one.' : 'This ' + LABEL[type] + ' was withdrawn. Ask for a new one.');
     }
+    // Its options: the one chosen becomes the quotation.
+    var picked = null;
+    if (type === 'quotation' && action === 'approved' && (d.options || []).length && !d.option_chosen) {
+      if (!p.option) fail('invalid', 'Choose one of the options to approve it.');
+      d = await require('./quotations.service').chooseOption(db, d, String(p.option));
+      picked = d.options.find(function (o) { return o.key === d.option_chosen; });
+    }
     var row = (await db.query(
       'INSERT INTO document_responses (document_type, document_id, share_id, action, name, note, signature, ip, user_agent) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *',
       [type, d.id, share.id, action, name, note, signature ? JSON.stringify(signature) : null, String(ip || '').slice(0, 60), String(ua || '').slice(0, 300)])).rows[0];
@@ -125,7 +133,7 @@ async function answer(token, p, ip, ua) {
     var cust = (await db.query('SELECT name FROM customers WHERE id = $1', [d.customer_id])).rows[0];
     var who = name || (cust ? cust.name : 'The customer');
     var no = d[NO[type]];
-    var said = { approved: who + ' approved ' + LABEL[type] + ' ' + no + ' online', declined: who + ' declined ' + LABEL[type] + ' ' + no, changes: who + ' asked for changes to ' + LABEL[type] + ' ' + no }[action];
+    var said = { approved: who + ' approved ' + LABEL[type] + ' ' + no + ' online' + (picked ? ' (' + picked.name + ')' : ''), declined: who + ' declined ' + LABEL[type] + ' ' + no, changes: who + ' asked for changes to ' + LABEL[type] + ' ' + no }[action];
     await audit(db, { user: { id: null }, employee: { first_name: who, last_name: '(customer)' } }, type + '.client_' + action, type, d.id, said + (note ? ': ' + note : '') + '.');
     var reps = await repsOf(db, type, d);
     var link = (type === 'quotation' ? '/quotations' : '/estimates') + '?open=' + d.id;

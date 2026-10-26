@@ -23,6 +23,9 @@ function buildLineItems(rawItems) {
       discount: Math.max(0, Number(it.discount) || 0), discountType: it.discountType === 'percent' ? 'percent' : 'fixed',
       taxRate: Math.max(0, Number(it.taxRate) || 0), notes: (it.notes || '').trim(),
       packageLabel: (it.packageLabel || '').trim().slice(0, 80),
+      // A quotation's option this line belongs to ('': all of them;
+      // quotations.service.js options, migration 0193).
+      optionKey: String(it.optionKey || '').trim().slice(0, 8),
       // The stock product this line sells, if any (Products & inventory):
       // an invoice takes its quantity off stock (inventorySales.service.js).
       productId: /^[0-9a-f-]{36}$/i.test(String(it.productId || '')) ? String(it.productId) : null
@@ -135,9 +138,10 @@ async function insertLineItems(client, documentType, documentId, items) {
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
     await client.query(
-      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate, notes, package_label, product_id) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)',
-      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate, it.notes || '', it.packageLabel || '', it.productId || null]
+      'INSERT INTO document_line_items (document_type, document_id, sort_order, item_no, description, qty, unit, unit_price, discount, discount_type, tax_rate, notes, package_label, product_id, option_key) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)',
+      [documentType, documentId, i, it.itemNo || '', it.description, it.qty, it.unit, it.unitPrice, it.discount, it.discountType, it.taxRate, it.notes || '', it.packageLabel || '', it.productId || null,
+        documentType === 'quotation' ? it.optionKey || '' : '']
     );
   }
 }
@@ -148,7 +152,7 @@ async function loadLineItems(db, documentType, documentId) {
     [documentType, documentId]
   );
   return res.rows.map(function (r) {
-    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), notes: r.notes, packageLabel: r.package_label || '', productId: r.product_id || null };
+    return { itemNo: r.item_no, description: r.description, qty: Number(r.qty), unit: r.unit, unitPrice: Number(r.unit_price), discount: Number(r.discount), discountType: r.discount_type, taxRate: Number(r.tax_rate), notes: r.notes, packageLabel: r.package_label || '', productId: r.product_id || null, optionKey: r.option_key || '' };
   });
 }
 

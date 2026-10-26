@@ -260,6 +260,22 @@ export function SettingsDialog({ token, canSettings, onClose, onSaved }) {
               )}
               {form.later.on && <p className="dl-hint">{tr('Every 15 minutes from {from} to {to}, at least {m} from when they order, for cooking and the ride.', { from: form.later.from, to: form.later.to, m: minText(form.readyMinutes + 35) })}</p>}
             </fieldset>
+            <fieldset className="dl-fs">
+              <legend>⏱ {tr('Order limits')}</legend>
+              <div className="dl-toggles">
+                <button type="button" role="switch" aria-checked={form.limits.on} className={'dl-toggle' + (form.limits.on ? ' is-on' : '')} onClick={() => set({ limits: { ...form.limits, on: !form.limits.on } })}>
+                  <span><strong>{tr('Limit website orders')}</strong><small>{tr('No more than this many orders due in any 15 minutes: a full time is not offered, and customers are offered the next one with room.')}</small></span>
+                  <span className={'ts-switch' + (form.limits.on ? ' is-on' : '')} aria-hidden="true"><i /></span>
+                </button>
+              </div>
+              {form.limits.on && (
+                <div className="dl-form is-3 dl-limits">
+                  <label><span>{tr('Orders every 15 minutes')}</span><input className="input" type="number" min="1" max="200" value={form.limits.orders} onChange={(e) => set({ limits: { ...form.limits, orders: e.target.value } })} /></label>
+                  <label><span>{tr('Dishes every 15 minutes (0: no limit)')}</span><input className="input" type="number" min="0" max="2000" value={form.limits.dishes} onChange={(e) => set({ limits: { ...form.limits, dishes: e.target.value } })} /></label>
+                  <p className="dl-hint dl-limits-eg">{tr('That is up to {n} website orders an hour.', { n: Math.max(1, Number(form.limits.orders) || 1) * 4 })}</p>
+                </div>
+              )}
+            </fieldset>
             {error && <div className="error-banner" role="alert">{error}</div>}
             <div className="dialog-actions">
               <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>{tr('Cancel')}</button>

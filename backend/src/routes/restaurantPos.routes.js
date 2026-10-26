@@ -83,6 +83,28 @@ router.post('/settings/menu', posAuth, async function (req, res, next) {
 router.post('/stock', posAuth, async function (req, res, next) {
   try { res.json(await access.stock(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });
+// Waste (anyone on the till), stock takes (a manager or a stock keeper),
+// the waste report (a manager) — restaurantWaste.service.js.
+router.post('/waste', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantWaste.service').till(req.posToken, req.body)); } catch (e) { next(e); }
+});
+router.post('/stock-take', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantWaste.service').stockTake(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.post('/settings/waste', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantWaste.service').wasteReport(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+// Notes for the team (restaurantTeamNotes.service.js): the ones up now and
+// "Got it"; written and followed by a manager.
+router.get('/team-notes', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTeamNotes.service').mine(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/team-notes/read', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTeamNotes.service').read(req.posToken, req.body && req.body.ids)); } catch (e) { next(e); }
+});
+router.post('/team-notes/manage', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTeamNotes.service').manage(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 // Low stock, suppliers and purchase orders, by a manager.
 router.post('/settings/purchasing', posAuth, async function (req, res, next) {
   try { res.json(await access.purchasing(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
