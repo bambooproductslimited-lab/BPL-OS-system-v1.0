@@ -30,7 +30,9 @@ export const NAV_GROUPS = [
     { key: 'projects', label: msg('Projects'), perm: 'project.read', icon: 'folder' },
     { key: 'messages', label: msg('Messages'), icon: 'chat' },
     { key: 'announcements', label: msg('Announcements'), icon: 'megaphone' },
-    { key: 'documents', label: msg('Documents'), perm: 'document.read', icon: 'document' }
+    { key: 'documents', label: msg('Documents'), perm: 'document.read', icon: 'document' },
+    // Anyone tells whoever looks after machines that one is broken (pages/ReportProblemPage.jsx).
+    { key: 'report-problem', label: msg('Report a problem'), icon: 'wrench' }
   ] },
   { label: msg('Operations'), items: [
     { key: 'production', label: msg('Raw bamboo & production'), perm: 'production.read', icon: 'leaf' },
@@ -114,6 +116,8 @@ export const NAV_GROUPS = [
     // history (hidden: a route and a page title, not in the menu).
     { key: 'expensesheets', label: msg('Expenses'), perm: ['expense.request', 'expensesheet.read.all', 'expensesheet.manage'], icon: 'cash' },
     { key: 'expenses', label: msg('Expense claims'), perm: 'expense.request', icon: 'receipt', hidden: true },
+    // What we owe suppliers, BPL and the restaurants (pages/BillsPage.jsx).
+    { key: 'bills', label: msg('Bills to pay'), perm: 'bill.read', icon: 'receipt' },
     // Sales reps' commission on paid-up deals (the CRM's figures; crm.read).
     { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },

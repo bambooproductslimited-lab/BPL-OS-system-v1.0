@@ -161,4 +161,4 @@ async function manage(token, p, ip) {
   return { lists: lists.map(listOut), history: history, managerName: nameOf(m.manager) };
 }
 
-module.exports = { mine: mine, mark: mark, manage: manage };
+module.exports = { mine: mine, mark: mark, manage: manage, todayOf: todayOf };

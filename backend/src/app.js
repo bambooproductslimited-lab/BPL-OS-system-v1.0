@@ -201,6 +201,7 @@ app.use('/api/it-devices', itDevicesRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/timestation', timestationRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/bills', require('./routes/bills.routes'));
 app.use('/api/customers', customersRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/crm', crmHubRoutes); // profiles, inbox, follow-ups, data health, marketing

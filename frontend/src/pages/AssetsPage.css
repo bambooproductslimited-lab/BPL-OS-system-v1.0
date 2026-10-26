@@ -110,3 +110,42 @@
   .as-log-row { grid-template-columns: 44px minmax(0, 1fr); }
   .as-log-side { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
 }
+
+/* Problems reported (AssetProblems.jsx): a card a problem, the worst
+   first; the urgency carries an icon and words, never colour alone. */
+.apb { --apb-bad: #d03b3b; --apb-warn: #b45309; --apb-calm: #2563eb; display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 24px;
+  background: linear-gradient(150deg, color-mix(in srgb, #db2777 9%, var(--color-bg)), var(--color-bg) 55%); border: 1px solid color-mix(in srgb, #db2777 25%, var(--color-border)); }
+:root[data-theme='dark'] .apb { --apb-bad: #f07272; --apb-warn: #f5a524; --apb-calm: #6ea8ff; }
+:root[data-theme='glass'] .apb { background: rgba(255, 255, 255, .5); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); border-color: rgba(255, 255, 255, .7); }
+.apb-head { display: flex; align-items: center; gap: 12px; }
+.apb-bell { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px; font-size: 24px; background: linear-gradient(135deg, #fde68a, #fbcfe8); animation: apb-ring 2.6s ease-in-out infinite; }
+@keyframes apb-ring { 0%, 84%, 100% { transform: rotate(0); } 88% { transform: rotate(-12deg); } 92% { transform: rotate(10deg); } 96% { transform: rotate(-5deg); } }
+.apb-head h2 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+.apb-head h2 b { display: grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; font-size: 12.5px; color: #fff; background: #db2777; }
+.apb-head p { margin: 2px 0 0; font-size: 13px; color: var(--color-text-muted); }
+.apb-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; }
+.apb-card { display: flex; flex-direction: column; gap: 5px; padding: 14px; border-radius: 18px; background: var(--color-bg); border: 1px solid var(--color-border); box-shadow: inset 4px 0 0 var(--tone), 0 16px 32px -28px rgba(15, 23, 42, .8); animation: apb-in .4s ease both; }
+:root[data-theme='glass'] .apb-card { background: rgba(255, 255, 255, .6); }
+.apb-card.is-stopped { --tone: var(--apb-bad); } .apb-card.is-unsafe { --tone: var(--apb-warn); } .apb-card.is-working { --tone: var(--apb-calm); }
+.apb-card.is-focus { outline: 3px solid #db2777; outline-offset: 2px; }
+@keyframes apb-in { from { opacity: 0; transform: translateY(8px); } }
+.apb-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.apb-u { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 800; color: var(--tone); background: color-mix(in srgb, var(--tone) 13%, transparent); }
+.apb-u em { font-style: normal; }
+.apb-when { font-size: 11.5px; color: var(--color-text-muted); }
+.apb-card h3 { margin: 2px 0 0; font-size: 15.5px; }
+.apb-where, .apb-who { font-size: 12px; color: var(--color-text-muted); }
+.apb-what { margin: 2px 0; font-size: 14px; font-style: italic; }
+.apb-photos { display: flex; gap: 6px; flex-wrap: wrap; }
+.apb-photo { display: grid; place-items: center; width: 64px; height: 64px; padding: 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--color-border); background: var(--color-bg-subtle); cursor: zoom-in; }
+.apb-photo img { width: 100%; height: 100%; object-fit: cover; }
+.apb-photo.is-empty { cursor: default; }
+.apb-zoom { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 20px; background: rgba(8, 12, 22, .82); cursor: zoom-out; }
+.apb-zoom img { max-width: 100%; max-height: 100%; border-radius: 12px; }
+.apb-planned { padding: 6px 10px; border-radius: 10px; font-size: 12.5px; font-weight: 700; color: var(--apb-calm); background: color-mix(in srgb, var(--apb-calm) 10%, transparent); }
+.apb-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.apb-actions .btn { padding: 6px 12px; font-size: 13px; }
+.apb-dismiss { margin-left: auto; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--color-text-muted); text-decoration: underline; cursor: pointer; }
+.apb-plan { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; border-radius: 14px; background: var(--color-bg-subtle); }
+.apb-plan label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
+.apb-plan .apb-actions { grid-column: 1 / -1; justify-content: flex-end; }

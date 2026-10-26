@@ -138,6 +138,26 @@ router.get('/cash-office/photo/:kind/:id', posAuth, async function (req, res, ne
     await require('../lib/fileStore').send(res, f.key, f.name, true);
   } catch (e) { next(e); }
 });
+// Bills to pay, the restaurant's (migration 0196), by a manager; their photos.
+router.post('/settings/bills', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/bills.service').tillTab(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/bills/:id/files/:n', posAuth, async function (req, res, next) {
+  try { var f = await require('../services/bills.service').tillFileKey(req.posToken, req.params.id, req.params.n); await require('../lib/fileStore').send(res, f.key, f.name, true); } catch (e) { next(e); }
+});
+// Equipment (migration 0196): anyone reports a problem; the manager looks after it.
+router.get('/equipment', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantEquipment.service').choices(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/equipment/report', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantEquipment.service').report(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
+router.get('/equipment/photo/:id/:n', posAuth, async function (req, res, next) {
+  try { var f = await require('../services/restaurantEquipment.service').photoOf(req.posToken, req.params.id, req.params.n); await require('../lib/fileStore').send(res, f.key, f.name, true); } catch (e) { next(e); }
+});
+router.post('/settings/equipment', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantEquipment.service').tab(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 router.post('/settings/cash-office', posAuth, async function (req, res, next) {
   try { res.json(await require('../services/restaurantCashOffice.service').office(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });

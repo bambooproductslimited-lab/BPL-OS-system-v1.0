@@ -20,6 +20,7 @@ import MoreMenu from './till/MoreMenu';
 import { OnToday, MyShifts } from './till/Rota';
 import TimeClock from './till/TimeClock';
 import { WasteDialog } from './till/Waste';
+import { BrokenDialog } from './till/Fifteenth';
 import TeamNotes from './till/TeamNotes';
 import PrepDialog from './till/Prep';
 import { ChecklistsDialog } from './till/Checklists';
@@ -410,6 +411,7 @@ export default function RestaurantPosPage() {
   const [disputeFor, setDisputeFor] = useState(null); // a problem reported: { orderId?, tabId?, label, customerName }
   const [stockOpen, setStockOpen] = useState(false);
   const [wasteOpen, setWasteOpen] = useState(false);
+  const [brokenOpen, setBrokenOpen] = useState(false);
   const [notes, setNotes] = useState(null); // notes for the team: { notes, unread, canWrite }
   const [notesOpen, setNotesOpen] = useState(false);
   // The kitchen's prep list, today's checklists, stock on its way here (migration 0194).
@@ -2329,6 +2331,7 @@ export default function RestaurantPosPage() {
               can('charge') && drawer && drawer.session && drawer.session.status === 'open' && { key: 'petty', group: 'manage', icon: <span className="tl-more-emo">🧾</span>, tone: 'petty', label: tr('Petty cash'), note: tr('Spent from your drawer, with the receipt'), onClick: () => setCashOpen('petty') },
               events && events.events.length > 0 && { key: 'events', group: 'manage', icon: <span className="tl-more-emo">🥂</span>, tone: 'events', label: tr('Events'),
                 note: events.today ? (events.today === 1 ? tr('1 event today') : tr('{n} events today', { n: events.today })) : tr('{n} this week', { n: events.events.length }), badge: events.today || null, onClick: () => setEventsOpen(true) },
+              { key: 'broken', group: 'manage', icon: <span className="tl-more-emo">🛠️</span>, tone: 'broken', label: tr('Something broken?'), note: tr('A fridge, the cooker, the generator…'), onClick: () => setBrokenOpen(true) },
               (can('till') || can('stock') || can('kds')) && { key: 'waste', group: 'manage', icon: <span className="tl-more-emo">🗑️</span>, tone: 'waste', label: tr('Throw something away'), note: tr('Waste: what, how many, why'), onClick: () => setWasteOpen(true) },
               notes && (notes.notes.length > 0 || notes.canWrite) && { key: 'notes', group: 'manage', icon: <span className="tl-more-emo">📌</span>, tone: 'notes', label: tr('Notes for the team'),
                 note: notes.unread ? (notes.unread === 1 ? tr('1 new note') : tr('{n} new notes', { n: notes.unread })) : notes.notes.length ? tr('{n} up now', { n: notes.notes.length }) : tr('Write one for everyone'), badge: notes.unread || null, onClick: () => setNotesOpen(true) },
@@ -2909,6 +2912,7 @@ export default function RestaurantPosPage() {
       {eventsOpen && <EventsDialog token={session.token} onClose={() => setEventsOpen(false)} />}
       {incomingOpen && <IncomingDialog token={session.token} onClose={(d) => { if (d) setIncoming({ waiting: d.waiting, can: true }); setIncomingOpen(false); }} />}
       {wasteOpen && <WasteDialog token={session.token} onClose={() => setWasteOpen(false)} onToast={setToast} />}
+      {brokenOpen && <BrokenDialog token={session.token} onClose={() => setBrokenOpen(false)} onDone={(text) => { setBrokenOpen(false); setToast(text); }} />}
       {notesOpen && <TeamNotes token={session.token} isManager={!!(notes && notes.canWrite)} initial={notes} onClose={(r) => { if (r) setNotes(r); setNotesOpen(false); }} />}
       {dutyBlocks && can('charge') && !drawer && dutyNotice && (
         <div className="dialog-backdrop">

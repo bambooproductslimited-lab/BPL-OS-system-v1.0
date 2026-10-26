@@ -133,6 +133,8 @@ function poOut(o, lines) {
     supplier: { name: o.supplier_name, phone: o.supplier_phone, email: o.supplier_email }, note: o.note,
     expectedOn: o.expected_on ? String(o.expected_on instanceof Date ? o.expected_on.toISOString().slice(0, 10) : o.expected_on).slice(0, 10) : null,
     total: Number(o.total), createdAt: o.created_at, createdBy: o.created_by_name || null, sentAt: o.sent_at, receivedAt: o.received_at, receivedBy: o.received_by_name || null,
+    // Its bill to pay, when not paid at the door (migration 0196).
+    bill: o.bill_number ? { ref: 'B-' + String(o.bill_number).padStart(4, '0'), status: o.bill_status, dueDate: require('./bills.service').dayText(o.bill_due), balance: round2(Number(o.bill_amount) - Number(o.bill_paid)) } : null,
     lines: (lines || []).map(function (l) {
       return { id: l.id, type: l.item_type, itemId: l.item_id, name: l.name, unit: l.unit, qty: Number(l.qty), unitCost: Number(l.unit_cost), total: round2(Number(l.qty) * Number(l.unit_cost)),
         receivedQty: l.received_qty == null ? null : Number(l.received_qty) };
@@ -141,8 +143,9 @@ function poOut(o, lines) {
 }
 async function ordersWhere(where, args) {
   var rows = (await pool.query(
-    "SELECT o.*, e.first_name || ' ' || e.last_name AS created_by_name, r.first_name || ' ' || r.last_name AS received_by_name FROM restaurant_purchase_orders o " +
-    'LEFT JOIN employees e ON e.id = o.created_by LEFT JOIN employees r ON r.id = o.received_by WHERE ' + where + ' ORDER BY o.created_at DESC LIMIT 60', args)).rows;
+    "SELECT o.*, e.first_name || ' ' || e.last_name AS created_by_name, r.first_name || ' ' || r.last_name AS received_by_name, " +
+    'b.number AS bill_number, b.status AS bill_status, b.due_date AS bill_due, b.amount AS bill_amount, b.paid AS bill_paid FROM restaurant_purchase_orders o ' +
+    'LEFT JOIN employees e ON e.id = o.created_by LEFT JOIN employees r ON r.id = o.received_by LEFT JOIN supplier_bills b ON b.purchase_order_id = o.id WHERE ' + where + ' ORDER BY o.created_at DESC LIMIT 60', args)).rows;
   if (!rows.length) return [];
   var lines = (await pool.query('SELECT * FROM restaurant_purchase_order_lines WHERE po_id = ANY($1::uuid[]) ORDER BY sort_order', [rows.map(function (r) { return r.id; })])).rows;
   return rows.map(function (o) { return poOut(o, lines.filter(function (l) { return l.po_id === o.id; })); });
@@ -296,6 +299,8 @@ async function send(companyId, by, p) {
 async function receive(companyId, by, p) {
   p = p || {};
   var tm = require('./restaurantTillMenu.service');
+  var bills = require('./bills.service');
+  var bill = null;
   await withTransaction(async function (db) {
     var o = (await db.query('SELECT * FROM restaurant_purchase_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.id, companyId])).rows[0];
     if (!o) fail('notfound', 'That purchase order is not this restaurant\'s.');
@@ -322,10 +327,14 @@ async function receive(companyId, by, p) {
       came++;
     }
     await db.query("UPDATE restaurant_purchase_orders SET status = 'received', received_at = now(), received_by = $2, total = $3, sent_at = coalesce(sent_at, now()) WHERE id = $1", [o.id, by.id, round2(total)]);
-    var summary = 'Received purchase order ' + ref + (o.supplier_name ? ' from ' + o.supplier_name : '') + ': ' + came + ' item' + (came === 1 ? '' : 's') + ' into the stock, ' + money(total) + '.';
+    // Not paid at the door: a bill to pay (migration 0196).
+    if (!p.paidAtDoor) bill = await bills.fromPurchaseOrder(db, companyId, o, round2(total), by, { dueDate: p.dueDate, supplierRef: p.supplierRef });
+    var summary = 'Received purchase order ' + ref + (o.supplier_name ? ' from ' + o.supplier_name : '') + ': ' + came + ' item' + (came === 1 ? '' : 's') + ' into the stock, ' + money(total) +
+      (bill ? '; bill B-' + String(bill.number).padStart(4, '0') + ' to pay by ' + bills.dayText(bill.due_date) : p.paidAtDoor ? '; paid at the door' : '') + '.';
     await audit(db, who(by), 'restaurant.purchase.receive', 'restaurant_purchase_order', o.id, summary);
     await activity.log(db, { companyId: companyId, employeeId: by.id, app: 'settings', action: 'settings.purchasing', summary: summary, amount: round2(total), refType: 'purchase_order', refId: o.id });
   });
+  if (bill) await bills.tellApprovers(bill, null);
   return orderOf(companyId, p.id);
 }
 async function cancel(companyId, by, id) {

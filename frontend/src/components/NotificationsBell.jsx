@@ -163,6 +163,8 @@ export default function NotificationsBell() {
     }
     setOpen(false);
     if (!n.link) return;
+    // A path of its own (e.g. /bills?open=…) opens as it is.
+    if (n.link.charAt(0) === '/') { navigate(n.link); return; }
     const [kind, id] = n.link.split(':');
     if (kind === 'message') navigate('/messages?peer=' + id);
     else if (kind === 'chat') navigate('/messages?chat=' + id);

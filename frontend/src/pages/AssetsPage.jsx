@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
@@ -8,6 +9,7 @@ import { CompanySwitcher, Glossary, Hero, Insights, Section, Status, fmtDate, ju
 import { money } from '../lib/currency';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import './EmployeesPage.css';
+import AssetProblems from './AssetProblems';
 import './AssetsPage.css';
 
 // Assets & maintenance: equipment, machines and vehicles. Same "explains
@@ -94,6 +96,8 @@ export default function AssetsPage() {
   const [workForm, setWorkForm] = useState(EMPTY_WORK);
   const [formError, setFormError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [params] = useSearchParams();
+  const focusProblem = params.get('problem');
 
   const load = useCallback(async () => {
     setError(null);
@@ -207,7 +211,7 @@ export default function AssetsPage() {
   const yearCost = active.reduce((s, a) => s + a.yearMaintenanceCost, 0);
   const downtime = scopeRecords.filter((r) => r.status === 'completed' && String(r.date).slice(0, 4) === String(new Date().getFullYear())).reduce((s, r) => s + r.downtimeHours, 0);
   const costly = active.filter((a) => a.purchasePrice > 0 && a.maintenanceCost > a.purchasePrice * 0.5).sort((x, y) => y.maintenanceCost / y.purchasePrice - x.maintenanceCost / x.purchasePrice);
-  const planned = scopeRecords.filter((r) => r.status !== 'completed').sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  const planned = scopeRecords.filter((r) => r.status !== 'completed' && r.status !== 'reported').sort((x, y) => String(x.date).localeCompare(String(y.date)));
 
   function showOnly(key) { setChip(chip === key ? 'active' : key); jump('as-list'); }
   const stats = [
@@ -219,6 +223,8 @@ export default function AssetsPage() {
 
   const insights = [];
   if (overdue.length) insights.push({ tone: 'bad', icon: 'calendar', text: overdue.length === 1 ? tr('{no} {name} was due for a service on {date}.', { no: overdue[0].assetNo, name: overdue[0].description, date: fmtDate(overdue[0].nextServiceDate) }) : tr('{n} assets are overdue for a service.', { n: overdue.length }), action: canManage ? { label: tr('Plan it'), run: () => openWork(overdue[0], 'plan') } : { label: tr('Show them'), run: () => showOnly('due') } });
+  const problems = scopeRecords.filter((r) => r.reportedAt && r.status !== 'completed');
+  if (problems.length) insights.push({ tone: problems.some((r) => r.urgency !== 'working') ? 'bad' : 'warn', icon: 'warn', text: problems.length === 1 ? tr('{no} {name}: a problem was reported — “{what}”.', { no: problems[0].assetNo, name: problems[0].assetName, what: problems[0].faultReport }) : tr('{n} problems reported by staff are waiting.', { n: problems.length }), action: { label: tr('Show them'), run: () => jump('as-problems') } });
   if (planned.length) {
     const next = planned[0];
     insights.push({ tone: 'info', icon: 'clock', text: planned.length === 1 ? tr('Planned: {what} on {no}, {date}.', { what: next.faultReport, no: next.assetNo, date: fmtDate(next.date) }) : tr('{n} jobs are planned; the next is {what} on {no}, {date}.', { n: planned.length, what: next.faultReport, no: next.assetNo, date: fmtDate(next.date) }), action: { label: tr('Show them'), run: () => { setLogChip('planned'); jump('as-log'); } } });
@@ -296,6 +302,9 @@ export default function AssetsPage() {
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
+
+      <AssetProblems records={scopeRecords} canManage={canManage} focusId={focusProblem} onFixed={openComplete}
+        onChanged={(t) => { setToast(t); load(); }} onError={setError} />
 
       <Section id="as-list" title={tr('Assets')} sub={tr('Press an asset for everything done to it.')}
         action={(

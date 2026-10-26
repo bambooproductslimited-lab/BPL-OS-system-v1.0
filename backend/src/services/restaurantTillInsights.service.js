@@ -161,8 +161,8 @@ async function report(companyId, q, settings) {
 
 // The owner's phone (OS /owner): every restaurant today so far, against
 // the same weekday last week up to the same time; what is open now; the
-// last 7 days.
-async function owner(companyIds) {
+// last 7 days. opts.all keeps a restaurant with nothing sold or open yet.
+async function owner(companyIds, opts) {
   var out = [];
   for (var i = 0; i < companyIds.length; i++) {
     var id = companyIds[i];
@@ -185,7 +185,7 @@ async function owner(companyIds) {
     var hours = (await pool.query(
       "SELECT extract(hour FROM created_at)::int AS hour, coalesce(sum(total - refunded_total), 0) AS net FROM restaurant_orders WHERE company_id = $1 AND status = 'completed' AND created_at >= date_trunc('day', now()) GROUP BY 1", [id])).rows;
     var anySales = Number(today.orders) + Number(lastWeek.orders) + week.reduce(function (a, w) { return a + Number(w.net); }, 0) > 0;
-    if (!anySales && !open.n && !drawers.n) continue;
+    if (!anySales && !open.n && !drawers.n && !(opts && opts.all)) continue;
     out.push({
       id: co.id, code: co.code, name: co.name,
       today: { orders: today.orders, net: round2(today.net), guests: today.guests, average: today.orders ? round2(today.net / today.orders) : 0 },

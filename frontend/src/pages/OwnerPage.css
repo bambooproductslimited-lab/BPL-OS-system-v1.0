@@ -2,8 +2,12 @@
    restaurant. One blue series (sales); the delta in the good/critical
    status colours with an arrow, never colour alone. */
 .ow { --ow-now: #2a78d6; --ow-up: #006300; --ow-down: #d03b3b; --ow-card: var(--color-bg); --ow-soft: var(--color-bg-subtle);
-  max-width: 720px; margin: 0 auto; padding: 8px 0 40px; display: flex; flex-direction: column; gap: 14px; }
-:root[data-theme='dark'] .ow { --ow-now: #3987e5; --ow-up: #0ca30c; --ow-down: #e66767; }
+  --ow-bad: #d03b3b; --ow-warn: #b45309; --ow-info: #2563eb;
+  max-width: 1080px; margin: 0 auto; padding: 8px 0 40px; display: flex; flex-direction: column; gap: 14px; }
+:root[data-theme='dark'] .ow { --ow-now: #3987e5; --ow-up: #0ca30c; --ow-down: #e66767; --ow-bad: #f07272; --ow-warn: #f5a524; --ow-info: #6ea8ff; }
+:root[data-theme='glass'] .ow { --ow-card: rgba(255, 255, 255, .55); --ow-soft: rgba(255, 255, 255, .5); }
+:root[data-theme='glass'] .ow-card, :root[data-theme='glass'] .ow-needs, :root[data-theme='glass'] .ow-compare { -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); border-color: rgba(255, 255, 255, .7); }
+.ow .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .ow-wait { padding: 40px 0; text-align: center; color: var(--color-text-muted); }
 .ow-hero { position: relative; padding: 22px 22px 20px; border-radius: 28px; color: #fff; overflow: hidden;
   background: radial-gradient(circle at 90% 0%, rgba(255, 255, 255, .25), transparent 50%), linear-gradient(135deg, #0f766e, #2563eb 60%, #7c3aed); box-shadow: 0 30px 60px -38px rgba(37, 99, 235, .9); }
@@ -15,7 +19,7 @@
 .ow-refresh { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; border: 0; font-size: 20px; color: #fff; background: rgba(255, 255, 255, .2); cursor: pointer; }
 .ow-delta { font-size: 13px; font-weight: 800; white-space: nowrap; }
 .ow-delta.is-up { color: var(--ow-up); } .ow-delta.is-down { color: var(--ow-down); } .ow-delta.is-flat { color: var(--color-text-muted); }
-.ow-list { display: flex; flex-direction: column; gap: 12px; }
+.ow-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; align-items: start; }
 .ow-card { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; border-radius: 24px; background: var(--ow-card); border: 1px solid var(--color-border); box-shadow: 0 22px 44px -36px rgba(15, 23, 42, .7); animation: ow-rise .4s ease both; }
 @keyframes ow-rise { from { opacity: 0; transform: translateY(12px); } }
 .ow-card header { display: flex; align-items: center; gap: 10px; }
@@ -42,4 +46,70 @@
 .ow-week-day.is-today i, .ow-hours i { background: var(--ow-now); }
 .ow-week-day small, .ow-hours small { font-size: 10px; color: var(--color-text-muted); height: 12px; }
 @keyframes ow-grow { from { transform: scaleY(0); } }
-@media (max-width: 480px) { .ow-charts { grid-template-columns: minmax(0, 1fr); } .ow-hero { border-radius: 22px; } }
+
+
+/* Fifteenth batch: the hero's money chips, what needs the owner, the
+   restaurants side by side, money / staff / events per restaurant, and
+   Bamboo Products' day. Levels carry an icon and a word, never colour alone. */
+.ow-hero-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.ow-hero-chips span { padding: 7px 12px; border-radius: 999px; font-size: 13px; background: rgba(255, 255, 255, .18); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
+.ow-hero-chips b { font-size: 14.5px; }
+.ow-needs, .ow-compare { padding: 16px 18px; border-radius: 24px; background: var(--ow-card); border: 1px solid var(--color-border); box-shadow: 0 22px 44px -36px rgba(15, 23, 42, .7); animation: ow-rise .4s ease both; }
+.ow-needs h2, .ow-compare h2 { margin: 0 0 10px; font-size: 15px; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+.ow-needs h2::before { content: '🔔'; }
+.ow-needs.is-calm h2::before { content: '🌿'; }
+.ow-compare h2::before { content: '⚖️'; }
+.ow-needs p { margin: 0; color: var(--color-text-muted); font-size: 14px; }
+.ow-needs .ow-alerts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px; }
+.ow-alerts { display: flex; flex-direction: column; gap: 6px; }
+.ow-alert { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border-radius: 14px; border: 0; text-align: left; font: inherit; font-size: 13.5px; color: var(--color-text);
+  background: color-mix(in srgb, var(--lvl) 9%, var(--ow-card)); box-shadow: inset 3px 0 0 var(--lvl); }
+button.ow-alert { cursor: pointer; transition: transform .15s ease, background .15s ease; }
+button.ow-alert:hover { transform: translateX(2px); background: color-mix(in srgb, var(--lvl) 15%, var(--ow-card)); }
+.ow-alert.is-bad { --lvl: var(--ow-bad); } .ow-alert.is-warn { --lvl: var(--ow-warn); } .ow-alert.is-info { --lvl: var(--ow-info); }
+.ow-alert em { font-style: normal; font-size: 18px; }
+.ow-alert span small { display: block; font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.ow-level { font-style: normal; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 999px; color: var(--lvl); background: color-mix(in srgb, var(--lvl) 14%, transparent); }
+.ow-go { font-size: 18px; color: var(--color-text-muted); }
+.ow-alerts.is-small .ow-alert { padding: 6px 10px; font-size: 12.5px; }
+.ow-compare-scroll { overflow-x: auto; margin: 0 -6px; }
+.ow-compare table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.ow-compare th, .ow-compare td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.ow-compare tbody tr:last-child th, .ow-compare tbody tr:last-child td { border-bottom: 0; }
+.ow-compare th[scope='row'] { text-align: left; font-weight: 600; color: var(--color-text-muted); }
+.ow-compare thead th { font-size: 13px; vertical-align: bottom; }
+.ow-compare thead th img { display: block; width: 30px; height: 30px; margin: 0 0 4px auto; object-fit: contain; border-radius: 8px; background: #fff; padding: 2px; border: 1px solid var(--color-border); }
+.ow-compare thead th > span { display: block; }
+.ow-compare td.is-best { font-weight: 800; }
+.ow-compare td em { font-style: normal; margin-left: 4px; color: #d4a106; font-size: 12px; }
+.ow-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ow-money span { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border-radius: 14px; background: var(--ow-soft); min-width: 0; }
+.ow-money small { font-size: 11.5px; color: var(--color-text-muted); font-weight: 600; }
+.ow-money b { font-size: 16px; letter-spacing: -.01em; }
+.ow-money i { font-style: normal; font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ow-money .is-warn { box-shadow: inset 0 0 0 1.5px var(--ow-warn); }
+.ow-money .is-warn i { color: var(--ow-warn); font-weight: 700; }
+.ow-staff > small, .ow-events > small { font-size: 11.5px; font-weight: 700; color: var(--color-text-muted); }
+.ow-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ow-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; border-radius: 999px; font-size: 13px; font-weight: 600; background: var(--ow-soft); }
+.ow-chip b { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-size: 12px; color: #fff; background: linear-gradient(135deg, #0f766e, #2563eb); }
+.ow-chip em { font-style: normal; font-size: 11.5px; font-weight: 600; color: var(--color-text-muted); }
+.ow-chip.is-break b { background: linear-gradient(135deg, #a16207, #d97706); }
+.ow-chip.is-late { box-shadow: inset 0 0 0 1.5px var(--ow-bad); }
+.ow-chip.is-late b { background: var(--ow-bad); }
+.ow-chip.is-late em { color: var(--ow-bad); }
+.ow-none { font-size: 13px; color: var(--color-text-muted); }
+.ow-events { display: flex; flex-direction: column; gap: 6px; }
+.ow-event { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 14px; font-size: 13.5px; background: linear-gradient(120deg, color-mix(in srgb, #db2777 12%, var(--ow-card)), color-mix(in srgb, #7c3aed 12%, var(--ow-card))); }
+.ow-event em { margin-left: auto; font-style: normal; font-size: 12px; font-weight: 700; color: var(--color-text-muted); }
+.ow-stats span i { font-style: normal; font-size: 11px; color: var(--color-text-muted); }
+.ow-stats-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ow-bpl { background: linear-gradient(160deg, color-mix(in srgb, #15803d 8%, var(--ow-card)), var(--ow-card) 60%); }
+.ow-billrow { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.ow-billrow span { padding: 6px 11px; border-radius: 999px; background: var(--ow-soft); }
+.ow-billrow .is-bad { box-shadow: inset 0 0 0 1.5px var(--ow-bad); }
+@media (max-width: 560px) {
+  .ow-charts { grid-template-columns: minmax(0, 1fr); } .ow-hero { border-radius: 22px; }
+  .ow-money { grid-template-columns: minmax(0, 1fr); } .ow-money span { flex-direction: row; align-items: baseline; flex-wrap: wrap; column-gap: 8px; }
+  .ow-stats-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

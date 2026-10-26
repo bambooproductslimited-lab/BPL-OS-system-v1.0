@@ -16,6 +16,10 @@ var reminders = require('../services/reminders.service');
 //   - Bookings ending: Poki staff are warned 90, 60, 30, 14 and 7 days
 //     before (pokiReminders.service.js — until now that only ran when
 //     someone opened the Poki screens).
+//   - Bills to pay (bills.service.js, migration 0196): whoever pays them is
+//     told three days before one is due, on the day, and once it is late.
+//   - Equipment due a service (assets' next service date): whoever looks
+//     after assets is told a week before and on the day.
 //   - Automatic texts to customers and tenants, if turned on
 //     (reminders.service.js autoTexts), only between 08:00 and 18:00.
 //
@@ -44,8 +48,8 @@ function inWords(daysLeft) {
 // Claims the most urgent milestone this item has passed and not yet been
 // warned about, marking the earlier ones with it (a date typed in 10 days
 // before expiry gets one warning, not four). Null if there is nothing new.
-async function claim(kind, refId, expiresOn, daysLeft) {
-  var passed = MILESTONES.filter(function (m) { return daysLeft <= m.days; }).map(function (m) { return m.key; });
+async function claim(kind, refId, expiresOn, daysLeft, milestones) {
+  var passed = (milestones || MILESTONES).filter(function (m) { return daysLeft <= m.days; }).map(function (m) { return m.key; });
   if (!passed.length) return null;
   var urgent = passed[passed.length - 1];
   var won = await pool.query(
@@ -130,6 +134,50 @@ async function expiryAlerts(today, settings) {
   return sent;
 }
 
+var BILL_MILESTONES = [{ key: '3', days: 3 }, { key: 'due', days: 0 }, { key: 'late', days: -1 }];
+var SERVICE_MILESTONES = [{ key: '7', days: 7 }, { key: 'due', days: 0 }];
+function money(n) { return 'GHS ' + (Math.round(Number(n) * 100) / 100).toFixed(2); }
+
+// Bills to pay: due in three days, today, or late.
+async function billAlerts(today, settings) {
+  var rows = (await pool.query(
+    "SELECT b.id, b.number, b.supplier_name, b.amount - b.paid AS balance, b.due_date::text AS due_date, b.status, c.name AS company FROM supplier_bills b JOIN companies c ON c.id = b.company_id " +
+    "WHERE b.status IN ('to_approve', 'approved') AND b.due_date <= ($1::date + 3) ORDER BY b.due_date", [today])).rows;
+  if (!rows.length) return 0;
+  var payers = (await staffAlerts.holdersOf(['bill.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var b = rows[i];
+    var left = daysBetween(today, b.due_date);
+    if (!(await claim('bill', b.id, b.due_date, left, BILL_MILESTONES))) continue;
+    var ref = 'B-' + String(b.number).padStart(4, '0');
+    var title = (left < 0 ? 'Bill overdue — ' : left === 0 ? 'Bill due today — ' : 'Bill due ' + inWords(left) + ' — ') + b.supplier_name;
+    var body = ref + ' · ' + money(b.balance) + ' to ' + b.supplier_name + ' (' + b.company + '), due ' + fmtDate(b.due_date) + (b.status === 'to_approve' ? '. It still waits to be approved.' : '.');
+    for (var j = 0; j < payers.length; j++) { await staffAlerts.alert(payers[j], title, body, 'bills', settings); sent++; }
+  }
+  return sent;
+}
+
+// Equipment due a service: in a week, or today (and overdue, once).
+async function serviceAlerts(today, settings) {
+  var rows = (await pool.query(
+    "SELECT a.id, a.asset_no, a.description, a.location, a.next_service_date::text AS due, c.name AS company FROM assets a LEFT JOIN companies c ON c.id = a.company_id " +
+    "WHERE a.status <> 'retired' AND a.next_service_date IS NOT NULL AND a.next_service_date <= ($1::date + 7) " +
+    "AND NOT EXISTS (SELECT 1 FROM maintenance_records m WHERE m.asset_id = a.id AND m.status = 'scheduled') ORDER BY a.next_service_date", [today])).rows;
+  if (!rows.length) return 0;
+  var keepers = (await staffAlerts.holdersOf(['asset.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var a = rows[i];
+    var left = daysBetween(today, a.due);
+    if (!(await claim('service', a.id, a.due, left, SERVICE_MILESTONES))) continue;
+    var title = (left < 0 ? 'Service overdue — ' : left === 0 ? 'Service due today — ' : 'Service due ' + inWords(left) + ' — ') + a.description;
+    var body = a.asset_no + ' · ' + a.description + (a.location ? ' (' + a.location + ')' : '') + (a.company ? ', ' + a.company : '') + ': its service is due ' + fmtDate(a.due) + '. Plan it, or log it once done.';
+    for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], title, body, 'assets', settings); sent++; }
+  }
+  return sent;
+}
+
 var running = false;
 
 async function runOnce(now) {
@@ -137,11 +185,13 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
       try { out.expiry = await expiryAlerts(todayISO(), settings); } catch (e) { console.error('Expiry alerts failed:', e.message); }
+      try { out.bills = await billAlerts(todayISO(), settings); } catch (e) { console.error('Bill alerts failed:', e.message); }
+      try { out.services = await serviceAlerts(todayISO(), settings); } catch (e) { console.error('Service alerts failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
       // Recurring Poki charges (CAM, flat utilities) are not billed here: a
       // recurring invoice only goes out when a person bills it (Rent &
@@ -152,7 +202,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -164,4 +214,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, MILESTONES: MILESTONES };

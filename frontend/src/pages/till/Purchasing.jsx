@@ -4,6 +4,7 @@ import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import './sixth.css';
+import './fifteenth.css';
 
 // Low stock and purchase orders, in the till settings (Menu and stock →
 // Low stock and orders; backend restaurantPurchasing.service.js): what is
@@ -73,6 +74,7 @@ function OrderCard({ o, open, onOpen, k }) {
       <span className="pu-po-main">
         <b>{o.ref} · {o.supplier.name || tr('No supplier yet')}</b>
         <small>{o.lines.length === 1 ? tr('1 line') : tr('{n} lines', { n: o.lines.length })} · {o.status === 'received' ? tr('received {date}', { date: dateWords(o.receivedAt) }) : o.status === 'sent' ? tr('sent {date}', { date: dateWords(o.sentAt) }) : tr('made {date}', { date: dateWords(o.createdAt) })}{o.expectedOn ? ' · ' + tr('needed by {date}', { date: dateWords(o.expectedOn) }) : ''}</small>
+        {o.bill && <small className={'pu-bill is-' + o.bill.status}>🧾 {o.bill.ref} · {o.bill.status === 'paid' ? tr('paid') : o.bill.status === 'cancelled' ? tr('cancelled') : tr('{amount} to pay by {date}', { amount: money(o.bill.balance), date: dateWords(o.bill.dueDate) })}</small>}
       </span>
       <span className={'pu-status is-' + o.status}>{tr(label)}</span>
       <b className="pu-po-total">{money(o.total)}</b>
@@ -88,6 +90,7 @@ function OrderEditor({ o, data, call, onDone, emailOn }) {
   const [note, setNote] = useState(o.note === 'From the low stock' ? '' : o.note || '');
   const [adding, setAdding] = useState('');
   const [receiving, setReceiving] = useState(false);
+  const [pay, setPay] = useState({ atDoor: false, dueDate: '', supplierRef: '' });
   const [sent, setSent] = useState(null);
   const total = lines.reduce((a, l) => a + (Number(receiving ? l.receivedQty : l.qty) || 0) * (Number(l.unitCost) || 0), 0);
   const body = () => ({ id: o.id, supplierId: supplierId || null, expectedOn: expectedOn || null, note, lines: lines.map((l) => ({ type: l.type, id: l.itemId, qty: Number(l.qty), unitCost: Number(l.unitCost) })) });
@@ -105,7 +108,8 @@ function OrderEditor({ o, data, call, onDone, emailOn }) {
     if (d && d.done && via === 'whatsapp') { setSent(d.done); window.open(d.done.whatsappUrl, '_blank', 'noopener'); }
   }
   async function receive() {
-    await call({ action: 'receive', id: o.id, lines: lines.map((l) => ({ id: l.id, receivedQty: Number(l.receivedQty), unitCost: Number(l.unitCost) })) }, tr('{ref} received: the stock is up to date.', { ref: o.ref }));
+    await call({ action: 'receive', id: o.id, lines: lines.map((l) => ({ id: l.id, receivedQty: Number(l.receivedQty), unitCost: Number(l.unitCost) })), paidAtDoor: pay.atDoor, dueDate: pay.atDoor ? undefined : pay.dueDate || undefined, supplierRef: pay.supplierRef || undefined },
+      pay.atDoor ? tr('{ref} received: the stock is up to date.', { ref: o.ref }) : tr('{ref} received: the stock is up to date, and the bill is with the office to pay.', { ref: o.ref }));
     onDone();
   }
   const sup = data.suppliers.find((s) => s.id === (supplierId || o.supplierId));
@@ -148,6 +152,21 @@ function OrderEditor({ o, data, call, onDone, emailOn }) {
             {data.items.filter((x) => !lines.some((l) => l.type === x.type && l.itemId === x.id)).map((x) => <option key={x.type + x.id} value={x.type + ':' + x.id}>{TYPE_ICON[x.type]} {x.name} ({tr(TYPE_LABEL[x.type])})</option>)}
           </select>
           <input className="input pu-grow" maxLength={400} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr('A note for the supplier (optional)')} aria-label={tr('A note for the supplier (optional)')} />
+        </div>
+      )}
+      {receiving && (
+        <div className="pu-pay">
+          <span>{tr('How is it paid?')}</span>
+          <div className="pu-pay-seg" role="radiogroup" aria-label={tr('How is it paid?')}>
+            <button type="button" role="radio" aria-checked={!pay.atDoor} className={!pay.atDoor ? 'is-on' : ''} onClick={() => setPay({ ...pay, atDoor: false })}>🧾 {tr('A bill: the office pays it')}</button>
+            <button type="button" role="radio" aria-checked={pay.atDoor} className={pay.atDoor ? 'is-on' : ''} onClick={() => setPay({ ...pay, atDoor: true })}>💵 {tr('Paid at the door')}</button>
+          </div>
+          {!pay.atDoor && (
+            <div className="pu-row">
+              <div className="field pu-grow"><label htmlFor={'pu-ref-' + o.id}>{tr('Their invoice number')}</label><input id={'pu-ref-' + o.id} className="input" maxLength={60} value={pay.supplierRef} onChange={(e) => setPay({ ...pay, supplierRef: e.target.value })} /></div>
+              <div className="field"><label htmlFor={'pu-due-' + o.id}>{tr('Due')}</label><input id={'pu-due-' + o.id} className="input" type="date" value={pay.dueDate} onChange={(e) => setPay({ ...pay, dueDate: e.target.value })} /></div>
+            </div>
+          )}
         </div>
       )}
       {sent && (

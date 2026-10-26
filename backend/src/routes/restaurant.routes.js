@@ -51,8 +51,9 @@ router.get('/export/:kind', async function (req, res, next) {
 // The owner's phone (/owner): every restaurant today against last week, and now.
 router.get('/owner', async function (req, res, next) {
   try {
-    var ids = (await restaurantOverviewService.companies(req.ctx)).map(function (c) { return c.id; });
-    res.json(await require('../services/restaurantTillInsights.service').owner(ids));
+    // The restaurants: a company with a menu, or sales lately.
+    var ids = (await restaurantOverviewService.companies(req.ctx)).filter(function (c) { return c.menuItems > 0 || c.orders30 > 0; }).map(function (c) { return c.id; });
+    res.json(await require('../services/ownerView.service').view(req.ctx, ids));
   } catch (e) { next(e); }
 });
 router.get('/menu-items', async function (req, res, next) {
