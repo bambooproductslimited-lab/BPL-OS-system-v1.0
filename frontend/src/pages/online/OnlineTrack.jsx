@@ -234,6 +234,7 @@ export default function OnlineTrack({ token, mineId, auth, onMenu: toMenu }) {
         <div className="on-total">
           <div><span>{tr('Food')}</span><b>{money(o.subtotal)}</b></div>
           {o.fulfillment === 'delivery' && <div><span>{tr('Delivery')}</span><b>{o.deliveryFee ? money(o.deliveryFee) : tr('Free')}</b></div>}
+          {(o.charges || {}).promo && o.charges.promo.amount > 0 && <div className="is-deal"><span>🎟️ {o.charges.promo.name}</span><b>−{money(o.charges.promo.amount)}</b></div>}
           {(o.charges || {}).serviceCharge > 0 && <div><span>{serviceWords(o.charges.serviceName, tr)} {o.charges.serviceRate}%</span><b>{money(o.charges.serviceCharge)}</b></div>}
           {((o.charges || {}).taxes || []).filter((t) => !t.included).map((t) => <div key={t.name}><span>{t.name} {t.rate}%</span><b>{money(t.amount)}</b></div>)}
           <div className="is-total"><span>{tr('Total')}</span><strong>{money(o.total)}</strong></div>
