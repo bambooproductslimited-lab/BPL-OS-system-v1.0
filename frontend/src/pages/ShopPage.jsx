@@ -134,10 +134,12 @@ function ItemSheet({ item, onAdd, onClose, onQuote, me }) {
               ))}
             </div>
           )}
-          {out ? (
+          {out && !item.soldOut ? (
+            <p className="rst-out"><span aria-hidden="true">😔</span>{tr('This one is sold out right now: choose another.')}</p>
+          ) : out ? (
             <>
               <p className="rst-out"><span aria-hidden="true">😔</span>{tr('Sold out right now')}</p>
-              <BackInStock key={v ? v.id : item.id} item={item} me={me} />
+              <BackInStock key={item.id} item={item} me={me} />
             </>
           ) : (
           <div className="shp-add">

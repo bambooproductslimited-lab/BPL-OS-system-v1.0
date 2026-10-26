@@ -13238,6 +13238,7 @@ export default {
   "This morning's arrivals": "Arrivées de ce matin",
   "This offer will print with no terms block.": "Cette offre s'imprimera sans bloc de conditions.",
   "This one": "Celle-ci",
+  "This one is sold out right now: choose another.": "Celui-ci est épuisé pour le moment : choisissez-en un autre.",
   "This only records the decision. A deduction from pay or from next year's leave is made where it belongs (payroll, or that person's total).": "Ceci n'enregistre que la décision. Une retenue sur salaire ou sur les congés de l'an prochain se fait à l'endroit prévu (la paie, ou le total de la personne).",
   "this option": "cette option",
   "This order": "Cette commande",

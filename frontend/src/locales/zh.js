@@ -13238,6 +13238,7 @@ export default {
   "This morning's arrivals": "今天上午的到岗",
   "This offer will print with no terms block.": "本要约打印时将不包含条款部分。",
   "This one": "就是这笔",
+  "This one is sold out right now: choose another.": "这一款暂时售罄：请选择其他款。",
   "This only records the decision. A deduction from pay or from next year's leave is made where it belongs (payroll, or that person's total).": "这里只记录决定。从工资或明年假期中扣除，需在相应位置操作（工资单，或该员工的总额）。",
   "this option": "此选项",
   "This order": "本次订单",
