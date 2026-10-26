@@ -16,6 +16,7 @@ const STATUS = { enquiry: ['📨', msg('Asked for')], quoted: ['📤', msg('Sent
 const WHO = { all: ['👥', msg('Everyone')], kitchen: ['🍳', msg('Kitchen')], floor: ['🍽️', msg('Floor')], bar: ['🍹', msg('Bar')] };
 const DEPOSIT = { none: msg('No deposit'), due: msg('Deposit due'), paid: msg('Deposit paid'), refunded: msg('Deposit given back') };
 function dayText(iso) { return new Date(iso).toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+function weekday(iso) { return new Date(iso).toLocaleDateString(activeIntlLocale(), { weekday: 'short', timeZone: 'UTC' }); }
 function hhmm(iso) { return new Date(iso).toISOString().slice(11, 16); }
 function round2(n) { return Math.round(Number(n) * 100) / 100; }
 function portions(per, guests) { return Math.ceil(Number(per) * guests - 1e-9); }
@@ -54,7 +55,7 @@ export function EventsDialog({ token, onClose }) {
           return (
             <section key={e.id} className={'evt-card' + (e.today ? ' is-today' : '')} style={{ '--i': i }}>
               <button type="button" className="evt-card-head" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : e.id)}>
-                <span className="evt-date"><b>{new Date(e.startsAt).getUTCDate()}</b><small>{dayText(e.startsAt).split(' ')[0]}</small></span>
+                <span className="evt-date"><b>{new Date(e.startsAt).getUTCDate()}</b><small>{weekday(e.startsAt)}</small></span>
                 <span className="evt-card-main">
                   <strong>{e.occasion || tr('Event')} · {e.name}</strong>
                   <small>🕒 {hhmm(e.startsAt)}–{hhmm(e.endsAt)} · 👥 {tr('{n} guests', { n: e.guests })}{e.space ? ' · 📍 ' + e.space : ''}</small>
@@ -203,7 +204,7 @@ export function EventsTab({ token, pin, onFail }) {
   }
   const card = (e, i) => (
     <article key={e.id} className={'evt-row is-' + e.status} style={{ '--i': Math.min(i, 12) }}>
-      <span className="evt-date"><b>{new Date(e.startsAt).getUTCDate()}</b><small>{dayText(e.startsAt).split(' ').slice(0, 1).join(' ')}</small></span>
+      <span className="evt-date"><b>{new Date(e.startsAt).getUTCDate()}</b><small>{weekday(e.startsAt)}</small></span>
       <div className="evt-row-main">
         <strong>{e.occasion || tr('Event')} · {e.name} <span className="evt-ref">{e.ref}</span></strong>
         <small>🗓️ {dayText(e.startsAt)}, {hhmm(e.startsAt)}–{hhmm(e.endsAt)} · 👥 {tr('{n} guests', { n: e.guests })}{e.space ? ' · 📍 ' + e.space : ''}{e.source === 'website' ? ' · 🌐 ' + tr('From the website') : ''}</small>
@@ -238,7 +239,7 @@ export function EventsTab({ token, pin, onFail }) {
       </div>
       {settingsOpen && settings && (
         <form className="cof-form evt-settings" onSubmit={(e) => { e.preventDefault(); run({ action: 'settings', settings }, () => { setSettingsOpen(false); setFlash(tr('Saved.')); }); }}>
-          <button type="button" role="switch" aria-checked={settings.on} className={'dl-toggle' + (settings.on ? ' is-on' : '')} onClick={() => setSettings({ ...settings, on: !settings.on })}>
+          <button type="button" role="switch" aria-checked={settings.on} className="ts-toggle-row" onClick={() => setSettings({ ...settings, on: !settings.on })}>
             <span><strong>{tr('Hire our space, on the website')}</strong><small>{tr('Guests ask for a party: the day, the hours, how many and where. You plan it here and send it.')}</small></span>
             <span className={'ts-switch' + (settings.on ? ' is-on' : '')} aria-hidden="true"><i /></span>
           </button>

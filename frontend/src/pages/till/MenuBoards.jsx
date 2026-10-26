@@ -34,7 +34,7 @@ function Options({ o, set, categories }) {
       </div>
       <div className="mbs-switches">
         {[['photos', tr('Photos of the dishes')], ['prices', tr('Prices')], ['ready', tr('Orders ready for pickup beside the menu')]].map(([k, label]) => (
-          <button key={k} type="button" role="switch" aria-checked={!!o[k]} className={'dl-toggle' + (o[k] ? ' is-on' : '')} onClick={() => set({ ...o, [k]: !o[k] })}>
+          <button key={k} type="button" role="switch" aria-checked={!!o[k]} className="ts-toggle-row" onClick={() => set({ ...o, [k]: !o[k] })}>
             <span><strong>{label}</strong></span><span className={'ts-switch' + (o[k] ? ' is-on' : '')} aria-hidden="true"><i /></span>
           </button>
         ))}

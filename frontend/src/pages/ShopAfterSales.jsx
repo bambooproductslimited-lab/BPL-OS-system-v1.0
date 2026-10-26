@@ -8,6 +8,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 // wrong: a repair asked for with photos, followed on its own page (/s/…).
 
 function dayWords(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+function untilDay(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); }
 function when(iso) { return new Date(iso).toLocaleString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 const SERVICE = { new: () => tr('We are looking at it'), visit: () => tr('Repair visit planned'), fixed: () => tr('Fixed'), closed: () => tr('Closed') };
 
@@ -88,7 +89,7 @@ export function AfterSales({ token, o }) {
         <section className="sop-card sop-after">
           {a.warrantyUntil && (
             <p className={'sop-warranty' + (under ? ' is-in' : '')}>
-              <span aria-hidden="true">🛡️</span>{under ? tr('Under warranty until {day}', { day: dayWords(a.warrantyUntil) }) : tr('The warranty ended {day}', { day: dayWords(a.warrantyUntil) })}
+              <span aria-hidden="true">🛡️</span>{under ? tr('Under warranty until {day}', { day: untilDay(a.warrantyUntil) }) : tr('The warranty ended {day}', { day: untilDay(a.warrantyUntil) })}
             </p>
           )}
           {a.services.length > 0 && (

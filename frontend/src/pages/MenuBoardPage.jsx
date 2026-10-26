@@ -24,18 +24,20 @@ function Clock() {
 }
 
 // The menu cut into pages: as many dishes as fit, a category's name again
-// on the page it carries on.
-function pagesOf(sections, perPage) {
+// on the page it carries on. In a grid each category starts its own row,
+// so rows are what is counted there.
+function pagesOf(sections, perPage, cols) {
+  const unit = cols || 1, cap = cols ? Math.max(1, Math.round(perPage / cols)) : perPage;
   const pages = [];
-  let page = [], room = perPage;
+  let page = [], room = cap;
   sections.forEach((s) => {
     let i = 0;
     while (i < s.items.length) {
-      if (room < 2 && page.length) { pages.push(page); page = []; room = perPage; }
-      const take = s.items.slice(i, i + room);
+      if (room < (cols ? 1 : 2) && page.length) { pages.push(page); page = []; room = cap; }
+      const take = s.items.slice(i, i + room * unit);
       page.push({ category: s.category, more: i > 0, items: take });
-      room -= take.length; i += take.length;
-      if (room <= 0) { pages.push(page); page = []; room = perPage; }
+      room -= Math.ceil(take.length / unit); i += take.length;
+      if (room <= 0) { pages.push(page); page = []; room = cap; }
     }
   });
   if (page.length) pages.push(page);
@@ -83,7 +85,8 @@ export default function MenuBoardPage() {
 
   const o = view && view.options;
   const perPage = o ? (o.layout === 'list' ? (ready ? 14 : 20) : o.photos ? (ready ? 6 : 8) : (ready ? 9 : 12)) : 8;
-  const pages = useMemo(() => (view && view.paired ? pagesOf(view.sections, perPage) : [[]]), [view, perPage]);
+  const cols = o && o.layout !== 'list' ? (ready ? 3 : 4) : 0;
+  const pages = useMemo(() => (view && view.paired ? pagesOf(view.sections, perPage, cols) : [[]]), [view, perPage, cols]);
   const rotate = o ? o.rotate : 12;
   useEffect(() => {
     if (pages.length < 2) { setAt(0); return undefined; }

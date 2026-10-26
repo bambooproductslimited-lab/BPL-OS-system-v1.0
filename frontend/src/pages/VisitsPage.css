@@ -13,7 +13,7 @@
 .vz-pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .vz-pills span { padding: 4px 12px; font-size: 13px; font-weight: 800; border-radius: 999px; background: rgba(255, 255, 255, .14); }
 .vz-pills span.is-hot { color: #1f2937; background: #fde68a; }
-.vz-gear { position: relative; z-index: 1; align-self: flex-start; }
+.vz-gear { position: relative; z-index: 1; align-self: flex-start; color: #fff !important; background: rgba(255, 255, 255, .14) !important; border-color: rgba(255, 255, 255, .3) !important; }
 .vz-toast { align-self: flex-start; }
 .vz-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .vz-tabs button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; font: inherit; font-weight: 800; color: var(--color-text); border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); cursor: pointer; }
@@ -115,6 +115,7 @@
 .vz-steps li small { font-size: 11px; font-weight: 600; }
 .vz-proof { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 16px; border: 1px solid color-mix(in srgb, #10b981 40%, transparent); background: color-mix(in srgb, #10b981 6%, transparent); }
 .vz-proof small { font-size: 12px; color: var(--color-text-muted); }
+.vz-received { display: flex; align-items: baseline; gap: 8px; }
 .vz-proof p { margin: 0; }
 .vz-sig { width: 100%; max-width: 360px; height: 120px; color: var(--color-text); border-radius: 12px; background: #fff; border: 1px solid var(--color-border); }
 .vz-proof-photos, .vz-photos { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -131,4 +132,10 @@
 .vz-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-radius: 16px; background: color-mix(in srgb, #2f6b2c 7%, transparent); }
 .vz-done-go { background: linear-gradient(135deg, #10b981, #047857); border-color: transparent; }
 @media (max-width: 760px) { .vz-facts { grid-template-columns: minmax(0, 1fr); } .vz-hero { flex-wrap: wrap; } .vz-wait { flex-wrap: wrap; } }
+@media (max-width: 520px) {
+  .vz-mine-card { flex-wrap: wrap; gap: 10px; }
+  .vz-mine-when { flex-direction: row; gap: 8px; min-width: 0; padding: 6px 12px; }
+  .vz-mine-main { flex-basis: 100%; order: 3; }
+  .vz-mine-card .vz-status { margin-left: auto; }
+}
 @media (prefers-reduced-motion: reduce) { .vz-hero-art i, .vz-card, .vz-wait, .vz-svc, .vz-mine-card { animation: none; } }

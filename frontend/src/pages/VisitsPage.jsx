@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { api, API_URL } from '../api/client';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
@@ -19,6 +20,7 @@ const STATUS = { planned: ['🗓️', msg('Planned')], on_way: ['🚚', msg('On 
 const SERVICE = { new: ['🆕', msg('New')], visit: ['🗓️', msg('Visit planned')], fixed: ['✅', msg('Fixed')], closed: ['📁', msg('Closed')] };
 function addDays(day, n) { return new Date(Date.parse(day + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10); }
 function dayHead(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); }
+function untilDay(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }); }
 function dayLong(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
 function when(iso) { return new Date(iso).toLocaleString(activeIntlLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 function initials(name) { return String(name || '?').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase(); }
@@ -37,7 +39,7 @@ function SecureImg({ path, label }) {
   return (
     <>
       <button type="button" className="vz-thumb" onClick={() => setBig(true)} aria-label={label}><img src={url} alt="" /></button>
-      {big && <div className="vz-zoom" onClick={() => setBig(false)} role="dialog" aria-label={label}><img src={url} alt="" /></div>}
+      {big && createPortal(<div className="vz-zoom" onClick={() => setBig(false)} role="dialog" aria-label={label}><img src={url} alt="" /></div>, document.body)}
     </>
   );
 }
@@ -179,7 +181,7 @@ function VisitSheet({ visit, canManage, me, onClose, onChanged, onEdit, onToast 
           <div><small>{tr('When')}</small><strong>{dayLong(visit.day)}</strong><span>{visit.from}–{visit.to}</span></div>
           <div><small>{tr('Where')}</small><strong>{visit.address}</strong><span>{visit.area}</span></div>
           <div><small>{tr('Customer')}</small><strong>{visit.name}</strong>{visit.phone && <a href={'tel:' + visit.phone.replace(/[^\d+]/g, '')}>📞 {visit.phone}</a>}</div>
-          <div><small>{tr('Crew')}</small><strong className="vz-crew-names"><Crew crew={visit.crew} />{visit.crew.map((c) => c.name.split(' ')[0]).join(', ')}</strong><span>{visit.vehicle}</span></div>
+          <div><small>{tr('Crew')}</small><strong className="vz-crew-names"><Crew crew={visit.crew} />{visit.crew.map((c) => c.first || c.name).join(', ')}</strong><span>{visit.vehicle}</span></div>
         </div>
         {visit.items.length > 0 && <ul className="vz-load">{visit.items.map((x, i) => <li key={i}><b>{x.qty}×</b> {x.description}</li>)}</ul>}
         {visit.note && <p className="vz-crew-note">📝 {visit.note}</p>}
@@ -188,7 +190,7 @@ function VisitSheet({ visit, canManage, me, onClose, onChanged, onEdit, onToast 
         </ol>
         {visit.status === 'done' && (
           <div className="vz-proof">
-            <div><small>{tr('Received by')}</small><strong>{visit.signedName}</strong></div>
+            <div className="vz-received"><small>{tr('Received by')}</small><strong>{visit.signedName}</strong></div>
             {visit.signature && <SignatureView strokes={visit.signature} className="vz-sig" />}
             <div className="vz-proof-photos">{Array.from({ length: visit.photos }).map((x, i) => <SecureImg key={i} path={'/visits/' + visit.id + '/photos/' + i} label={tr('Photo {n}', { n: i + 1 })} />)}</div>
             {visit.outcome && <p>💬 {visit.outcome}</p>}
@@ -265,7 +267,7 @@ function ServiceCard({ s, canManage, onPlan, onSaved, i }) {
       <p className="vz-svc-item">{s.item && <b>{s.item}: </b>}{s.problem}</p>
       {s.photos > 0 && <div className="vz-proof-photos">{Array.from({ length: s.photos }).map((x, k) => <SecureImg key={k} path={'/visits/services/' + s.id + '/photos/' + k} label={tr('Photo {n}', { n: k + 1 })} />)}</div>}
       <div className="vz-warranty">
-        {s.warrantyUntil && <span className={'vz-wtag' + (s.underWarranty ? ' is-in' : ' is-out')}>{s.underWarranty ? '🛡️ ' + tr('Under warranty until {day}', { day: dayHead(s.warrantyUntil) }) : tr('Warranty ended {day}', { day: dayHead(s.warrantyUntil) })}</span>}
+        {s.warrantyUntil && <span className={'vz-wtag' + (s.underWarranty ? ' is-in' : ' is-out')}>{s.underWarranty ? '🛡️ ' + tr('Under warranty until {day}', { day: untilDay(s.warrantyUntil) }) : tr('Warranty ended {day}', { day: untilDay(s.warrantyUntil) })}</span>}
         {canManage && (
           <span className="vz-chips">
             <button type="button" className={s.warranty === true ? 'is-on' : ''} disabled={busy} onClick={() => save({ warranty: true })}>🛡️ {tr('Free: under warranty')}</button>
@@ -316,7 +318,7 @@ export default function VisitsPage() {
           <p>{tr('Plan who goes where and when; the customer is told the day and the time, the crew sign it off on their phone.')}</p>
           {data.canRead && <div className="vz-pills"><span>🗓️ {tr('{n} this week', { n: data.counts.week })}</span><span className={data.counts.waiting ? 'is-hot' : ''}>📦 {tr('{n} to plan', { n: data.counts.waiting })}</span><span className={data.counts.repairs ? 'is-hot' : ''}>🔧 {tr('{n} new repairs', { n: data.counts.repairs })}</span></div>}
         </div>
-        {data.canManage && <button type="button" className="btn btn-secondary vz-gear" onClick={() => setSettingsOpen(true)} aria-label={tr('Settings')}>⚙️</button>}
+        {data.canManage && <button type="button" className="btn btn-secondary vz-gear" onClick={() => setSettingsOpen(true)} aria-label={tr('Settings')}>⚙️ {tr('Settings')}</button>}
       </header>
       {toast && <div className="ts-flash vz-toast" role="status">{toast}</div>}
       <div className="vz-tabs" role="tablist">

@@ -1807,7 +1807,11 @@ export default function RestaurantPosPage() {
               <div className="pos-receipt-lines">
                 {r.movements.map((m) => (
                   <div key={(m.account || '') + m.id} className="pos-receipt-line">
-                    <span>{m.account ? moveLabel(m) + ' · ' + timeOf(m.createdAt) : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
+                    <span>{m.account ? moveLabel(m) + ' · ' + timeOf(m.createdAt)
+                      : m.kind === 'drop' ? tr('Into the safe at {time}', { time: timeOf(m.createdAt) })
+                        : m.kind === 'petty' ? tr('Petty cash at {time}', { time: timeOf(m.createdAt) }) + (m.paidTo ? ' · ' + m.paidTo : '')
+                          : m.kind === 'event' ? tr('Event deposit at {time}', { time: timeOf(m.createdAt) })
+                            : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note && !(m.kind === 'drop' && m.note === 'Into the safe') ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}
@@ -2637,7 +2641,7 @@ export default function RestaurantPosPage() {
                       : m.kind === 'drop' ? '🔐 ' + tr('Into the safe at {time}', { time: timeOf(m.createdAt) })
                         : m.kind === 'petty' ? pettyOf(m.category).icon + ' ' + tr('Petty cash at {time}', { time: timeOf(m.createdAt) }) + (m.paidTo ? ' · ' + m.paidTo : '')
                           : m.kind === 'event' ? '🥂 ' + tr('Event deposit at {time}', { time: timeOf(m.createdAt) })
-                            : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note ? ' — ' + m.note : ''}</span>
+                            : m.direction === 'in' ? tr('Paid in at {time}', { time: timeOf(m.createdAt) }) : tr('Paid out at {time}', { time: timeOf(m.createdAt) })}{m.note && !(m.kind === 'drop' && m.note === 'Into the safe') ? ' — ' + m.note : ''}</span>
                     <span>{m.direction === 'out' ? '-' : ''}{money(m.amount)}</span>
                   </div>
                 ))}

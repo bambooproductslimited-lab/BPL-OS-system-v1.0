@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { posFetch } from '../../lib/posApi';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
@@ -51,7 +52,7 @@ export function TillPhoto({ path, token, label }) {
   return (
     <>
       <button type="button" className="cof-thumb" onClick={() => setBig(true)} aria-label={label}><img src={url} alt="" /></button>
-      {big && <div className="cof-zoom" role="dialog" aria-label={label} onClick={() => setBig(false)}><img src={url} alt="" /></div>}
+      {big && createPortal(<div className="cof-zoom" role="dialog" aria-label={label} onClick={() => setBig(false)}><img src={url} alt="" /></div>, document.body)}
     </>
   );
 }

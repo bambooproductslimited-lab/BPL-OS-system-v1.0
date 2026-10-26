@@ -100,7 +100,7 @@ export const NAV_GROUPS = [
     { key: 'shoporders', label: msg('Online shop'), perm: 'invoice.read', icon: 'cart' },
     // Deliveries, fitting and repairs (pages/VisitsPage.jsx); a crew member
     // without invoice.read opens it from their notification (?mine=1).
-    { key: 'bplvisits', label: msg('Deliveries and fitting'), perm: 'invoice.read', icon: 'send' },
+    { key: 'bplvisits', label: msg('Deliveries and fitting'), perm: 'invoice.read', icon: 'truck' },
     { key: 'paymentlinks', label: msg('Payment links'), perm: 'invoice.read', icon: 'link' },
     { key: 'contracts', label: msg('Contracts'), perm: 'quotation.read', icon: 'pen' },
     { key: 'billingsettings', label: msg('Settings'), perm: 'settings.manage', icon: 'gear' }

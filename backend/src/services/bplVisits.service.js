@@ -86,28 +86,30 @@ async function crewChoices(db) {
     "SELECT e.id, e.first_name, e.last_name, e.position_title FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
     "WHERE c.code = 'BPL' AND e.status = 'active' ORDER BY e.first_name, e.last_name LIMIT 300")).rows.map(function (e) { return { id: e.id, name: nameOf(e), position: e.position_title || '' }; });
 }
-async function namesOf(ids) {
+// Full names, or first names only (what a customer is told).
+async function namesOf(ids, first) {
   var all = Array.from(new Set([].concat.apply([], ids)));
   if (!all.length) return new Map();
-  return new Map((await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1::uuid[])', [all])).rows.map(function (e) { return [e.id, nameOf(e)]; }));
+  return new Map((await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1::uuid[])', [all])).rows.map(function (e) { return [e.id, first ? String(e.first_name || '').trim() : nameOf(e)]; }));
 }
 
 var VISIT_SELECT = 'SELECT v.*, o.order_no AS shop_order_no, o.token AS shop_token, s.order_no AS sales_order_no, r.number AS service_number FROM bpl_visits v ' +
   'LEFT JOIN shop_orders o ON o.id = v.shop_order_id LEFT JOIN sales_orders s ON s.id = v.sales_order_id LEFT JOIN bpl_service_requests r ON r.id = v.service_id ';
-function visitOut(r, names) {
+function visitOut(r, names, firsts) {
   return {
     id: r.id, ref: vref(r.number), kind: r.kind, status: r.status, day: dayText(r.day), from: r.time_from, to: r.time_to,
     shopOrder: r.shop_order_id ? { id: r.shop_order_id, orderNo: r.shop_order_no } : null, salesOrder: r.sales_order_id ? { id: r.sales_order_id, orderNo: r.sales_order_no } : null,
     service: r.service_id ? { id: r.service_id, ref: sref(r.service_number) } : null,
     name: r.name, phone: r.phone, email: r.email, address: r.address, area: r.area,
-    crew: (r.crew || []).map(function (id) { return { id: id, name: names.get(id) || '' }; }), vehicle: r.vehicle, items: r.items || [], note: r.note,
+    crew: (r.crew || []).map(function (id) { return { id: id, name: names.get(id) || '', first: firsts.get(id) || '' }; }), vehicle: r.vehicle, items: r.items || [], note: r.note,
     steps: r.steps || {}, signedName: r.signed_name, hasSignature: !!r.signature, signature: r.signature || null, photos: (r.photos || []).length, outcome: r.outcome,
     createdAt: r.created_at
   };
 }
 async function visitsOut(rows) {
-  var names = await namesOf(rows.map(function (r) { return r.crew || []; }));
-  return rows.map(function (r) { return visitOut(r, names); });
+  var ids = rows.map(function (r) { return r.crew || []; });
+  var names = await namesOf(ids), firsts = await namesOf(ids, true);
+  return rows.map(function (r) { return visitOut(r, names, firsts); });
 }
 
 var SERVICE_SELECT = 'SELECT r.*, o.order_no, o.token AS order_token, o.steps AS order_steps FROM bpl_service_requests r LEFT JOIN shop_orders o ON o.id = r.shop_order_id ';
@@ -306,7 +308,7 @@ async function act(ctx, id, action, p) {
       if (r2.texted) told.push('sms'); if (r2.emailed) told.push('email');
     }
   } else if (status === 'on_way' || status === 'done' || status === 'failed') {
-    var words = status === 'on_way' ? 'Bamboo Products: we are on the way for your ' + KIND_WORDS[v.kind] + '.' + (v.crew && v.crew.length ? ' ' + (await namesOf([v.crew])).get(v.crew[0]).split(' ')[0] + ' will call you if we cannot find you.' : '')
+    var words = status === 'on_way' ? 'Bamboo Products: we are on the way for your ' + KIND_WORDS[v.kind] + '.' + (v.crew && v.crew.length ? ' ' + (await namesOf([v.crew], true)).get(v.crew[0]) + ' will call you if we cannot find you.' : '')
       : status === 'done' ? 'Bamboo Products: your ' + KIND_WORDS[v.kind] + ' is done' + (set.signed ? ', received by ' + set.signed : '') + '. Thank you!'
       : 'Bamboo Products: we could not do your ' + KIND_WORDS[v.kind] + ' today. We will call you to find another day.';
     told = await tellCustomer(v, status === 'failed' ? 'We will come another day' : 'Your ' + KIND_WORDS[v.kind], words, 'bpl_visit', v.id);
@@ -438,11 +440,11 @@ async function servicePhotoKey(ctx, id, n) {
 async function forOrder(o) {
   var s = await settingsOf();
   var v = (await pool.query("SELECT * FROM bpl_visits WHERE shop_order_id = $1 AND status <> 'cancelled' ORDER BY day DESC, created_at DESC LIMIT 1", [o.id])).rows[0];
-  var names = v ? await namesOf([v.crew || []]) : new Map();
+  var names = v ? await namesOf([v.crew || []], true) : new Map();
   var services = (await pool.query('SELECT number, token, status, item, created_at FROM bpl_service_requests WHERE shop_order_id = $1 ORDER BY created_at DESC', [o.id])).rows;
   var until = warrantyUntil(o.steps, s.warrantyMonths);
   return {
-    visit: v ? { kind: v.kind, day: dayText(v.day), from: v.time_from, to: v.time_to, status: v.status, crew: (v.crew || []).map(function (id) { return (names.get(id) || '').split(' ')[0]; }).filter(Boolean),
+    visit: v ? { kind: v.kind, day: dayText(v.day), from: v.time_from, to: v.time_to, status: v.status, crew: (v.crew || []).map(function (id) { return names.get(id) || ''; }).filter(Boolean),
       signedName: v.signed_name || null, doneAt: (v.steps || {}).done || null, photos: (v.photos || []).length } : null,
     services: services.map(function (r) { return { ref: sref(r.number), token: r.token, status: r.status, item: r.item, at: r.created_at }; }),
     warrantyUntil: until, canAskRepair: s.repairs && ['out', 'done'].indexOf(o.status) >= 0

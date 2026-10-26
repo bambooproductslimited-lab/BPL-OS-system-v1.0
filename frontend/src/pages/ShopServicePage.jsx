@@ -11,6 +11,7 @@ import './ShopOrderPage.css';
 // warranty, Bamboo Products' answer, and the repair visit when planned.
 
 function dayWords(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+function untilDay(day) { return new Date(day + 'T12:00:00Z').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); }
 function when(iso) { return new Date(iso).toLocaleString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 const STEPS = [['new', '📨', () => tr('Asked')], ['visit', '🗓️', () => tr('Visit planned')], ['fixed', '✅', () => tr('Fixed')]];
 
@@ -64,7 +65,7 @@ export default function ShopServicePage() {
         {(s.warranty !== null || s.underWarranty !== null) && (
           <p className={'sop-warranty' + ((s.warranty === null ? s.underWarranty : s.warranty) ? ' is-in' : '')}>
             <span aria-hidden="true">🛡️</span>
-            {s.warranty === true ? tr('Under warranty: the repair is free.') : s.warranty === false ? tr('Not under warranty: we tell you the price first.') : s.underWarranty ? tr('Under warranty until {day}', { day: dayWords(s.warrantyUntil) }) : tr('The warranty ended {day}', { day: dayWords(s.warrantyUntil) })}
+            {s.warranty === true ? tr('Under warranty: the repair is free.') : s.warranty === false ? tr('Not under warranty: we tell you the price first.') : s.underWarranty ? tr('Under warranty until {day}', { day: untilDay(s.warrantyUntil) }) : tr('The warranty ended {day}', { day: untilDay(s.warrantyUntil) })}
           </p>
         )}
         {s.orderToken && <p className="sop-pay-note"><a href={'/o/' + s.orderToken}>📦 {tr('Your order {no}', { no: s.orderNo })}</a></p>}
