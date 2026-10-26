@@ -344,7 +344,7 @@ export default function VisitsPage() {
                 <div key={d} className={'vz-day' + (d === data.today ? ' is-today' : '') + (d < data.today ? ' is-past' : '')}>
                   <h3>{dayHead(d)}{list.length > 0 && <small>{list.length}</small>}</h3>
                   {list.map((v, i) => <VisitCard key={v.id} v={v} i={i} onOpen={setOpen} />)}
-                  {!list.length && <span className="vz-free">{tr('Free')}</span>}
+                  {!list.length && <span className="vz-free">{tr('Nothing planned')}</span>}
                 </div>
               );
             })}
