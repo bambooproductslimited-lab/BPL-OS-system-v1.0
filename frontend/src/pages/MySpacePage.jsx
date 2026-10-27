@@ -14,6 +14,8 @@ import './ToolRoomPage.css';
 import './MySpacePage.css';
 import './MySpaceFun.css';
 import { ComingUp, Fortnight, MeBanner, PayCard, Tile, Week, longDay, skyOf } from './MySpaceFun';
+import { AdvanceCard } from './AdvancesPage';
+import { MyVehiclesCard } from './VehiclesPage';
 
 // My space — the signed-in person's own day, leave, work, money and
 // account: a banner whose sky follows the time of day with their live clock
@@ -389,6 +391,8 @@ export default function MySpacePage() {
               </>
             )}
           </div>
+          <AdvanceCard />
+          <MyVehiclesCard />
         </div>
       </Section>
 

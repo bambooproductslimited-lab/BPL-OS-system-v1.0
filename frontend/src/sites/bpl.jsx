@@ -13,6 +13,7 @@ import ContractPage from '../pages/ContractPage';
 import ShopOrderPage from '../pages/ShopOrderPage';
 import ShopServicePage from '../pages/ShopServicePage';
 import PortalPage from '../pages/PortalPage';
+import StatementPage from '../pages/StatementPage';
 
 // Bamboo Products' customer website (online.bplghana.com; bpl-site.html,
 // tools/build-bpl.mjs): the online shop at /, booking a consultation or a
@@ -20,9 +21,9 @@ import PortalPage from '../pages/PortalPage';
 // document's page at /share/<its link> — where the shop's and the bookings'
 // invoices are paid — a payment link at /pay/<its link>, and a contract to
 // sign at /c/<its link>, a shop order followed at /o/<its link> (and a
-// repair asked for from it at /s/<its link>), and the
-// customer's own account at /account (a code, no password). None of the OS
-// around it.
+// repair asked for from it at /s/<its link>), a statement of account at
+// /statement/<its link>, and the customer's own account at /account (a
+// code, no password). None of the OS around it.
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
@@ -38,6 +39,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/c/:token" element={<ContractPage />} />
             <Route path="/o/:token" element={<ShopOrderPage />} />
             <Route path="/s/:token" element={<ShopServicePage />} />
+            <Route path="/statement/:token" element={<StatementPage />} />
             <Route path="/account" element={<PortalPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

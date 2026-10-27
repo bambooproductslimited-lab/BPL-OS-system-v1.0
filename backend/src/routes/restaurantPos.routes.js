@@ -155,6 +155,10 @@ router.post('/equipment/report', posAuth, async function (req, res, next) {
 router.get('/equipment/photo/:id/:n', posAuth, async function (req, res, next) {
   try { var f = await require('../services/restaurantEquipment.service').photoOf(req.posToken, req.params.id, req.params.n); await require('../lib/fileStore').send(res, f.key, f.name, true); } catch (e) { next(e); }
 });
+// Supplier price watch (migration 0197), by a manager.
+router.post('/settings/prices', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantPrices.service').tab(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
+});
 router.post('/settings/equipment', posAuth, async function (req, res, next) {
   try { res.json(await require('../services/restaurantEquipment.service').tab(req.posToken, req.body, req.ip)); } catch (e) { next(e); }
 });

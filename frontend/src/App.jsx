@@ -36,6 +36,10 @@ import ReadyBoardPage from './pages/ReadyBoardPage';
 import MenuBoardPage from './pages/MenuBoardPage';
 import OwnerPage from './pages/OwnerPage';
 import BillsPage from './pages/BillsPage';
+import StatementsPage from './pages/StatementsPage';
+import CashFlowPage from './pages/CashFlowPage';
+import AdvancesPage from './pages/AdvancesPage';
+import VehiclesPage from './pages/VehiclesPage';
 import ReportProblemPage from './pages/ReportProblemPage';
 import ProductionPage from './pages/ProductionPage';
 import ProcurementPage from './pages/ProcurementPage';
@@ -73,6 +77,7 @@ import PokiEstimatesPage from './pages/PokiEstimatesPage';
 import PokiBillingPage from './pages/PokiBillingPage';
 import PokiMaintenancePage from './pages/PokiMaintenancePage';
 import SharePage from './pages/SharePage';
+import StatementPage from './pages/StatementPage';
 import ShopPage from './pages/ShopPage';
 import ShopOrdersPage from './pages/ShopOrdersPage';
 import VisitsPage from './pages/VisitsPage';
@@ -120,7 +125,7 @@ const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: WorkOrdersPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
-  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, owner: OwnerPage, bills: BillsPage, 'report-problem': ReportProblemPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
+  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, owner: OwnerPage, bills: BillsPage, statements: StatementsPage, cashflow: CashFlowPage, advances: AdvancesPage, vehicles: VehiclesPage, 'report-problem': ReportProblemPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, expensesheets: ExpenseSheetsPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, shoporders: ShopOrdersPage, bplvisits: VisitsPage, paymentlinks: PaymentLinksPage, contracts: ContractsPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,
@@ -170,6 +175,7 @@ export default function App() {
       <Route path="/c/:token" element={<ContractPage />} />
       <Route path="/o/:token" element={<ShopOrderPage />} />
       <Route path="/s/:token" element={<ShopServicePage />} />
+      <Route path="/statement/:token" element={<StatementPage />} />
       <Route path="/account" element={<PortalPage />} />
       <Route path="/p/:token" element={<ProductSheetPage />} />
       <Route path="/meet/:token" element={<MeetPage />} />

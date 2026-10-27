@@ -466,7 +466,7 @@ export default function PayrollPage() {
                     <td className="is-num">{money(s.grossPay)}</td>
                     <td className="is-num">{money(s.ssnitEmployee)}</td>
                     <td className="is-num">{money(s.payeTax)}{s.payeByCompany && <span className="dk-muted tl-small prl-co"> {tr('by the company')}</span>}</td>
-                    <td className="is-num"><strong>{money(s.netPay)}</strong></td>
+                    <td className="is-num"><strong>{money(s.netPay)}</strong>{s.advanceDeduction > 0 && <span className="dk-muted tl-small prl-co"> {tr('after {amount} advance', { amount: money(s.advanceDeduction) })}</span>}</td>
                     <td><Status tone={statusTone(s.runStatus)}>{codeLabel(s.runStatus)}</Status></td>
                   </tr>
                 ))}
@@ -548,7 +548,8 @@ export default function PayrollPage() {
                           s.payeByCompany
                             ? tr('SSNIT {ssnit} · PAYE {paye}, paid by the company', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
                             : tr('SSNIT {ssnit} · PAYE {paye}', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) }),
-                          ...(s.ssnitSalary != null ? [tr('SSNIT on a salary of {amount}', { amount: money(s.ssnitSalary) })] : [])
+                          ...(s.ssnitSalary != null ? [tr('SSNIT on a salary of {amount}', { amount: money(s.ssnitSalary) })] : []),
+                          ...(s.advanceDeduction > 0 ? ['💵 ' + tr('salary advance repaid {amount}', { amount: money(s.advanceDeduction) })] : [])
                         ].join(' · ')}
                       </span>
                     </span>

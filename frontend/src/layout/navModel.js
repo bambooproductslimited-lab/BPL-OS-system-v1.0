@@ -43,6 +43,9 @@ export const NAV_GROUPS = [
     { key: 'procurement', label: msg('Procurement'), perm: 'procurement.request', icon: 'cart' },
     { key: 'assets', label: msg('Assets & maintenance'), perm: 'asset.read', icon: 'wrench' },
     { key: 'waybills', label: msg('Waybills'), perm: 'waybill.read', icon: 'truck' },
+    // The company's vans and cars, their fuel and papers (pages/VehiclesPage.jsx);
+    // a driver reaches their own from My space.
+    { key: 'vehicles', label: msg('Vehicles and fuel'), perm: ['vehicle.read', 'vehicle.manage'], icon: 'truck' },
     { key: 'toolroom', label: msg('Tool room inventory'), perm: 'toolroom.read', icon: 'toolbox' },
     { key: 'itdevices', label: msg('IT device inventory'), perm: 'itdevice.read', icon: 'device' }
   ] },
@@ -97,6 +100,9 @@ export const NAV_GROUPS = [
     { key: 'quotations', label: msg('Quotations'), perm: 'quotation.read', icon: 'document' },
     { key: 'invoices', label: msg('Invoices'), perm: 'invoice.read', icon: 'document' },
     { key: 'payments', label: msg('Payments'), perm: 'invoice.read', icon: 'cash' },
+    // Who owes what and for how long; statements of account and credit
+    // limits (pages/StatementsPage.jsx).
+    { key: 'statements', label: msg('Customer statements'), perm: 'invoice.read', icon: 'document' },
     { key: 'receipts', label: msg('Receipts'), perm: 'invoice.read', icon: 'receipt' },
     { key: 'catalog', label: msg('Products & Services'), perm: 'catalog.read', icon: 'box' },
     { key: 'shoporders', label: msg('Online shop'), perm: 'invoice.read', icon: 'cart' },
@@ -118,6 +124,11 @@ export const NAV_GROUPS = [
     { key: 'expenses', label: msg('Expense claims'), perm: 'expense.request', icon: 'receipt', hidden: true },
     // What we owe suppliers, BPL and the restaurants (pages/BillsPage.jsx).
     { key: 'bills', label: msg('Bills to pay'), perm: 'bill.read', icon: 'receipt' },
+    // The next 13 weeks of money in and out, by company (pages/CashFlowPage.jsx).
+    { key: 'cashflow', label: msg('Cash flow forecast'), perm: 'report.read', icon: 'chart' },
+    // Staff asking for part of their pay early, repaid from payroll
+    // (pages/AdvancesPage.jsx); staff ask from My space.
+    { key: 'advances', label: msg('Salary advances'), perm: 'advance.manage', icon: 'cash' },
     // Sales reps' commission on paid-up deals (the CRM's figures; crm.read).
     { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },

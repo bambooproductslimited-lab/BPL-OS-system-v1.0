@@ -8,7 +8,7 @@
   --msx-r: 20px;
   --msx-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 26px -18px rgba(16, 24, 40, .35);
   --msx-good: #1a7f37; --msx-warn: #b26a00; --msx-bad: #c0392b; --msx-info: #2563c9; --msx-violet: #7c3aed; --msx-teal: #0f766e; --msx-pink: #c0267a;
-  --msx-net: #1baf7a; --msx-ssnit: #2a78d6; --msx-paye: #eb6834;
+  --msx-net: #1baf7a; --msx-ssnit: #2a78d6; --msx-paye: #eb6834; --msx-advance: #8b5cf6;
 }
 :root[data-theme='dark'] .msx {
   --msx-card: color-mix(in srgb, var(--color-bg-subtle) 70%, var(--color-bg));
@@ -16,7 +16,7 @@
   --msx-line: var(--color-border);
   --msx-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 12px 28px -18px rgba(0, 0, 0, .7);
   --msx-good: #4ade80; --msx-warn: #fbbf24; --msx-bad: #f87171; --msx-info: #60a5fa; --msx-violet: #a78bfa; --msx-teal: #2dd4bf; --msx-pink: #f472b6;
-  --msx-net: #199e70; --msx-ssnit: #3987e5; --msx-paye: #d95926;
+  --msx-net: #199e70; --msx-ssnit: #3987e5; --msx-paye: #d95926; --msx-advance: #9d74f7;
 }
 .msx-muted { color: var(--color-text-muted); font-size: 12.5px; }
 .msx-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -206,6 +206,7 @@
 .msx-pay-bar i.is-net, .msx-pay-legend i.is-net { background: var(--msx-net); }
 .msx-pay-bar i.is-ssnit, .msx-pay-legend i.is-ssnit { background: var(--msx-ssnit); }
 .msx-pay-bar i.is-paye, .msx-pay-legend i.is-paye { background: var(--msx-paye); }
+.msx-pay-bar i.is-advance, .msx-pay-legend i.is-advance { background: var(--msx-advance); }
 .msx-pay-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--color-text-muted); }
 .msx-pay-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .msx-pay-legend i { width: 10px; height: 10px; border-radius: 3px; }

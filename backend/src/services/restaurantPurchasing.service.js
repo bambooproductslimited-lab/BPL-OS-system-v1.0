@@ -300,7 +300,7 @@ async function receive(companyId, by, p) {
   p = p || {};
   var tm = require('./restaurantTillMenu.service');
   var bills = require('./bills.service');
-  var bill = null;
+  var bill = null, rises = [], told = null;
   await withTransaction(async function (db) {
     var o = (await db.query('SELECT * FROM restaurant_purchase_orders WHERE id = $1 AND company_id = $2 FOR UPDATE', [p.id, companyId])).rows[0];
     if (!o) fail('notfound', 'That purchase order is not this restaurant\'s.');
@@ -315,14 +315,16 @@ async function receive(companyId, by, p) {
       if (!(qty >= 0 && qty < 1e7)) fail('invalid', l.name + ': how many came?');
       var cost = g && g.unitCost !== undefined && g.unitCost !== '' ? Math.round(Number(g.unitCost) * 10000) / 10000 : Number(l.unit_cost);
       if (!(cost >= 0 && cost < 1e7)) fail('invalid', l.name + ': what did one cost?');
-      await db.query('UPDATE restaurant_purchase_order_lines SET received_qty = $2, unit_cost = $3 WHERE id = $1', [l.id, qty, cost]);
-      total += qty * cost;
-      if (qty <= 0) continue;
       var table = TYPES[l.item_type];
       var cur = (await db.query('SELECT * FROM ' + table + ' WHERE id = $1 AND company_id = $2 FOR UPDATE', [l.item_id, companyId])).rows[0];
+      // What it cost before, for the price watch (restaurantPrices.service.js).
+      await db.query('UPDATE restaurant_purchase_order_lines SET received_qty = $2, unit_cost = $3, previous_cost = $4 WHERE id = $1', [l.id, qty, cost, cur ? Number(cur.unit_cost) : null]);
+      total += qty * cost;
+      if (qty <= 0) continue;
       if (!cur) continue;
+      if (cost > 0 && Number(cur.unit_cost) > 0) rises.push({ name: cur.name, unit: cur.unit, before: Number(cur.unit_cost), after: cost });
       var after = round2(Number(cur.stock_qty) + qty);
-      await db.query('UPDATE ' + table + ' SET stock_qty = $2, unit_cost = CASE WHEN $3 > 0 THEN $3 ELSE unit_cost END, updated_at = now() WHERE id = $1', [cur.id, after, cost]);
+      await db.query('UPDATE ' + table + ' SET stock_qty = $2, unit_cost = CASE WHEN $3::numeric > 0 THEN $3::numeric ELSE unit_cost END, updated_at = now() WHERE id = $1', [cur.id, after, cost]);
       await tm.logMove(db, { companyId: companyId, type: l.item_type, id: cur.id, kind: 'received', delta: qty, after: after, unitCost: cost, note: ref + (o.supplier_name ? ' · ' + o.supplier_name : ''), by: by.id });
       came++;
     }
@@ -333,8 +335,10 @@ async function receive(companyId, by, p) {
       (bill ? '; bill B-' + String(bill.number).padStart(4, '0') + ' to pay by ' + bills.dayText(bill.due_date) : p.paidAtDoor ? '; paid at the door' : '') + '.';
     await audit(db, who(by), 'restaurant.purchase.receive', 'restaurant_purchase_order', o.id, summary);
     await activity.log(db, { companyId: companyId, employeeId: by.id, app: 'settings', action: 'settings.purchasing', summary: summary, amount: round2(total), refType: 'purchase_order', refId: o.id });
+    told = { ref: ref, supplier: o.supplier_name };
   });
   if (bill) await bills.tellApprovers(bill, null);
+  if (told) await require('./restaurantPrices.service').tellRises(pool, companyId, told.ref, told.supplier, rises);
   return orderOf(companyId, p.id);
 }
 async function cancel(companyId, by, id) {

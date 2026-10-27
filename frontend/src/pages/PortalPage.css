@@ -54,6 +54,7 @@
 .ptl-tag.is-cancelled { color: #6b7280; background: #f1f1f0; }
 .ptl-btn { flex: none; padding: 7px 12px; font-size: 13px; font-weight: 800; color: var(--shp-gd); text-decoration: none; border-radius: 12px; background: #fff; border: 1px solid var(--shp-line); }
 .ptl-btn.is-go { color: #fff; border-color: transparent; background: linear-gradient(135deg, #4d8f48, #234d21); }
+.ptl-statement { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 14px; font-size: 13px; font-weight: 800; color: var(--shp-gd); text-decoration: none; border-radius: 999px; background: #fff; border: 1px dashed var(--shp-line); }
 @media (max-width: 720px) {
   .ptl-grid { grid-template-columns: minmax(0, 1fr); }
   .ptl-nav a { padding: 6px 10px; font-size: 12.5px; }

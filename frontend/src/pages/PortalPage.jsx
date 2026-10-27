@@ -130,6 +130,7 @@ export default function PortalPage() {
                 <li key={i.invoiceNo} className={i.status !== 'paid' ? 'is-due' + (i.overdue ? ' is-late' : '') : ''}><span className="ptl-ico" aria-hidden="true">{i.status === 'paid' ? '✅' : i.overdue ? '⏰' : '💳'}</span>
                   <span className="ptl-main"><strong>{i.invoiceNo}</strong><small>{i.status === 'paid' ? tr('Paid · {amount}', { amount: cedis(i.total) }) : i.overdue ? tr('{amount} overdue since {day}', { amount: cedis(i.balance), day: dayWords(i.dueDate) }) : tr('{amount} to pay by {day}', { amount: cedis(i.balance), day: dayWords(i.dueDate) })}</small></span>
                   <a className={'ptl-btn' + (i.status !== 'paid' ? ' is-go' : '')} href={i.url.replace(/^https?:\/\/[^/]+/, '')}>{i.status !== 'paid' ? tr('Pay') : tr('See')}</a></li>))}</ul>}
+              {d.statementUrl && <a className="ptl-statement" href={d.statementUrl.replace(/^https?:\/\/[^/]+/, '')}>📒 {tr('My statement of account')} →</a>}
             </Section></div>
 
             <div id="ptl-quotes"><Section icon="📝" title={tr('Quotations and estimates')} count={d.waiting ? d.waiting.toApprove : 0} empty={tr('No quotations yet.')}>

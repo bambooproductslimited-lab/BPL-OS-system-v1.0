@@ -5,6 +5,7 @@ var { audit } = require('../utils/audit');
 var { nextDocNumber } = require('../utils/documents');
 var { computePaye } = require('../utils/payroll');
 var { restWeekdays } = require('../utils/workWeek');
+var advances = require('./advances.service');
 
 // Payroll: employees are paid a daily rate (employees.daily_rate) on one of
 // three cycles (employees.pay_cycle — 'monthly', paid on the 5th per Company
@@ -64,7 +65,7 @@ function rowToPayslip(r, extra) {
     payBasis: r.pay_basis || 'daily', basicPay: Number(r.basic_pay), allowancePay: Number(r.allowance_pay),
     monthlyBasic: r.monthly_basic == null ? null : Number(r.monthly_basic), monthlyAllowance: r.monthly_allowance == null ? null : Number(r.monthly_allowance),
     workingDays: r.working_days == null ? null : r.working_days, amountsEdited: !!r.amounts_edited,
-    holidaysPaid: Number(r.holidays_paid || 0),
+    holidaysPaid: Number(r.holidays_paid || 0), advanceDeduction: Number(r.advance_deduction || 0),
     ssnitSalary: r.ssnit_salary == null ? null : Number(r.ssnit_salary)
   }, extra || {});
 }
@@ -379,13 +380,15 @@ async function create(ctx, p) {
       }
       var ssnitMonthly = emp.ssnit_salary != null ? Number(emp.ssnit_salary) : salaried ? Number(emp.basic_salary) : null;
       var slip = await computeSlipFields(client, pay, periodScale, emp.pays_staff_paye, ssnitOnFor(ssnitMonthly, daysWorked, periodStart, periodEnd));
+      // A salary advance being repaid comes off the take-home pay (advances.service.js).
+      var advance = await advances.forSlip(client, emp.id, slip.netPay);
 
       await client.query(
         'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, paye_by_company, ' +
-        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days, holidays_paid, ssnit_salary) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)',
-        [run.id, emp.id, daysWorked, salaried ? 0 : dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, slip.netPay, slip.payeByCompany,
-          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays, holPaid.length, ssnitMonthly]
+        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days, holidays_paid, ssnit_salary, advance_deduction) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)',
+        [run.id, emp.id, daysWorked, salaried ? 0 : dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, Math.round((slip.netPay - advance) * 100) / 100, slip.payeByCompany,
+          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays, holPaid.length, ssnitMonthly, advance]
       );
     }
 
@@ -446,12 +449,13 @@ async function editSlip(ctx, payRunId, employeeId, daysWorked, amounts) {
   var periodScale = periodScaleFor(run.period_start, run.period_end);
   var earned = days > 0 || pay.basic > 0 ? 1 : 0;
   var computed = await computeSlipFields(pool, pay, periodScale, slip.paye_by_company, ssnitOnFor(slip.ssnit_salary, earned, run.period_start, run.period_end));
+  var advance = await advances.forSlip(pool, employeeId, computed.netPay);
 
   await pool.query(
     'UPDATE payslips SET days_worked = $1, gross_pay = $2, ssnit_employee = $3, ssnit_employer = $4, taxable_income = $5, paye_tax = $6, net_pay = $7, ' +
-    'basic_pay = $8, allowance_pay = $9, amounts_edited = $10 WHERE id = $11',
-    [days, computed.grossPay, computed.ssnitEmployee, computed.ssnitEmployer, computed.taxableIncome, computed.payeTax, computed.netPay,
-      computed.basicPay, computed.allowancePay, edited, slip.id]
+    'basic_pay = $8, allowance_pay = $9, amounts_edited = $10, advance_deduction = $12 WHERE id = $11',
+    [days, computed.grossPay, computed.ssnitEmployee, computed.ssnitEmployer, computed.taxableIncome, computed.payeTax, Math.round((computed.netPay - advance) * 100) / 100,
+      computed.basicPay, computed.allowancePay, edited, slip.id, advance]
   );
   await audit(pool, ctx, 'payroll.editSlip', 'pay_run', payRunId, (edited ? 'Changed basic/allowance' : 'Adjusted days worked') + ' in ' + run.run_no + '.');
   return get(ctx, payRunId);
@@ -476,8 +480,12 @@ async function markPaid(ctx, id) {
   var run = res.rows[0];
   if (!run) fail('notfound', 'Pay run not found.');
   if (run.status !== 'approved') fail('invalid', 'Only an approved pay run can be marked paid.');
-  await pool.query("UPDATE pay_runs SET status = 'paid' WHERE id = $1", [id]);
-  await audit(pool, ctx, 'payroll.paid', 'pay_run', id, 'Marked pay run ' + run.run_no + ' as paid.');
+  var repaid = await withTransaction(async function (client) {
+    await client.query("UPDATE pay_runs SET status = 'paid' WHERE id = $1", [id]);
+    // What the payslips took for salary advances is now repaid.
+    return advances.onRunPaid(client, id);
+  });
+  await audit(pool, ctx, 'payroll.paid', 'pay_run', id, 'Marked pay run ' + run.run_no + ' as paid' + (repaid ? ' (' + repaid + ' salary advance instalment(s) repaid)' : '') + '.');
   return get(ctx, id);
 }
 
@@ -516,7 +524,8 @@ async function setPayePolicy(ctx, companyId, pays) {
     if (!c) fail('notfound', 'Company not found.');
     name = c.name;
     var upd = await client.query(
-      'UPDATE payslips p SET paye_by_company = $2, net_pay = round(p.gross_pay - p.ssnit_employee - CASE WHEN $2 THEN 0 ELSE p.paye_tax END, 2) ' +
+      'UPDATE payslips p SET paye_by_company = $2, net_pay = round(greatest(0, p.gross_pay - p.ssnit_employee - CASE WHEN $2 THEN 0 ELSE p.paye_tax END - p.advance_deduction), 2), ' +
+      'advance_deduction = least(p.advance_deduction, greatest(0, round(p.gross_pay - p.ssnit_employee - CASE WHEN $2 THEN 0 ELSE p.paye_tax END, 2))) ' +
       "FROM pay_runs pr, employees e, departments d WHERE pr.id = p.pay_run_id AND pr.status = 'draft' AND e.id = p.employee_id AND d.id = e.department_id AND d.company_id = $1 AND p.paye_by_company <> $2",
       [companyId, pays]);
     drafts = upd.rowCount;

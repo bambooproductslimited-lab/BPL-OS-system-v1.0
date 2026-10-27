@@ -10,6 +10,7 @@ var STATUS_BY_CODE = {
   password_change_required: 403,
   notfound: 404,
   conflict: 409,
+  creditLimit: 409, // an invoice over the customer's credit limit, until someone says yes (statements.service.js)
   ratelimited: 429,
   unavailable: 502, // an outside service (e.g. the SMS provider) said no or didn't answer
   error: 500

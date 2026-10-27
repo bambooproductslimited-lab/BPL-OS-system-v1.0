@@ -185,6 +185,17 @@ async function createManual(ctx, p, opts) {
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
   var docTaxRate = Number(p.taxRate) || 0;
   var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
+  // Over the customer's credit limit (migration 0197, statements.service.js):
+  // made only when someone says yes a second time, and the audit says so.
+  var cust = custRes.rows[0], overLimit = null;
+  if (cust.credit_limit != null && currency === (cust.preferred_currency || 'GHS')) {
+    var credit = await require('./statements.service').creditOf(cust.id, currency);
+    var after = Math.round((credit.owed + totals.grandTotal) * 100) / 100;
+    if (after > credit.limit) {
+      overLimit = { after: after, limit: credit.limit };
+      if (!p.overCreditOk) fail('creditLimit', cust.name + ' would owe ' + currency + ' ' + after.toFixed(2) + ' with this invoice, over their credit limit of ' + currency + ' ' + Number(credit.limit).toFixed(2) + '.');
+    }
+  }
 
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
@@ -198,7 +209,8 @@ async function createManual(ctx, p, opts) {
     await insertLineItems(client, 'invoice', i.id, items);
     // What it sells leaves stock now (inventorySales.service.js).
     await inventorySales.takeForInvoice(client, ctx, i);
-    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Manually created ' + i.invoice_no + ' (' + currency + ' ' + totals.grandTotal.toLocaleString() + ').');
+    await audit(client, ctx, 'invoice.create', 'invoice', i.id, 'Manually created ' + i.invoice_no + ' (' + currency + ' ' + totals.grandTotal.toLocaleString() + ').' +
+      (overLimit ? ' Over the credit limit: ' + currency + ' ' + overLimit.after.toFixed(2) + ' owed against a limit of ' + currency + ' ' + Number(overLimit.limit).toFixed(2) + '.' : ''));
     return i.id;
   });
 

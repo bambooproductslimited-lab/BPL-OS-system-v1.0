@@ -1,0 +1,15 @@
+DELETE FROM role_permissions WHERE permission_key IN ('advance.manage', 'vehicle.read', 'vehicle.manage');
+DELETE FROM permissions WHERE key IN ('advance.manage', 'vehicle.read', 'vehicle.manage');
+DROP TABLE IF EXISTS fuel_logs;
+DROP TABLE IF EXISTS vehicles;
+ALTER TABLE restaurant_purchase_order_lines DROP COLUMN IF EXISTS previous_cost;
+ALTER TABLE settings DROP COLUMN IF EXISTS advances;
+ALTER TABLE payslips DROP COLUMN IF EXISTS advance_deduction;
+DROP TABLE IF EXISTS salary_advance_repayments;
+DROP TABLE IF EXISTS salary_advances;
+DROP TABLE IF EXISTS cashflow_items;
+ALTER TABLE settings DROP COLUMN IF EXISTS cashflow;
+DROP TABLE IF EXISTS statement_sends;
+DROP TABLE IF EXISTS statement_links;
+ALTER TABLE customers DROP COLUMN IF EXISTS statement_monthly;
+ALTER TABLE customers DROP COLUMN IF EXISTS credit_limit;

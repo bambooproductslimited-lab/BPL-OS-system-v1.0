@@ -32,6 +32,7 @@ import { CashOfficeTab } from './till/CashOffice';
 import { EventsTab } from './till/Events';
 import { MenuBoardsTab } from './till/MenuBoards';
 import { EquipmentTab, TillBillsTab } from './till/Fifteenth';
+import { PricesTab } from './till/Sixteenth';
 import './TillSettings.css';
 // The monthly report brings the OS's report and its styles: loaded when opened.
 const MonthlyReport = lazy(() => import('./till/MonthlyReport'));
@@ -93,7 +94,7 @@ const FX_FOR = { USD: () => tr('For cash'), CNY: () => tr('For Alipay and WeChat
 const GROUPS = [
   ['reports', () => tr('Reports'), [['sales', () => tr('Sales'), 'up'], ['closeday', () => tr('Close the day'), 'check'], ['insights', () => tr('Insights'), 'pulse'], ['tickettimes', () => tr('Ticket times'), 'clock'], ['tips', () => tr('Tips'), 'cash'], ['foodcost', () => tr('Food cost'), 'percent'], ['monthly', () => tr('Monthly report'), 'calendar'], ['drawers', () => tr('Drawers'), 'drawer'], ['cashoffice', () => tr('Cash office'), 'cash'], ['bills', () => tr('Bills'), 'receipt'], ['disputes', () => tr('Disputes'), 'warn'], ['accounts', () => tr('IOUs and VIP'), 'owed'], ['activity', () => tr('Activity'), 'pulse']]],
   ['guestsGroup', () => tr('Guests'), [['feedback', () => tr('Feedback'), 'star'], ['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card'], ['events', () => tr('Events and room hire'), 'calendar']]],
-  ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['recipes', () => tr('Recipes and costs'), 'percent'], ['stock', () => tr('Stock'), 'layers'], ['waste', () => tr('Waste and stock takes'), 'void'], ['transfers', () => tr('Between restaurants'), 'send'], ['purchasing', () => tr('Low stock and orders'), 'send']]],
+  ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['recipes', () => tr('Recipes and costs'), 'percent'], ['stock', () => tr('Stock'), 'layers'], ['waste', () => tr('Waste and stock takes'), 'void'], ['transfers', () => tr('Between restaurants'), 'send'], ['purchasing', () => tr('Low stock and orders'), 'send'], ['prices', () => tr('Prices'), 'up']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['rota', () => tr('Rota'), 'calendar'], ['timecards', () => tr('Timecards'), 'clock'], ['checklists', () => tr('Checklists'), 'check'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
     ['screens', () => tr('Kitchen screens'), 'layers'], ['menuboards', () => tr('Menu boards'), 'layers'], ['equipment', () => tr('Equipment'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['deals', () => tr('Deals and promo codes'), 'spark'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'],
     ['apps', () => tr('Delivery apps'), 'send'], ['kiosk', () => tr('Self-order kiosk'), 'receipt'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
@@ -386,6 +387,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'menuboards' && <MenuBoardsTab token={token} pin={pin} onFail={fail} />}
             {tab === 'bills' && <TillBillsTab token={token} pin={pin} onFail={fail} />}
             {tab === 'equipment' && <EquipmentTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'prices' && <PricesTab token={token} pin={pin} onFail={fail} />}
             {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
             {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} drawer={actDrawer} onClearDrawer={() => setActDrawer(null)} />}
 

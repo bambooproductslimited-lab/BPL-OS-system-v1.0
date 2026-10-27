@@ -190,6 +190,7 @@ export function ComingUp({ items }) {
 export function PayCard({ slip }) {
   const parts = [
     { key: 'net', label: tr('Take-home'), value: slip.net },
+    { key: 'advance', label: tr('Advance repaid'), value: slip.advance || 0 },
     { key: 'ssnit', label: 'SSNIT', value: slip.ssnit },
     ...(slip.payeByCompany ? [] : [{ key: 'paye', label: 'PAYE', value: slip.paye }])
   ].filter((p) => p.value > 0);

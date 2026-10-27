@@ -134,6 +134,8 @@ var ALLOWED = {
   'POST /api/shop/orders/:token/service': 'a customer asks for a repair of what they bought, with up to four photos (checked by their bytes): the order\'s long random link is the credential, only once it has arrived; limited per address',
   'GET /api/shop/service/:token': 'a repair request\'s own page for its customer: the long random link is the credential; first name only',
   'POST /api/pos/online/bookings/:token/pay': 'a guest pays the deposit for their own booking: the booking\'s long random link is the credential, only while it is due',
+  'GET /api/advances/mine': 'a member of staff\'s own salary advances and what they may ask for, keyed on the caller only (sixteenth.test.js)',
+  'GET /api/vehicles/': 'without vehicle.read, only the vehicles the caller drives (none for anyone else); keyed on the caller (sixteenth.test.js)',
   'GET /api/maintenance/report': 'any member of staff reports a broken machine: what can be reported on (number, name, place) and their own reports, no costs (fifteenth.test.js)',
   'GET /api/pos/online/gift/:token': 'a gift card\'s own page: the long random link is the card, as on a printed card',
   'POST /api/pos/online/:code/gift': 'a guest buys a gift card on the website: only when the restaurant sells them there, paid through Paystack before any card is made, limited per address',

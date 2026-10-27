@@ -110,6 +110,9 @@ export default function InvoicesPage() {
   const [docTaxRate, setDocTaxRate] = useState(0);
   const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [dialogError, setDialogError] = useState(null);
+  // The customer whose credit limit this invoice goes over, once told:
+  // pressing Create again raises it anyway (statements.service.js).
+  const [overCreditFor, setOverCreditFor] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [detail, setDetail] = useState(() => params.get('open'));
@@ -182,6 +185,7 @@ export default function InvoicesPage() {
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
     setPaymentSchedule([]);
+    setOverCreditFor(null);
     setDialogOpen(true);
   }
   async function handleSubmit() {
@@ -190,7 +194,8 @@ export default function InvoicesPage() {
     try {
       const made = await api.post('/invoices', {
         customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, notes: form.notes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule,
+        overCreditOk: overCreditFor === form.customerId || undefined
       });
       // Say what left stock with it (backend inventorySales.service.js).
       const fromStock = (made.items || []).filter((it) => it.productId || (it.itemNo && catalog.some((c) => !c.productId && c.stockQty > 0 && String(c.code || '').toUpperCase() === String(it.itemNo).toUpperCase()))).length;
@@ -198,7 +203,10 @@ export default function InvoicesPage() {
       setDialogOpen(false);
       await load();
     } catch (err) {
-      setDialogError(err.message);
+      if (err.code === 'creditLimit') {
+        setOverCreditFor(form.customerId);
+        setDialogError('🚫 ' + err.message + ' ' + tr('Press Create invoice again to raise it anyway.'));
+      } else setDialogError(err.message);
     } finally {
       setSaving(false);
     }

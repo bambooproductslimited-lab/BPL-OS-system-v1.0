@@ -178,6 +178,34 @@ async function serviceAlerts(today, settings) {
   return sent;
 }
 
+// A vehicle's papers (migration 0197): insurance and roadworthiness a month
+// before they run out, a week before, on the day — to whoever looks after
+// vehicles and its driver.
+var PAPER_MILESTONES = [{ key: '30', days: 30 }, { key: '7', days: 7 }, { key: 'expired', days: 0 }];
+async function vehicleAlerts(today, settings) {
+  var rows = await require('../services/vehicles.service').papersDue(today);
+  if (!rows.length) return 0;
+  var keepers = (await staffAlerts.holdersOf(['vehicle.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var v = rows[i];
+    var papersList = [['insurance', 'Insurance', v.insurance], ['roadworthy', 'Roadworthy certificate', v.roadworthy]];
+    for (var k = 0; k < papersList.length; k++) {
+      var until = papersList[k][2];
+      if (!until) continue;
+      var left = daysBetween(today, until);
+      if (left > 30) continue;
+      if (!(await claim('vehicle_' + papersList[k][0], v.id, until, left, PAPER_MILESTONES))) continue;
+      var title = papersList[k][1] + (left < 0 ? ' ran out — ' : left === 0 ? ' runs out today — ' : ' runs out ' + inWords(left) + ' — ') + v.name + (v.plate ? ' (' + v.plate + ')' : '');
+      var body = v.name + (v.plate ? ' · ' + v.plate : '') + ', ' + v.company + ': ' + papersList[k][1].toLowerCase() + ' until ' + fmtDate(until) + '. Renew it and put the new date on the vehicle.';
+      var to = keepers.slice();
+      if (v.driver_id && to.indexOf(v.driver_id) < 0) to.push(v.driver_id);
+      for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], title, body, 'vehicles', settings); sent++; }
+    }
+  }
+  return sent;
+}
+
 var running = false;
 
 async function runOnce(now) {
@@ -185,13 +213,16 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bills: 0, services: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
       try { out.expiry = await expiryAlerts(todayISO(), settings); } catch (e) { console.error('Expiry alerts failed:', e.message); }
       try { out.bills = await billAlerts(todayISO(), settings); } catch (e) { console.error('Bill alerts failed:', e.message); }
       try { out.services = await serviceAlerts(todayISO(), settings); } catch (e) { console.error('Service alerts failed:', e.message); }
+      try { out.vehicles = await vehicleAlerts(todayISO(), settings); } catch (e) { console.error('Vehicle alerts failed:', e.message); }
+      // Monthly statements to customers who asked for them (statements.service.js).
+      try { out.statements = await require('../services/statements.service').monthly(todayISO()); } catch (e) { console.error('Monthly statements failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
       // Recurring Poki charges (CAM, flat utilities) are not billed here: a
       // recurring invoice only goes out when a person bills it (Rent &
@@ -202,7 +233,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -214,4 +245,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, MILESTONES: MILESTONES };

@@ -240,7 +240,12 @@ async function me(token) {
     upcoming: out.bookings.filter(function (x) { return x.upcoming && x.status !== 'cancelled'; }).length,
     orders: out.orders.filter(function (x) { return ['new', 'making', 'ready', 'out'].indexOf(x.status) >= 0; }).length
   };
+  // Their statement of account (statements.service.js), when they have invoices.
+  if (out.invoices.length) {
+    var cur = out.invoices[0].currency || 'GHS';
+    out.statementUrl = (await require('./statements.service').linkFor(ids[0], cur, null, null)).url;
+  }
   return out;
 }
 
-module.exports = { sendCode: sendCode, signup: signup, login: login, logout: logout, me: me, addressOf: addressOf, _askedBy: askedBy };
+module.exports = { sendCode: sendCode, signup: signup, login: login, logout: logout, me: me, addressOf: addressOf, shareOf: shareOf, _askedBy: askedBy };
