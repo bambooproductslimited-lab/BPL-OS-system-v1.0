@@ -23,7 +23,13 @@ export const NAV_GROUPS = [
     { key: 'departments', label: msg('Companies'), perm: 'employee.read', icon: 'building' },
     { key: 'attendance', label: msg('Attendance'), icon: 'clock' },
     { key: 'leave', label: msg('Leave'), icon: 'calendar' },
-    { key: 'leavetypes', label: msg('Leave types & balances'), perm: 'employee.write', icon: 'calendar' }
+    { key: 'leavetypes', label: msg('Leave types & balances'), perm: 'employee.write', icon: 'calendar' },
+    // Reviews, hiring and certificates (pages/ReviewsPage, RecruitmentPage,
+    // TrainingPage). A reviewer without review.manage gets to their reviews
+    // from My space and the notifications.
+    { key: 'reviews', label: msg('Performance reviews'), perm: 'review.manage', icon: 'sparkle' },
+    { key: 'recruitment', label: msg('Recruitment'), perm: 'recruit.manage', icon: 'target' },
+    { key: 'training', label: msg('Training and certificates'), perm: 'training.manage', icon: 'shield' }
   ] },
   { label: msg('Work'), items: [
     { key: 'tasks', label: msg('Work orders'), perm: 'task.read', icon: 'checklist' },
@@ -126,6 +132,10 @@ export const NAV_GROUPS = [
     { key: 'bills', label: msg('Bills to pay'), perm: 'bill.read', icon: 'receipt' },
     // The next 13 weeks of money in and out, by company (pages/CashFlowPage.jsx).
     { key: 'cashflow', label: msg('Cash flow forecast'), perm: 'report.read', icon: 'chart' },
+    // Each month's budget by category against what was spent (pages/BudgetsPage.jsx).
+    { key: 'budgets', label: msg('Budgets'), perm: 'report.read', icon: 'target' },
+    // Bank statements matched to the money recorded (pages/BankPage.jsx).
+    { key: 'bank', label: msg('Bank reconciliation'), perm: 'bank.manage', icon: 'building' },
     // Staff asking for part of their pay early, repaid from payroll
     // (pages/AdvancesPage.jsx); staff ask from My space.
     { key: 'advances', label: msg('Salary advances'), perm: 'advance.manage', icon: 'cash' },

@@ -206,6 +206,45 @@ async function vehicleAlerts(today, settings) {
   return sent;
 }
 
+// Staff certificates that run out within a month, or have: the person and
+// whoever records training (training.service.js).
+async function certAlerts(today, settings) {
+  var rows = await require('../services/training.service').dueSoon(today);
+  if (!rows.length) return 0;
+  var keepers = (await staffAlerts.holdersOf(['training.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var c = rows[i], until = String(c.expires_on instanceof Date ? c.expires_on.toISOString() : c.expires_on).slice(0, 10);
+    var left = daysBetween(today, until);
+    if (!(await claim('cert', c.id, until, left, PAPER_MILESTONES))) continue;
+    var who = (c.first_name + ' ' + (c.last_name || '')).trim();
+    var title = c.type_name + (left < 0 ? ' ran out — ' : left === 0 ? ' runs out today — ' : ' runs out ' + inWords(left) + ' — ') + who;
+    var body = who + '\'s ' + c.type_name.toLowerCase() + ' is valid until ' + fmtDate(until) + '. Renew it and add the new one.';
+    var to = keepers.slice();
+    if (to.indexOf(c.employee_id) < 0) to.push(c.employee_id);
+    for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], title, body, to[j] === c.employee_id ? 'myspace' : 'training', settings); sent++; }
+  }
+  return sent;
+}
+
+// This month's budgets past the warning share, then past 100%: once each,
+// to whoever manages the reports (budgets.service.js).
+var BUDGET_LEVELS = [{ key: 'near', days: 1 }, { key: 'over', days: 0 }];
+async function budgetAlerts(settings) {
+  var rows = await require('../services/budgets.service').overruns();
+  if (!rows.length) return 0;
+  var keepers = (await staffAlerts.holdersOf(['report.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var b = rows[i];
+    if (!(await claim('budget', b.id, b.month + '-01', b.over ? 0 : 1, BUDGET_LEVELS))) continue;
+    var title = (b.over ? 'Over budget — ' : b.pct + '% of the budget spent — ') + b.category + ', ' + b.company;
+    var body = b.company + ', ' + b.category + ' this month: GHS ' + b.actual.toFixed(2) + ' spent of a GHS ' + b.budget.toFixed(2) + ' budget (' + b.pct + '%).';
+    for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], title, body, 'budgets', settings); sent++; }
+  }
+  return sent;
+}
+
 var running = false;
 
 async function runOnce(now) {
@@ -213,7 +252,7 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
@@ -221,6 +260,8 @@ async function runOnce(now) {
       try { out.bills = await billAlerts(todayISO(), settings); } catch (e) { console.error('Bill alerts failed:', e.message); }
       try { out.services = await serviceAlerts(todayISO(), settings); } catch (e) { console.error('Service alerts failed:', e.message); }
       try { out.vehicles = await vehicleAlerts(todayISO(), settings); } catch (e) { console.error('Vehicle alerts failed:', e.message); }
+      try { out.certs = await certAlerts(todayISO(), settings); } catch (e) { console.error('Certificate alerts failed:', e.message); }
+      try { out.budgets = await budgetAlerts(settings); } catch (e) { console.error('Budget alerts failed:', e.message); }
       // Monthly statements to customers who asked for them (statements.service.js).
       try { out.statements = await require('../services/statements.service').monthly(todayISO()); } catch (e) { console.error('Monthly statements failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
@@ -233,7 +274,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.vehicles || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -245,4 +286,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, MILESTONES: MILESTONES };

@@ -1,0 +1,16 @@
+DELETE FROM role_permissions WHERE permission_key IN ('bank.manage', 'review.manage', 'recruit.manage', 'training.manage');
+DELETE FROM permissions WHERE key IN ('bank.manage', 'review.manage', 'recruit.manage', 'training.manage');
+DROP TABLE IF EXISTS training_attendees;
+DROP TABLE IF EXISTS trainings;
+DROP TABLE IF EXISTS staff_certs;
+DROP TABLE IF EXISTS cert_types;
+DROP TABLE IF EXISTS job_applicant_notes;
+DROP TABLE IF EXISTS job_applicants;
+DROP TABLE IF EXISTS job_openings;
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS review_rounds;
+ALTER TABLE settings DROP COLUMN IF EXISTS budgets;
+DROP TABLE IF EXISTS budgets;
+DROP TABLE IF EXISTS bank_lines;
+DROP TABLE IF EXISTS bank_imports;
+DROP TABLE IF EXISTS bank_accounts;

@@ -98,7 +98,7 @@ var bplCors = cors({ origin: config.corsOrigin.concat(config.salesSiteOrigins, c
 function bplPublic(path) {
   return path === '/api/shop' || path.indexOf('/api/shop/') === 0 || path === '/api/book' || path.indexOf('/api/book/') === 0 || path.indexOf('/api/share/') === 0 ||
     path.indexOf('/api/pay/') === 0 || path.indexOf('/api/c/') === 0 || path.indexOf('/api/portal/') === 0 ||
-    path.indexOf('/api/statement/') === 0;
+    path.indexOf('/api/statement/') === 0 || path === '/api/jobs' || path.indexOf('/api/jobs/') === 0;
 }
 app.use(function (req, res, next) {
   if (req.path.indexOf('/api/feeds/attendance') === 0) return next();
@@ -207,6 +207,12 @@ app.use('/api/statements', require('./routes/statements.routes'));
 app.use('/api/cashflow', require('./routes/cashflow.routes'));
 app.use('/api/advances', require('./routes/advances.routes'));
 app.use('/api/vehicles', require('./routes/vehicles.routes'));
+app.use('/api/bank', require('./routes/bank.routes'));
+app.use('/api/budgets', require('./routes/budgets.routes'));
+app.use('/api/reviews', require('./routes/reviews.routes'));
+app.use('/api/recruitment', require('./routes/recruitment.routes'));
+app.use('/api/jobs', require('./routes/recruitment.routes').publicRouter);
+app.use('/api/training', require('./routes/training.routes'));
 app.use('/api/statement', require('./routes/statements.routes').publicRouter);
 app.use('/api/customers', customersRoutes);
 app.use('/api/crm', crmRoutes);
