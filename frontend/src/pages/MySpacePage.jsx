@@ -21,6 +21,10 @@ import { MyCertsCard } from './TrainingPage';
 import { MyStepsCard } from './OnboardingPage';
 import { MySafetyCard } from './SafetyPage';
 import { MyVisitorsCard } from './VisitorsPage';
+import { MyHrCard } from './DisciplinePage';
+import { MyVoiceCard } from './VoicePage';
+import { MyGoalsCard } from './GoalsPage';
+import { MyKitCard } from './PpePage';
 
 // My space — the signed-in person's own day, leave, work, money and
 // account: a banner whose sky follows the time of day with their live clock
@@ -403,6 +407,10 @@ export default function MySpacePage() {
           <MyStepsCard />
           <MyVisitorsCard />
           <MySafetyCard />
+          <MyGoalsCard />
+          <MyKitCard />
+          <MyVoiceCard />
+          <MyHrCard />
         </div>
       </Section>
 

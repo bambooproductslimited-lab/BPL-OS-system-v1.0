@@ -325,6 +325,110 @@ async function gatePassAlerts(today, settings) {
   return sent;
 }
 
+// Discipline: a query not answered by its day (to whoever handles it), a
+// hearing tomorrow (to the person and the panel), a warning that has just
+// ended (to the person) — discipline.service.js.
+async function disciplineAlerts(today, settings) {
+  var d = await require('../services/discipline.service').dueItems();
+  var refOf = require('../services/discipline.service').refOf;
+  var sent = 0;
+  var hr = null;
+  for (var i = 0; i < d.late.length; i++) {
+    var c = d.late[i], due = String(c.reply_due instanceof Date ? c.reply_due.toISOString() : c.reply_due).slice(0, 10);
+    if (!(await claim('discipline_reply', c.id, due, daysBetween(today, due), [{ key: 'late', days: -1 }]))) continue;
+    if (!c.handler_id && !hr) hr = (await staffAlerts.holdersOf(['discipline.manage'])).map(function (h) { return h.employee_id; });
+    var to = c.handler_id ? [c.handler_id] : hr;
+    for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], 'No reply yet: ' + refOf(c), ((c.first_name || '') + ' ' + (c.last_name || '')).trim() + ' was to reply by ' + fmtDate(due) + '.', '/discipline?case=' + c.id, settings); sent++; }
+  }
+  for (var k = 0; k < d.hearings.length; k++) {
+    var h = d.hearings[k], day = new Date(h.hearing_at).toISOString().slice(0, 10);
+    if (!(await claim('discipline_hearing', h.id, day, daysBetween(today, day), [{ key: '1', days: 1 }]))) continue;
+    var when = new Date(h.hearing_at).toISOString().slice(11, 16) + (h.hearing_place ? ', ' + h.hearing_place : '');
+    var people = [h.employee_id].concat((h.panel || []).map(function (x) { return x.id; })).concat(h.handler_id ? [h.handler_id] : []).filter(function (x, n, a) { return x && a.indexOf(x) === n; });
+    for (var m = 0; m < people.length; m++) {
+      await staffAlerts.alert(people[m], 'Hearing tomorrow: ' + refOf(h), when + '.', people[m] === h.employee_id ? '/myspace' : '/discipline?case=' + h.id, settings);
+      sent++;
+    }
+  }
+  for (var n = 0; n < d.ending.length; n++) {
+    var w = d.ending[n], until = String(w.warning_until instanceof Date ? w.warning_until.toISOString() : w.warning_until).slice(0, 10);
+    if (!(await claim('discipline_warning', w.id, until, daysBetween(today, until), [{ key: 'ended', days: -1 }]))) continue;
+    await staffAlerts.alert(w.employee_id, 'Your warning has ended', refOf(w) + ' no longer counts from ' + fmtDate(until) + '.', '/myspace', settings);
+    sent++;
+  }
+  return sent;
+}
+
+// Quality: a lot on hold or failed and not decided after two days — to
+// whoever inspects (quality.service.js).
+async function qualityAlerts(today, settings) {
+  var rows = await require('../services/quality.service').staleHolds();
+  if (!rows.length) return 0;
+  var qc = (await staffAlerts.holdersOf(['quality.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i], day = new Date(r.inspected_at).toISOString().slice(0, 10);
+    if (!(await claim('qc_hold', r.id, day, daysBetween(today, day), [{ key: '2', days: -2 }]))) continue;
+    var ref = 'QC-' + String(r.number).padStart(4, '0');
+    for (var j = 0; j < qc.length; j++) { await staffAlerts.alert(qc[j], 'Still on hold: ' + ref, (r.batch_no ? 'Batch ' + r.batch_no : 'Lot ' + r.lot_ref) + ' has waited since ' + fmtDate(day) + ': release it, rework it or scrap it.', '/quality?inspection=' + r.id, settings); sent++; }
+  }
+  return sent;
+}
+
+// Staff voice: surveys past their day close; those closing tomorrow remind
+// whoever has not answered yet (voice.service.js).
+async function voiceAlerts(today, settings) {
+  var voice = require('../services/voice.service');
+  await voice.closeDue();
+  var rows = await voice.closingTomorrow();
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var s = rows[i].survey, close = String(s.closes_on instanceof Date ? s.closes_on.toISOString() : s.closes_on).slice(0, 10);
+    if (!(await claim('voice_survey', s.id, close, daysBetween(today, close), [{ key: '1', days: 1 }]))) continue;
+    for (var j = 0; j < rows[i].waiting.length; j++) { await staffAlerts.alert(rows[i].waiting[j], 'Last day tomorrow: ' + s.title, (s.anonymous ? 'Anonymous, ' : '') + 'a couple of minutes, in My space.', '/myspace', settings); sent++; }
+  }
+  return sent;
+}
+
+// Goals: a key result nobody has checked in on for a week — to its owner,
+// once a week (goals.service.js).
+async function goalAlerts(today, settings) {
+  var rows = await require('../services/goals.service').staleKeyResults();
+  var week = 'w' + Math.floor(Date.parse(today + 'T00:00:00Z') / (7 * 86400000));
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var k = rows[i];
+    if (!(await claim('goal_checkin', k.id, today, 0, [{ key: week, days: 0 }]))) continue;
+    await staffAlerts.alert(k.owner_id, 'Check in: ' + k.title, 'Where is it now, and how confident are you? — ' + k.o_title, '/myspace', settings);
+    sent++;
+  }
+  return sent;
+}
+
+// Uniforms and PPE: a replacement due within the week (to the person), sizes
+// running low in the store (to whoever keeps it, once a week) — ppe.service.js.
+async function ppeAlerts(today, settings) {
+  var ppe = require('../services/ppe.service');
+  var due = await ppe.dueSoon();
+  var sent = 0;
+  for (var i = 0; i < due.length; i++) {
+    var d = due[i], day = String(d.due_on instanceof Date ? d.due_on.toISOString() : d.due_on).slice(0, 10);
+    if (!(await claim('ppe_due', d.id, day, daysBetween(today, day), [{ key: '7', days: 7 }]))) continue;
+    await staffAlerts.alert(d.employee_id, 'Time for a new ' + d.name + (d.size ? ' (' + d.size + ')' : ''), 'Yours is due for replacing on ' + fmtDate(day) + '. Ask for one in My space.', '/myspace', settings);
+    sent++;
+  }
+  var low = await ppe.lowStock();
+  if (low.length) {
+    var keepers = (await staffAlerts.holdersOf(['ppe.manage'])).map(function (h) { return h.employee_id; });
+    var week = 'w' + Math.floor(Date.parse(today + 'T00:00:00Z') / (7 * 86400000));
+    for (var k = 0; k < low.length; k++) {
+      if (!(await claim('ppe_low', low[k].id, today, 0, [{ key: week, days: 0 }]))) continue;
+      for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], 'Running low: ' + low[k].name, 'In the store: ' + low[k].sizes.join(', ') + '.', '/ppe', settings); sent++; }
+    }
+  }
+  return sent;
+}
+
 var running = false;
 
 async function runOnce(now) {
@@ -332,7 +436,7 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, discipline: 0, quality: 0, voice: 0, goals: 0, ppe: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
@@ -346,6 +450,11 @@ async function runOnce(now) {
       try { out.safety = await safetyAlerts(todayISO(), settings); } catch (e) { console.error('Safety alerts failed:', e.message); }
       try { out.returns = await returnsAlerts(todayISO(), settings); } catch (e) { console.error('Return alerts failed:', e.message); }
       try { out.passes = await gatePassAlerts(todayISO(), settings); } catch (e) { console.error('Gate pass alerts failed:', e.message); }
+      try { out.discipline = await disciplineAlerts(todayISO(), settings); } catch (e) { console.error('Discipline alerts failed:', e.message); }
+      try { out.quality = await qualityAlerts(todayISO(), settings); } catch (e) { console.error('Quality alerts failed:', e.message); }
+      try { out.voice = await voiceAlerts(todayISO(), settings); } catch (e) { console.error('Staff voice alerts failed:', e.message); }
+      try { out.goals = await goalAlerts(todayISO(), settings); } catch (e) { console.error('Goal alerts failed:', e.message); }
+      try { out.ppe = await ppeAlerts(todayISO(), settings); } catch (e) { console.error('PPE alerts failed:', e.message); }
       // Monthly statements to customers who asked for them (statements.service.js).
       try { out.statements = await require('../services/statements.service').monthly(todayISO()); } catch (e) { console.error('Monthly statements failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
@@ -358,7 +467,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -370,4 +479,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, MILESTONES: MILESTONES };

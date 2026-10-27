@@ -16,7 +16,9 @@ import { msg } from '../lib/i18n.jsx';
 export const NAV_GROUPS = [
   { label: msg('Overview'), items: [
     { key: 'dashboard', label: msg('Dashboard'), icon: 'home' },
-    { key: 'myspace', label: msg('My space'), icon: 'user' }
+    { key: 'myspace', label: msg('My space'), icon: 'user' },
+    // The quarter's objectives and key results, open to everyone (pages/GoalsPage.jsx).
+    { key: 'goals', label: msg('Goals'), icon: 'target' }
   ] },
   { label: msg('People'), items: [
     { key: 'people', label: msg('Employee directory'), perm: 'employee.read', icon: 'users' },
@@ -33,7 +35,11 @@ export const NAV_GROUPS = [
     // First days and last ones; incidents and near misses (pages/OnboardingPage,
     // SafetyPage). Everyone's own steps and reports are in My space.
     { key: 'onboarding', label: msg('Joiners and leavers'), perm: 'onboard.manage', icon: 'key' },
-    { key: 'safety', label: msg('Health and safety'), perm: 'safety.manage', icon: 'bell' }
+    { key: 'safety', label: msg('Health and safety'), perm: 'safety.manage', icon: 'bell' },
+    // Confidential cases and grievances (pages/DisciplinePage.jsx); the ideas
+    // box and pulse surveys, open to everyone (pages/VoicePage.jsx).
+    { key: 'discipline', label: msg('Discipline and grievances'), perm: 'discipline.manage', icon: 'pen' },
+    { key: 'voice', label: msg('Staff voice'), icon: 'chat' }
   ] },
   { label: msg('Work'), items: [
     { key: 'tasks', label: msg('Work orders'), perm: 'task.read', icon: 'checklist' },
@@ -60,7 +66,11 @@ export const NAV_GROUPS = [
     { key: 'itdevices', label: msg('IT device inventory'), perm: 'itdevice.read', icon: 'device' },
     // The front desk and the gate (pages/VisitorsPage.jsx); staff add their
     // own visitors from My space.
-    { key: 'visitors', label: msg('Visitors and gate passes'), perm: ['visitor.manage', 'gatepass.approve'], icon: 'users' }
+    { key: 'visitors', label: msg('Visitors and gate passes'), perm: ['visitor.manage', 'gatepass.approve'], icon: 'users' },
+    // Batches checked on the floor (pages/QualityPage.jsx); boots, gloves and
+    // uniforms handed out (pages/PpePage.jsx) — each person's own in My space.
+    { key: 'quality', label: msg('Quality'), perm: ['quality.manage', 'production.read'], icon: 'sparkle' },
+    { key: 'ppe', label: msg('Uniforms and PPE'), perm: 'ppe.manage', icon: 'shield' }
   ] },
   { label: msg('Restaurants'), items: [
     { key: 'restaurant', label: msg('Menu & inventory'), perm: 'restaurant.read', icon: 'utensils' },

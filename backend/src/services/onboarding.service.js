@@ -78,7 +78,8 @@ function managerOf(e) {
   return null;
 }
 
-// What a leaver holds: IT devices, tools out of the tool room, assets.
+// What a leaver holds: IT devices, tools out of the tool room, assets,
+// uniforms and protective kit (ppe.service.js).
 async function heldBy(empId) {
   var devices = (await pool.query("SELECT id, device_tag, category, brand, model FROM it_devices WHERE assigned_employee_id = $1 AND status NOT IN ('retired', 'lost') ORDER BY device_tag", [empId])).rows;
   var tools = (await pool.query("SELECT id, code, name FROM tool_room_items WHERE checked_out_to = $1 AND status = 'checked_out' ORDER BY code", [empId])).rows;
@@ -86,7 +87,8 @@ async function heldBy(empId) {
   return {
     devices: devices.map(function (d) { return { id: d.id, label: [d.device_tag, [d.brand, d.model].filter(Boolean).join(' ') || d.category].filter(Boolean).join(' · ') }; }),
     tools: tools.map(function (t) { return { id: t.id, label: [t.code, t.name].filter(Boolean).join(' · ') }; }),
-    assets: assets.map(function (a) { return { id: a.id, label: a.asset_no + ' · ' + a.description }; })
+    assets: assets.map(function (a) { return { id: a.id, label: a.asset_no + ' · ' + a.description }; }),
+    ppe: await require('./ppe.service').heldBy(empId)
   };
 }
 
@@ -191,13 +193,14 @@ async function start(ctx, p, opts) {
   var reason = kind === 'leave' ? (REASONS.indexOf(p.reason) >= 0 ? p.reason : 'other') : '';
   if ((await pool.query("SELECT 1 FROM onboard_lists WHERE employee_id = $1 AND kind = $2 AND status = 'open'", [e.id, kind])).rows[0]) fail('conflict', kind === 'join' ? 'Their first-day checklist is open already.' : 'Their leaving checklist is open already.');
   var template = await stepsFor(kind, e.company_id);
-  var held = kind === 'leave' ? await heldBy(e.id) : { devices: [], tools: [], assets: [] };
+  var held = kind === 'leave' ? await heldBy(e.id) : { devices: [], tools: [], assets: [], ppe: [] };
   var manager = managerOf(e);
   var rows = [];
   template.forEach(function (s) { rows.push({ title: s.title, owner: s.owner, due: addDays(day, s.days), kind: s.kind || 'task', ref: null }); });
   held.devices.forEach(function (d) { rows.push({ title: 'Hand back ' + d.label, owner: 'it', due: day, kind: 'device', ref: d.id }); });
   held.tools.forEach(function (t) { rows.push({ title: 'Hand back ' + t.label, owner: 'manager', due: day, kind: 'tool', ref: t.id }); });
   held.assets.forEach(function (a) { rows.push({ title: 'Hand back ' + a.label, owner: 'manager', due: day, kind: 'asset', ref: a.id }); });
+  held.ppe.forEach(function (x) { rows.push({ title: 'Hand back ' + x.label, owner: 'hr', due: day, kind: 'ppe', ref: x.id }); });
   var listId = await withTransaction(async function (db) {
     var l = (await db.query('INSERT INTO onboard_lists (employee_id, kind, day, reason, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [e.id, kind, day, reason, me(ctx)])).rows[0];
     for (var i = 0; i < rows.length; i++) {
@@ -245,6 +248,7 @@ async function tick(ctx, id, p) {
       if (s.kind === 'device') await db.query("UPDATE it_devices SET assigned_employee_id = NULL, assigned_at = NULL, status = CASE WHEN status = 'in_use' THEN 'in_storage' ELSE status END, updated_at = now() WHERE id = $1 AND assigned_employee_id = $2", [s.ref_id, s.employee_id]);
       if (s.kind === 'tool') await db.query("UPDATE tool_room_items SET checked_out_to = NULL, status = 'available', checked_out_at = NULL, due_back = NULL, updated_at = now() WHERE id = $1 AND checked_out_to = $2", [s.ref_id, s.employee_id]);
       if (s.kind === 'asset') await db.query('UPDATE assets SET assigned_employee_id = NULL, updated_at = now() WHERE id = $1 AND assigned_employee_id = $2', [s.ref_id, s.employee_id]);
+      if (s.kind === 'ppe') await db.query("UPDATE ppe_issues SET status = 'returned', ended_on = current_date WHERE id = $1 AND employee_id = $2 AND status = 'out'", [s.ref_id, s.employee_id]);
     }
     if (done && s.kind === 'mark_left') await db.query("UPDATE employees SET status = 'terminated', updated_at = now() WHERE id = $1", [s.employee_id]);
     var left = (await db.query('SELECT count(*)::int AS n FROM onboard_steps WHERE list_id = $1 AND done_at IS NULL', [s.list])).rows[0].n;
