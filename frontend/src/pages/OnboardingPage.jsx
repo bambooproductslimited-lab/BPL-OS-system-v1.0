@@ -17,6 +17,20 @@ function hue(name) { let h = 0; for (const c of String(name)) h = (h * 31 + c.ch
 function today() { return new Date().toISOString().slice(0, 10); }
 const OWNER = { hr: ['🧑‍💼', msg('HR')], it: ['💻', msg('IT')], finance: ['💰', msg('Finance')], manager: ['🧭', msg('Their manager')], person: ['🙋', msg('Them')] };
 const REASON = { resigned: msg('Resigned'), end_of_contract: msg('End of contract'), dismissed: msg('Dismissed'), retired: msg('Retired'), other: msg('Other') };
+// The usual steps (backend onboarding.service.js DEFAULTS) are kept as
+// English text on each list: shown in the reader's language when they are
+// still the usual wording; a step someone typed is shown as typed.
+const USUAL_STEPS = new Set([
+  msg('Contract signed and filed'), msg('Email and OS account set up'), msg('Ghana Card, SSNIT number and TIN recorded'), msg('Bank or MoMo details for pay'),
+  msg('Laptop, phone or tools handed over'), msg('Welcome and a tour of the workplace'), msg('A buddy for the first weeks'), msg('Add a photo and an emergency contact in My space'),
+  msg('Fire safety and first aid briefing'), msg('Read the staff handbook'), msg('First-month check-in'),
+  msg('Resignation or notice letter filed'), msg('Handover of work and passwords'), msg('Exit interview'), msg('Final pay worked out'), msg('Email and OS account closed'),
+  msg('Certificate of service'), msg('Marked as left in the employee directory')
+]);
+function stepTitle(t) {
+  if (USUAL_STEPS.has(t)) return tr(t);
+  return t.startsWith('Hand back ') ? tr('Hand back {what}', { what: t.slice(10) }) : t;
+}
 function dayWords(l) {
   const n = l.daysTo;
   if (l.kind === 'join') return n === 0 ? tr('starts today') : n === 1 ? tr('starts tomorrow') : n > 1 ? tr('starts in {n} days', { n }) : n === -1 ? tr('started yesterday') : tr('started {n} days ago', { n: -n });
@@ -32,7 +46,7 @@ function StepRow({ s, onTick, busy }) {
   return (
     <div className={'ob-step' + (s.done ? ' is-done' : '') + (s.late ? ' is-late' : '')}>
       <button type="button" className="ob-tick" disabled={!s.canTick || busy} onClick={() => onTick(s)} aria-pressed={s.done} aria-label={s.done ? tr('Not done') : tr('Done')}>{s.done ? '✓' : ''}</button>
-      <span className="x7-who"><b>{s.title}</b>
+      <span className="x7-who"><b>{stepTitle(s.title)}</b>
         <small>{s.done ? tr('done {date} by {name}', { date: dayText(s.doneAt), name: s.doneBy || '—' }) : (s.late ? '⏰ ' : '') + tr('by {date}', { date: dayText(s.dueOn, { weekday: 'short' }) }) + (s.assignee ? ' · ' + s.assignee.name : '')}</small>
       </span>
     </div>
@@ -292,7 +306,7 @@ export function MyStepsCard() {
             <Ring done={d.own.done} total={d.own.total} />
           </div>
           <ul className="x7-mine-list">{d.own.steps.map((s) => (
-            <li key={s.id}><button type="button" className="ob-tick" disabled={busy} aria-pressed={s.done} onClick={() => tick(s.id, !s.done)}>{s.done ? '✓' : ''}</button><span><b>{s.title}</b><small>{tr('by {date}', { date: dayText(s.dueOn) })}</small></span></li>
+            <li key={s.id}><button type="button" className="ob-tick" disabled={busy} aria-pressed={s.done} onClick={() => tick(s.id, !s.done)}>{s.done ? '✓' : ''}</button><span><b>{stepTitle(s.title)}</b><small>{tr('by {date}', { date: dayText(s.dueOn) })}</small></span></li>
           ))}</ul>
         </>
       )}
@@ -302,7 +316,7 @@ export function MyStepsCard() {
           <ul className="x7-mine-list">{d.steps.map((s) => (
             <li key={s.id}>
               <button type="button" className="ob-tick" disabled={busy} onClick={() => tick(s.id, true)} aria-label={tr('Done')} />
-              <span><b>{s.title}</b><small>{s.listKind === 'join' ? '🧳 ' : '👋 '}{s.person} · {s.late ? '⏰ ' : ''}{tr('by {date}', { date: dayText(s.dueOn) })}</small></span>
+              <span><b>{stepTitle(s.title)}</b><small>{s.listKind === 'join' ? '🧳 ' : '👋 '}{s.person} · {s.late ? '⏰ ' : ''}{tr('by {date}', { date: dayText(s.dueOn) })}</small></span>
             </li>
           ))}</ul>
         </>
