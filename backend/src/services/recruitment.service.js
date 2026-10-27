@@ -237,6 +237,9 @@ async function hire(ctx, id, p) {
   await audit(pool, ctx, 'recruit.hire', 'job_applicant', a.id, 'Hired ' + a.name + ' as ' + (text(p.positionTitle, 60) || o.title) + ' (' + emp.code + ').');
   var out = await applicant(ctx, a.id);
   out.employee = { id: emp.id, code: emp.code };
+  // Their first-day checklist, ready (onboarding.service.js).
+  try { out.checklist = await require('./onboarding.service').start(ctx, { employeeId: emp.id, kind: 'join', day: DAY.test(String(p.hireDate || '')) ? p.hireDate : today() }, { system: true }); }
+  catch (e) { out.checklist = null; }
   return out;
 }
 

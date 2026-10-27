@@ -18,6 +18,9 @@ import { AdvanceCard } from './AdvancesPage';
 import { MyVehiclesCard } from './VehiclesPage';
 import { MyReviewCard } from './ReviewsPage';
 import { MyCertsCard } from './TrainingPage';
+import { MyStepsCard } from './OnboardingPage';
+import { MySafetyCard } from './SafetyPage';
+import { MyVisitorsCard } from './VisitorsPage';
 
 // My space — the signed-in person's own day, leave, work, money and
 // account: a banner whose sky follows the time of day with their live clock
@@ -397,6 +400,9 @@ export default function MySpacePage() {
           <MyVehiclesCard />
           <MyReviewCard />
           <MyCertsCard />
+          <MyStepsCard />
+          <MyVisitorsCard />
+          <MySafetyCard />
         </div>
       </Section>
 

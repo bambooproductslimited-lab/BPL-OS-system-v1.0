@@ -245,6 +245,86 @@ async function budgetAlerts(settings) {
   return sent;
 }
 
+// Joiners' and leavers' steps due today, and once three days late: to
+// whoever the step is for, or the team whose step it is (onboarding.service.js).
+var STEP_MILESTONES = [{ key: 'due', days: 0 }, { key: 'late', days: -3 }];
+async function onboardingAlerts(today, settings) {
+  var onboarding = require('../services/onboarding.service');
+  var rows = await onboarding.dueSteps();
+  var teams = {};
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var s = rows[i], due = String(s.due_on instanceof Date ? s.due_on.toISOString() : s.due_on).slice(0, 10);
+    var left = daysBetween(today, due);
+    if (!(await claim('onboard', s.id, due, left, STEP_MILESTONES))) continue;
+    var to = [];
+    if (s.assignee_id) to = [s.assignee_id];
+    else if (onboarding.OWNER_PERMS[s.owner]) {
+      if (!teams[s.owner]) teams[s.owner] = (await staffAlerts.holdersOf(onboarding.OWNER_PERMS[s.owner])).map(function (h) { return h.employee_id; });
+      to = teams[s.owner];
+    }
+    var who = (s.first_name + ' ' + (s.last_name || '')).trim();
+    var title = (left < 0 ? 'Late: ' : 'Today: ') + s.title + ' — ' + who;
+    var body = (s.kind === 'join' ? who + ' starts ' : who + ' leaves ') + 'soon; this step was due ' + fmtDate(due) + '.';
+    for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], title, body, '/onboarding?list=' + s.list_id, settings); sent++; }
+  }
+  return sent;
+}
+
+// Safety actions due today, and once three days late: to their owner
+// (safety.service.js).
+async function safetyAlerts(today, settings) {
+  var rows = await require('../services/safety.service').dueActions();
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var a = rows[i], due = String(a.due_on instanceof Date ? a.due_on.toISOString() : a.due_on).slice(0, 10);
+    var left = daysBetween(today, due);
+    if (!a.owner_id || !(await claim('safety', a.id, due, left, STEP_MILESTONES))) continue;
+    var ref = 'HS-' + String(a.number).padStart(4, '0');
+    await staffAlerts.alert(a.owner_id, (left < 0 ? 'Late safety action: ' : 'Safety action due today: ') + a.title, 'From ' + ref + ', due ' + fmtDate(due) + '. Tick it off in My space when it is done.', '/myspace', settings);
+    sent++;
+  }
+  return sent;
+}
+
+// PAYE, SSNIT, VAT and withholding returns: a week before they are due, the
+// day before, and once late — to whoever files them (returns.service.js).
+var RETURN_MILESTONES = [{ key: '7', days: 7 }, { key: '1', days: 1 }, { key: 'late', days: -1 }];
+async function returnsAlerts(today, settings) {
+  var rows = await require('../services/returns.service').dueSoon();
+  if (!rows.length) return 0;
+  var keepers = (await staffAlerts.holdersOf(['returns.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var left = daysBetween(today, r.due);
+    if (!(await claim('return_' + r.kind, r.companyId, r.due, left, RETURN_MILESTONES))) continue;
+    var title = r.name + ' for ' + r.period + ', ' + r.company + (left < 0 ? ' is late' : left === 0 ? ' is due today' : ' is due ' + inWords(left));
+    var body = 'Due ' + fmtDate(r.due) + (r.amount != null ? ': GHS ' + Number(r.amount).toFixed(2) + '.' : '.') + ' Mark it filed and paid in Statutory returns.';
+    for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], title, body, '/returns', settings); sent++; }
+  }
+  return sent;
+}
+
+// Goods out on a gate pass that were due back: the person who asked, and
+// the front desk (visitors.service.js).
+async function gatePassAlerts(today, settings) {
+  var rows = await require('../services/visitors.service').latePasses();
+  if (!rows.length) return 0;
+  var desk = (await staffAlerts.holdersOf(['visitor.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var g = rows[i], due = String(g.back_by instanceof Date ? g.back_by.toISOString() : g.back_by).slice(0, 10);
+    if (!(await claim('gatepass', g.id, due, daysBetween(today, due), [{ key: 'late', days: -1 }]))) continue;
+    var ref = 'GP-' + String(g.number).padStart(4, '0');
+    var what = (g.items || []).map(function (x) { return x.qty + ' × ' + x.what; }).join(', ').slice(0, 140);
+    var to = desk.slice();
+    if (g.requested_by && to.indexOf(g.requested_by) < 0) to.push(g.requested_by);
+    for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], 'Not back yet: ' + ref, what + ' — due back ' + fmtDate(due) + '.', '/visitors?pass=' + g.id, settings); sent++; }
+  }
+  return sent;
+}
+
 var running = false;
 
 async function runOnce(now) {
@@ -252,7 +332,7 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
@@ -262,6 +342,10 @@ async function runOnce(now) {
       try { out.vehicles = await vehicleAlerts(todayISO(), settings); } catch (e) { console.error('Vehicle alerts failed:', e.message); }
       try { out.certs = await certAlerts(todayISO(), settings); } catch (e) { console.error('Certificate alerts failed:', e.message); }
       try { out.budgets = await budgetAlerts(settings); } catch (e) { console.error('Budget alerts failed:', e.message); }
+      try { out.steps = await onboardingAlerts(todayISO(), settings); } catch (e) { console.error('Joiner and leaver alerts failed:', e.message); }
+      try { out.safety = await safetyAlerts(todayISO(), settings); } catch (e) { console.error('Safety alerts failed:', e.message); }
+      try { out.returns = await returnsAlerts(todayISO(), settings); } catch (e) { console.error('Return alerts failed:', e.message); }
+      try { out.passes = await gatePassAlerts(todayISO(), settings); } catch (e) { console.error('Gate pass alerts failed:', e.message); }
       // Monthly statements to customers who asked for them (statements.service.js).
       try { out.statements = await require('../services/statements.service').monthly(todayISO()); } catch (e) { console.error('Monthly statements failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
@@ -274,7 +358,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -286,4 +370,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, MILESTONES: MILESTONES };

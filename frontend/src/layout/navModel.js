@@ -29,7 +29,11 @@ export const NAV_GROUPS = [
     // from My space and the notifications.
     { key: 'reviews', label: msg('Performance reviews'), perm: 'review.manage', icon: 'sparkle' },
     { key: 'recruitment', label: msg('Recruitment'), perm: 'recruit.manage', icon: 'target' },
-    { key: 'training', label: msg('Training and certificates'), perm: 'training.manage', icon: 'shield' }
+    { key: 'training', label: msg('Training and certificates'), perm: 'training.manage', icon: 'shield' },
+    // First days and last ones; incidents and near misses (pages/OnboardingPage,
+    // SafetyPage). Everyone's own steps and reports are in My space.
+    { key: 'onboarding', label: msg('Joiners and leavers'), perm: 'onboard.manage', icon: 'key' },
+    { key: 'safety', label: msg('Health and safety'), perm: 'safety.manage', icon: 'bell' }
   ] },
   { label: msg('Work'), items: [
     { key: 'tasks', label: msg('Work orders'), perm: 'task.read', icon: 'checklist' },
@@ -53,7 +57,10 @@ export const NAV_GROUPS = [
     // a driver reaches their own from My space.
     { key: 'vehicles', label: msg('Vehicles and fuel'), perm: ['vehicle.read', 'vehicle.manage'], icon: 'truck' },
     { key: 'toolroom', label: msg('Tool room inventory'), perm: 'toolroom.read', icon: 'toolbox' },
-    { key: 'itdevices', label: msg('IT device inventory'), perm: 'itdevice.read', icon: 'device' }
+    { key: 'itdevices', label: msg('IT device inventory'), perm: 'itdevice.read', icon: 'device' },
+    // The front desk and the gate (pages/VisitorsPage.jsx); staff add their
+    // own visitors from My space.
+    { key: 'visitors', label: msg('Visitors and gate passes'), perm: ['visitor.manage', 'gatepass.approve'], icon: 'users' }
   ] },
   { label: msg('Restaurants'), items: [
     { key: 'restaurant', label: msg('Menu & inventory'), perm: 'restaurant.read', icon: 'utensils' },
@@ -136,6 +143,10 @@ export const NAV_GROUPS = [
     { key: 'budgets', label: msg('Budgets'), perm: 'report.read', icon: 'target' },
     // Bank statements matched to the money recorded (pages/BankPage.jsx).
     { key: 'bank', label: msg('Bank reconciliation'), perm: 'bank.manage', icon: 'building' },
+    // PAYE, SSNIT, VAT and withholding by month; what the assets are still
+    // worth (pages/ReturnsPage, DepreciationPage).
+    { key: 'returns', label: msg('Statutory returns'), perm: 'returns.manage', icon: 'document' },
+    { key: 'depreciation', label: msg('Depreciation'), perm: ['asset.read', 'report.read'], icon: 'chart' },
     // Staff asking for part of their pay early, repaid from payroll
     // (pages/AdvancesPage.jsx); staff ask from My space.
     { key: 'advances', label: msg('Salary advances'), perm: 'advance.manage', icon: 'cash' },
