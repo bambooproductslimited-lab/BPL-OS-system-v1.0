@@ -333,22 +333,68 @@ export async function requestUsbPrinter() {
   return connectUsbPrinter(device);
 }
 
+// USB classes Chrome never lets a web page claim: audio, HID (barcode
+// scanners, keyboards), mass storage, smart cards, video, audio/video,
+// wireless. A device with only these is not a printer.
+var PROTECTED_CLASSES = [0x01, 0x03, 0x08, 0x0b, 0x0e, 0x10, 0xe0];
+
+// The interfaces on a device worth trying to print through, the USB printer
+// class (0x07) first, then vendor-specific ones (most unbranded ESC/POS
+// printers), then anything else with a way in: a printer with a built-in
+// serial port or scanner may list another interface first.
+function printerInterfaces(device) {
+  var list = [];
+  device.configuration.interfaces.forEach(function (itf) {
+    itf.alternates.forEach(function (alt) {
+      if (PROTECTED_CLASSES.indexOf(alt.interfaceClass) >= 0) return;
+      var out = alt.endpoints.find(function (e) { return e.direction === 'out' && e.type === 'bulk'; }) || alt.endpoints.find(function (e) { return e.direction === 'out'; });
+      if (!out) return;
+      list.push({ iface: itf.interfaceNumber, alt: alt.alternateSetting, endpoint: out.endpointNumber, rank: alt.interfaceClass === 0x07 ? 0 : alt.interfaceClass === 0xff ? 1 : 2 });
+    });
+  });
+  return list.sort(function (a, b) { return a.rank - b.rank; });
+}
+
 async function connectUsbPrinter(device) {
-  await device.open();
+  if (!device.opened) await device.open();
   if (!device.configuration) await device.selectConfiguration(1);
-  var iface = null, endpoint = null;
-  for (var i = 0; i < device.configuration.interfaces.length; i++) {
-    var alt = device.configuration.interfaces[i].alternates[0];
-    var out = alt.endpoints.find(function (e) { return e.direction === 'out'; });
-    if (out) { iface = device.configuration.interfaces[i].interfaceNumber; endpoint = out.endpointNumber; break; }
+  var list = printerInterfaces(device);
+  if (!list.length) {
+    var onlyProtected = device.configuration.interfaces.some(function (itf) { return PROTECTED_CLASSES.indexOf(itf.alternates[0].interfaceClass) >= 0; });
+    try { await device.close(); } catch { /* closing is best-effort */ }
+    throw new Error(onlyProtected ? tr('That is not a printer: it looks like a scanner, keyboard or card reader. Pair again and pick the printer.') : tr('No usable USB endpoint found on that device — is it a printer?'));
   }
-  if (iface === null) throw new Error(tr('No usable USB endpoint found on that device — is it a printer?'));
-  await device.claimInterface(iface);
+  // "Unable to claim interface" means something else holds it: another tab
+  // or app on this device, or the system's own printer driver. Try each way
+  // in before giving up, and let go of the device so the next try is clean.
+  var picked = null;
+  for (var i = 0; i < list.length && !picked; i++) {
+    try {
+      await device.claimInterface(list[i].iface);
+      if (list[i].alt) await device.selectAlternateInterface(list[i].iface, list[i].alt);
+      picked = list[i];
+    } catch { /* try the next interface */ }
+  }
+  if (!picked) {
+    try { await device.close(); } catch { /* closing is best-effort */ }
+    throw new Error(tr('The printer is busy: another app or browser tab is using it. Close any other tab with the till or the kitchen screen; if the tablet asked which app should open the printer, clear that choice; then unplug the printer, plug it back in and pair it again.'));
+  }
+  // Let go when the page goes away, so a reload, the kitchen screen or
+  // another app can claim the printer without unplugging it.
+  if (typeof window !== 'undefined' && !device.__releaseOnHide) {
+    device.__releaseOnHide = true;
+    window.addEventListener('pagehide', function () { if (device.opened) device.close().catch(function () { /* the page is going */ }); });
+  }
   return {
     kind: 'usb',
     name: device.productName || tr('USB printer'),
     write: async function (byteArray) {
-      await device.transferOut(endpoint, new Uint8Array(byteArray));
+      // Back from the background cache with the device let go: take it again.
+      if (!device.opened) {
+        await device.open();
+        await device.claimInterface(picked.iface);
+      }
+      await device.transferOut(picked.endpoint, new Uint8Array(byteArray));
     }
   };
 }
@@ -356,12 +402,15 @@ async function connectUsbPrinter(device) {
 // Silently reconnects to a printer the user already granted USB access to
 // in an earlier session — no new pairing prompt, since the permission
 // already exists (per the WebUSB spec, getDevices() only ever returns
-// devices previously approved via requestDevice()).
+// devices previously approved via requestDevice()). Every approved device
+// is tried: the first may be a scanner picked by mistake.
 export async function reconnectUsbPrinter() {
   if (!usbSupported()) return null;
   var devices = await navigator.usb.getDevices();
-  if (!devices.length) return null;
-  try { return await connectUsbPrinter(devices[0]); } catch (err) { return null; }
+  for (var i = 0; i < devices.length; i++) {
+    try { return await connectUsbPrinter(devices[i]); } catch { /* try the next one */ }
+  }
+  return null;
 }
 
 // ── WebBluetooth ────────────────────────────────────────────────────────
