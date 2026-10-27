@@ -166,7 +166,7 @@ export default function ReturnsPage() {
       {flash && <div className="x7-flash" role="status">{flash}</div>}
       <div className="x7-tiles">
         <div className={'x7-tile ' + (t.overdue ? 'is-bad' : 'is-good')}><small>⛔ {tr('Late')}</small><b>{t.overdue}</b><span>{!t.overdue ? tr('nothing late') : t.overdueAmount > 0 ? money(t.overdueAmount, 'GHS') : tr('amounts to enter')}</span></div>
-        <div className="x7-tile is-warn"><small>⏳ {tr('Due in the next 30 days')}</small><b>{t.dueSoon}</b><span>{money(t.dueSoonAmount, 'GHS')}</span></div>
+        <div className="x7-tile is-warn"><small>⏳ {tr('Due in the next 30 days')}</small><b>{t.dueSoon}</b><span>{!t.dueSoon ? tr('nothing due') : t.dueSoonAmount > 0 ? money(t.dueSoonAmount, 'GHS') : tr('amounts to enter')}</span></div>
         <div className="x7-tile is-calm"><small>📅 {tr('Next')}</small><b>{t.next ? tr(NAME[t.next.kind][1]) : '—'}</b><span>{t.next ? tr('{month}, due {date}', { month: monthText(t.next.period, true), date: dayText(t.next.due) }) : ''}</span></div>
         <div className="x7-tile is-good"><small>✓ {tr('Paid this year')}</small><b>{money(t.paidYear, 'GHS')}</b><span>{tr('{n} returns', { n: t.paidYearCount })}</span></div>
       </div>

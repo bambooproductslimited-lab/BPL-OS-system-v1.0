@@ -9691,6 +9691,7 @@ export default {
   "nothing done yet": "rien de terminé pour l'instant",
   "Nothing done yet": "Rien encore",
   "Nothing done yet today": "Rien de terminé aujourd'hui",
+  "nothing due": "rien à déclarer",
   "Nothing due": "Rien à rendre",
   "nothing else planned": "rien d'autre de prévu",
   "nothing empty": "rien de vide",

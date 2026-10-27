@@ -9691,6 +9691,7 @@ export default {
   "nothing done yet": "尚未完成任何请求",
   "Nothing done yet": "尚无往来",
   "Nothing done yet today": "今天还没有完成的",
+  "nothing due": "暂无到期",
   "Nothing due": "无到期",
   "nothing else planned": "没有其他计划",
   "nothing empty": "没有空置",
