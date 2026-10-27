@@ -1,4 +1,4 @@
-import { tr } from './i18n.jsx';
+import { tr, msg } from './i18n.jsx';
 
 // What this file PRINTS stays in English, whatever language the till's
 // screen is in: text is sent as one Latin-1 byte per character (see
@@ -415,41 +415,109 @@ export async function reconnectUsbPrinter() {
 
 // ── WebBluetooth ────────────────────────────────────────────────────────
 
-// Most generic BLE thermal printers (the common 58mm ones sold under many
-// different rebadged names) expose this one GATT service/characteristic
-// pair — there's no single BLE printer standard the way ESC/POS itself is
-// a de facto USB/serial standard, so this covers a common case, not every
-// Bluetooth printer model.
-var BLE_PRINTER_SERVICE = 0x18f0;
-var BLE_PRINTER_WRITE_CHARACTERISTIC = 0x2af1;
+// A browser only reaches Bluetooth Low Energy printers. There is no single
+// BLE printing standard, so these are the services the common receipt
+// printers expose (the 0x18f0 one, the "e7810a71" one most unbranded 58/80mm
+// printers use, Microchip's transparent UART, and the HM-10-style ones), and
+// the characteristic each one writes to. A printer that only speaks classic
+// Bluetooth (SPP) cannot be reached from a web page at all.
+var BLE_PRINTER_SERVICES = [0x18f0, 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '49535343-fe7d-4ae5-8fa9-9fafd205e455', 0xff00, 0xffe0, 0xfff0, 0xae30, 0xfee7];
+var BLE_WRITE_CHARACTERISTICS = [0x2af1, 'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f', '49535343-8841-43f4-a8d4-ecbe34729bb3', 0xff02, 0xffe1, 0xfff2, 0xae01];
+
+function bleUuid(v) {
+  return typeof v === 'number' ? '0000' + v.toString(16).padStart(4, '0') + '-0000-1000-8000-00805f9b34fb' : String(v).toLowerCase();
+}
+
+function withTimeout(promise, ms) {
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () { reject(new Error('timeout')); }, ms);
+    promise.then(function (v) { clearTimeout(timer); resolve(v); }, function (err) { clearTimeout(timer); reject(err); });
+  });
+}
+
+function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 export function bluetoothSupported() {
   return typeof navigator !== 'undefined' && !!navigator.bluetooth;
 }
 
+var BT_CLASSIC = msg('This printer has no Bluetooth Low Energy printing the browser can use: it probably only speaks classic Bluetooth, which web pages cannot reach. Connect it with its USB cable instead, or use a printer that supports Bluetooth LE.');
+var BT_NO_CONNECT = msg('Could not connect to the printer. Switch it off and on, keep it close, make sure no other phone, tablet or printer app is connected to it, then pair again.');
+
+// Every nearby device is listed: many printers do not announce what they
+// can do until they are connected, so a filter would hide them.
 export async function requestBluetoothPrinter() {
   if (!bluetoothSupported()) throw new Error(tr('This browser doesn\'t support WebBluetooth — use Chrome or Edge (desktop or Android).'));
-  var device = await navigator.bluetooth.requestDevice({
-    filters: [{ services: [BLE_PRINTER_SERVICE] }],
-    optionalServices: [BLE_PRINTER_SERVICE]
-  });
+  if (navigator.bluetooth.getAvailability && !(await navigator.bluetooth.getAvailability())) {
+    throw new Error(tr('Bluetooth is off or not allowed. Turn Bluetooth on, and allow Chrome to find nearby devices (Android settings → Apps → Chrome → Permissions → Nearby devices, and Location on older tablets), then try again.'));
+  }
+  var device;
+  try {
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: BLE_PRINTER_SERVICES });
+  } catch (err) {
+    if (err && err.name === 'NotFoundError') throw new Error(tr('No printer was picked. If yours is not in the list, it is probably a classic Bluetooth printer, which web pages cannot reach: connect it with its USB cable instead.'));
+    throw err;
+  }
   return connectBluetoothPrinter(device);
 }
 
+// The first writable characteristic on a known printer service, the known
+// write characteristics first.
+async function findBleWriter(server) {
+  var services = [];
+  try { services = await server.getPrimaryServices(); } catch { services = []; }
+  var rank = function (svc) { var n = BLE_PRINTER_SERVICES.map(bleUuid).indexOf(String(svc.uuid).toLowerCase()); return n < 0 ? 99 : n; };
+  services.sort(function (a, b) { return rank(a) - rank(b); });
+  var known = BLE_WRITE_CHARACTERISTICS.map(bleUuid);
+  var fallback = null;
+  for (var i = 0; i < services.length; i++) {
+    var chars = [];
+    try { chars = await services[i].getCharacteristics(); } catch { chars = []; }
+    for (var j = 0; j < chars.length; j++) {
+      var c = chars[j];
+      if (!(c.properties && (c.properties.write || c.properties.writeWithoutResponse))) continue;
+      if (known.indexOf(String(c.uuid).toLowerCase()) >= 0) return c;
+      if (!fallback) fallback = c;
+    }
+  }
+  return fallback;
+}
+
 async function connectBluetoothPrinter(device) {
-  var server = await device.gatt.connect();
-  var service = await server.getPrimaryService(BLE_PRINTER_SERVICE);
-  var characteristic = await service.getCharacteristic(BLE_PRINTER_WRITE_CHARACTERISTIC);
+  var server;
+  try { server = await withTimeout(device.gatt.connect(), 15000); } catch { throw new Error(tr(BT_NO_CONNECT)); }
+  var ch = await findBleWriter(server);
+  if (!ch) {
+    try { device.gatt.disconnect(); } catch { /* closing is best-effort */ }
+    throw new Error(tr(BT_CLASSIC));
+  }
+  // Writes are capped by the link's packet size: start large, and drop to
+  // the 20 bytes every BLE link takes if the printer refuses the first one.
+  var size = 180;
   return {
     kind: 'bluetooth',
     name: device.name || tr('Bluetooth printer'),
     write: async function (byteArray) {
-      // BLE GATT writes are capped (typically ~20 bytes per write on
-      // older stacks, more on modern ones) — chunk conservatively so a
-      // full receipt doesn't silently truncate.
-      var CHUNK = 180;
-      for (var i = 0; i < byteArray.length; i += CHUNK) {
-        await characteristic.writeValue(new Uint8Array(byteArray.slice(i, i + CHUNK)));
+      // Printers drop the link when idle or switched off and on: connect again.
+      if (!device.gatt.connected) {
+        try { ch = await findBleWriter(await withTimeout(device.gatt.connect(), 15000)); } catch { ch = null; }
+        if (!ch) throw new Error(tr(BT_NO_CONNECT));
+      }
+      var withResponse = !!ch.properties.write;
+      var bytes = new Uint8Array(byteArray);
+      var i = 0;
+      while (i < bytes.length) {
+        var part = bytes.slice(i, i + size);
+        try {
+          if (withResponse) await (ch.writeValueWithResponse ? ch.writeValueWithResponse(part) : ch.writeValue(part));
+          else await (ch.writeValueWithoutResponse ? ch.writeValueWithoutResponse(part) : ch.writeValue(part));
+        } catch (err) {
+          if (i === 0 && size > 20) { size = 20; continue; }
+          throw err;
+        }
+        i += part.length;
+        // Without an answer from the printer, give its buffer time to drain.
+        if (!withResponse) await pause(12);
       }
     }
   };
@@ -458,6 +526,8 @@ async function connectBluetoothPrinter(device) {
 export async function reconnectBluetoothPrinter() {
   if (!bluetoothSupported() || !navigator.bluetooth.getDevices) return null;
   var devices = await navigator.bluetooth.getDevices();
-  if (!devices.length) return null;
-  try { return await connectBluetoothPrinter(devices[0]); } catch (err) { return null; }
+  for (var i = 0; i < devices.length; i++) {
+    try { return await connectBluetoothPrinter(devices[i]); } catch { /* try the next one */ }
+  }
+  return null;
 }
