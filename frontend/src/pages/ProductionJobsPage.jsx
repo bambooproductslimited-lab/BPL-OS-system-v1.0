@@ -95,7 +95,7 @@ function CostCompare({ j }) {
   return (
     <div className="job-cost">
       <div className="job-cost-bars" role="img" aria-label={tr('The bill says {bill}; it really cost {real}.', { bill: money(bill), real: money(real) })}>
-        <div><span>{tr('The bill')}</span><i style={{ width: bill / top * 100 + '%' }} className="is-bill" /><b>{money(bill)}</b></div>
+        <div><span>{j.status === 'done' && Number(j.good) !== Number(j.qty) ? tr('Bill for {n} good', { n: num(j.good) }) : tr('The bill')}</span><i style={{ width: bill / top * 100 + '%' }} className="is-bill" /><b>{money(bill)}</b></div>
         <div><span>{j.status === 'done' ? tr('Really') : tr('So far')}</span><i style={{ width: real / top * 100 + '%' }} className={over ? 'is-over' : 'is-under'} /><b>{money(real)}</b></div>
       </div>
       {a.variancePct != null && <p className={'job-variance ' + (a.variancePct > 5 ? 'is-bad' : a.variancePct < -5 ? 'is-good' : '')}>{a.variancePct > 0 ? '▲' : a.variancePct < 0 ? '▼' : '='} {tr('{p}% against the bill ({v})', { p: Math.abs(a.variancePct), v: (a.variance > 0 ? '+' : '') + money(a.variance) })}{a.each != null ? ' · ' + tr('{v} each', { v: money(a.each) }) : ''}</p>}

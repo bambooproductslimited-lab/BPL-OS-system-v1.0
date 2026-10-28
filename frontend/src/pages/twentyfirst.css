@@ -50,7 +50,7 @@
 .job-meter i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #14b8a6, #2563eb); }
 .job-cost { display: flex; flex-direction: column; gap: 10px; }
 .job-cost-bars { display: flex; flex-direction: column; gap: 8px; }
-.job-cost-bars > div { display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.job-cost-bars > div { display: grid; grid-template-columns: 128px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
 .job-cost-bars span { color: var(--color-text-muted); font-weight: 600; }
 .job-cost-bars i { display: block; height: 14px; border-radius: 0 7px 7px 0; min-width: 4px; }
 .job-cost-bars i.is-bill { background: repeating-linear-gradient(135deg, #94a3b8 0 6px, #cbd5e1 6px 12px); }
@@ -243,7 +243,7 @@
 .rfq-pick button b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rfq-pick button small { font-size: 11px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rfq-pick button.is-on { border-color: transparent; box-shadow: inset 0 0 0 2px #7c3aed; background: color-mix(in srgb, #7c3aed 8%, var(--x7-card)); }
-.rfq-sheet { max-width: min(1040px, calc(100vw - 24px)); width: min(1040px, calc(100vw - 24px)); }
+.dialog.x7-sheet.rfq-sheet { max-width: min(1040px, calc(100vw - 24px)); width: min(1040px, calc(100vw - 24px)); }
 .rfq-compare-wrap { overflow-x: auto; border: 1px solid var(--color-border); border-radius: 18px; }
 .rfq-compare { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .rfq-compare th, .rfq-compare td { padding: 9px 12px; border-bottom: 1px solid var(--color-border); text-align: right; vertical-align: top; font-variant-numeric: tabular-nums; min-width: 150px; }

@@ -6,6 +6,9 @@ import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import './seventeenth.css';
 import './twentyfirst.css';
 
+// A month's totals on the tiles, to the cedi.
+function whole(n) { return 'GHS ' + Math.round(Number(n) || 0).toLocaleString(); }
+
 // Power and generators (Operations → Power and generators; backend
 // power.service.js, migration 0203): for the factory and each restaurant,
 // the power cuts, the hours each generator ran, the fuel bought for it and
@@ -246,8 +249,8 @@ export default function PowerPage() {
         <div className={'x7-tile ' + (s.offNow ? 'is-bad' : 'is-good')}><small>🔌 {tr('Off now')}</small><b>{s.offNow}</b><span>{s.offNow ? tr('sites on the generator or dark') : tr('every site has power')}</span></div>
         <div className={'x7-tile ' + (s.offHours > 24 ? 'is-warn' : 'is-calm')}><small>🕯️ {tr('Without power')}</small><b>{tr('{h} h', { h: num(s.offHours) })}</b><span>{s.outages === 1 ? tr('1 cut in 30 days') : tr('{n} cuts in 30 days', { n: s.outages })}</span></div>
         <div className="x7-tile is-teal"><small>⚙️ {tr('Generator hours')}</small><b>{num(s.genHours)}</b><span>{tr('30 days')}</span></div>
-        <div className="x7-tile is-violet"><small>⛽ {tr('Fuel')}</small><b>{money(s.fuelCost)}</b><span>{s.costPerHour != null ? tr('{v} an hour', { v: money(s.costPerHour) }) : tr('30 days')}</span></div>
-        <div className="x7-tile is-calm"><small>💡 {tr('Prepaid electricity')}</small><b>{money(s.prepaid)}</b><span>{tr('30 days')}</span></div>
+        <div className="x7-tile is-violet"><small>⛽ {tr('Fuel')}</small><b>{whole(s.fuelCost)}</b><span>{s.costPerHour != null ? tr('{v} an hour', { v: money(s.costPerHour) }) : tr('30 days')}</span></div>
+        <div className="x7-tile is-calm"><small>💡 {tr('Prepaid electricity')}</small><b>{whole(s.prepaid)}</b><span>{tr('30 days')}</span></div>
         <div className={'x7-tile ' + (s.warnings ? 'is-bad' : 'is-good')}><small>🚩 {tr('Fuel to look at')}</small><b>{s.warnings}</b><span>{s.warnings ? tr('burning more than they should') : tr('all as they should')}</span></div>
       </div>
       {d.warnings.length > 0 && <div className="pwr-warns">{d.warnings.map((w) => (

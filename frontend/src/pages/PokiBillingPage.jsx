@@ -495,7 +495,7 @@ export default function PokiBillingPage() {
                       <strong>{c.description} · {money(c.amount, c.currency)} {FREQ_TEXT[c.frequency]}{c.cycleDay ? ' · ' + tr('{d}th to {d}th', { d: c.cycleDay }) : ''}</strong>
                       <span className="dk-muted tl-small">{c.tenantName} · {c.unitCode} · {c.propertyName} · {tr('booking {no}', { no: c.bookingNo })}</span>
                       <span className="dk-muted tl-small">
-                        {c.periodsBilled ? tr('{n} periods billed, {amount} in all', { n: c.periodsBilled, amount: money(c.billedTotal, c.currency) }) : tr('Not billed yet')}
+                        {c.periodsBilled === 1 ? tr('1 period billed, {amount}', { amount: money(c.billedTotal, c.currency) }) : c.periodsBilled ? tr('{n} periods billed, {amount} in all', { n: c.periodsBilled, amount: money(c.billedTotal, c.currency) }) : tr('Not billed yet')}
                         {c.lastInvoice ? ' · ' + tr('last: {no} ({status})', { no: c.lastInvoice.invoiceNo, status: codeLabel(c.lastInvoice.status) }) : ''}
                         {' · ' + tr('pay within {n} days', { n: c.netDays })}
                         {c.endDate ? ' · ' + tr('until {date}', { date: fmtDate(c.endDate) }) : ' · ' + tr('until the booking ends ({date})', { date: fmtDate(c.bookingEnd) })}
