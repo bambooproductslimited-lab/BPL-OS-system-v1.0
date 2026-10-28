@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import { getMe, getToken, login as apiLogin, verifyLogin as apiVerifyLogin, logout as apiLogout, setToken } from '../api/client';
 
 // "Don't ask again on this device" for two-step sign-in: a token per email,
@@ -18,31 +18,54 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Set while the server can't be reached on the way in (see rehydrate).
+  const [reconnecting, setReconnecting] = useState(false);
+  const gaveUp = useRef(false);
 
   // Rehydrate the session on load if a token is already stored — mirrors
   // kernel.js's session() lookup on boot, but via a real /api/me round trip
   // instead of reading localStorage directly.
+  //
+  // The sign-in kept on this device is dropped only when the server says it
+  // is no good (401). Anything else — the server busy (429), waking up on
+  // Render (502/503), or not answering at all — used to drop it too, so a
+  // hiccup sent people back to the sign-in screen, two-step code and all.
+  // Now the app waits and asks again, saying it is reconnecting.
   useEffect(() => {
     let cancelled = false;
     async function rehydrate() {
       if (!getToken()) { setLoading(false); return; }
-      try {
-        const me = await getMe();
-        // The language belongs to the person, so the value on their row
-        // wins whenever a session arrives — that is what makes the choice
-        // follow them from a desk to a shop-floor tablet. Doing it here,
-        // once per sign-in, rather than in a component below I18nProvider,
-        // is deliberate: down there it re-ran on every language switch and
-        // immediately undid the switch. See lib/i18n.jsx's adoptLocale.
-        if (!cancelled) { adoptLocale(me.locale); setSession(me); }
-      } catch {
-        setToken(null);
-      } finally {
-        if (!cancelled) setLoading(false);
+      for (let attempt = 0; !cancelled && !gaveUp.current; attempt++) {
+        try {
+          const me = await getMe();
+          // The language belongs to the person, so the value on their row
+          // wins whenever a session arrives — that is what makes the choice
+          // follow them from a desk to a shop-floor tablet. Doing it here,
+          // once per sign-in, rather than in a component below I18nProvider,
+          // is deliberate: down there it re-ran on every language switch and
+          // immediately undid the switch. See lib/i18n.jsx's adoptLocale.
+          if (!cancelled) { adoptLocale(me.locale); setSession(me); }
+          break;
+        } catch (err) {
+          if (cancelled || gaveUp.current) return;
+          if (err && err.status === 401) { setToken(null); break; }
+          setReconnecting(true);
+          await new Promise((done) => setTimeout(done, Math.min(2000 * 2 ** attempt, 15000)));
+        }
       }
+      if (!cancelled) { setReconnecting(false); setLoading(false); }
     }
     rehydrate();
     return () => { cancelled = true; };
+  }, []);
+
+  // "Sign in again" on the reconnecting screen: forget this device's
+  // sign-in and go to the sign-in page.
+  const forgetSignIn = useCallback(() => {
+    gaveUp.current = true;
+    setToken(null);
+    setReconnecting(false);
+    setLoading(false);
   }, []);
 
   const startSession = useCallback((result) => {
@@ -86,8 +109,8 @@ export function AuthProvider({ children }) {
   }, [session]);
 
   const value = useMemo(
-    () => ({ session, loading, login, verifyCode, logout, can, refreshSession }),
-    [session, loading, login, verifyCode, logout, can, refreshSession]
+    () => ({ session, loading, reconnecting, forgetSignIn, login, verifyCode, logout, can, refreshSession }),
+    [session, loading, reconnecting, forgetSignIn, login, verifyCode, logout, can, refreshSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -171,7 +171,7 @@ export default function AppShell() {
             <NotificationsBell />
           </div>
         </header>
-        <div className="shell-content">
+        <div className="shell-content" data-section={currentGroupLabel ? currentGroupLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : undefined}>
           {/* Keyed on the path so navigating away from a broken page clears
               the error instead of carrying it to the next one. */}
           <ErrorBoundary key={location.pathname} scope="this page">

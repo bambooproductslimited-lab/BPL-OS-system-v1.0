@@ -1,3 +1,5 @@
 @import './styles/theme.css';
 /* Glass mode (the third look beside light and dark): see styles/glass.css. */
 @import './styles/glass.css';
+/* The newer sections' banners and tiles: see styles/pageHero.css. */
+@import './styles/pageHero.css';

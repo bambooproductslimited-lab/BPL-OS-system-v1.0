@@ -1,0 +1,161 @@
+/* The newer sections' headers and number tiles (the seventeenth batch's
+   .x7 pages and their kin: Bills, Statements, Cash flow, Advances,
+   Vehicles). They were a plain title over flat tiles, in a column capped
+   and centred at ~1,100px, so on a wide screen they sat in the middle of
+   empty space beside pages that fill it. Now the header is a banner in the
+   colours of its part of the menu (AppShell puts data-section on
+   .shell-content), with the number tiles floating over its bottom edge.
+
+   Loaded before the pages' own stylesheets (index.css), so every rule here
+   starts at .shell-content to outrank them. */
+
+.shell-content { --hero-1: #0f766e; --hero-2: #16a34a; --hero-3: #2563eb; }
+.shell-content[data-section='people'] { --hero-1: #0e7490; --hero-2: #0d9488; --hero-3: #4f46e5; }
+.shell-content[data-section='work'] { --hero-1: #5b21b6; --hero-2: #9333ea; --hero-3: #db2777; }
+.shell-content[data-section='operations'] { --hero-1: #14532d; --hero-2: #15803d; --hero-3: #0d9488; }
+.shell-content[data-section='restaurants'] { --hero-1: #9a3412; --hero-2: #e11d48; --hero-3: #db2777; }
+.shell-content[data-section='poki-properties'] { --hero-1: #075985; --hero-2: #0891b2; --hero-3: #059669; }
+.shell-content[data-section='sales-crm'] { --hero-1: #9d174d; --hero-2: #9333ea; --hero-3: #2563eb; }
+.shell-content[data-section='marketing'] { --hero-1: #9f1239; --hero-2: #ea580c; --hero-3: #d97706; }
+.shell-content[data-section='quotations-invoicing'] { --hero-1: #92400e; --hero-2: #ea580c; --hero-3: #e11d48; }
+.shell-content[data-section='finance'] { --hero-1: #1e3a8a; --hero-2: #4338ca; --hero-3: #0891b2; }
+.shell-content:is([data-section='insights'], [data-section='intelligence']) { --hero-1: #4c1d95; --hero-2: #6d28d9; --hero-3: #2563eb; }
+.shell-content[data-section='governance'] { --hero-1: #1e293b; --hero-2: #4338ca; --hero-3: #0f766e; }
+
+/* Fill the page, like the rest of the OS. */
+.shell-content :is(.x7, .bl, .stm, .cf, .adv, .veh, .ow) { max-width: none; }
+
+/* ── the banner ── */
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  align-items: center;
+  gap: 16px 24px;
+  padding: 28px 30px;
+  border-radius: 28px;
+  color: #fff;
+  background:
+    radial-gradient(120% 160% at 100% 0%, rgba(255, 255, 255, .22), transparent 55%),
+    linear-gradient(118deg, var(--hero-1), var(--hero-2) 55%, var(--hero-3));
+  box-shadow: 0 30px 60px -38px color-mix(in srgb, var(--hero-1) 85%, #000), inset 0 1px 0 rgba(255, 255, 255, .28);
+  animation: hero-in .5s cubic-bezier(.2, .8, .2, 1) both;
+}
+/* Two soft lights drifting in the banner. */
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::before,
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::before {
+  width: 360px; height: 360px; right: -90px; top: -190px;
+  background: radial-gradient(circle, rgba(255, 255, 255, .3), transparent 65%);
+  animation: hero-drift 14s ease-in-out infinite alternate;
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::after {
+  width: 300px; height: 300px; left: 34%; bottom: -210px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--hero-3) 70%, #fff 30%), transparent 68%);
+  opacity: .55;
+  animation: hero-drift 18s ease-in-out infinite alternate-reverse;
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) h1 {
+  color: #fff;
+  font-size: clamp(26px, 3.2vw, 36px);
+  font-weight: 800;
+  letter-spacing: -.035em;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .18);
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) p {
+  max-width: 720px;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, .88);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) p :is(b, strong, a) { color: #fff; }
+/* Its buttons and pickers: frosted glass on the colour, the main one white. */
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .btn-secondary {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .38);
+  background: rgba(255, 255, 255, .16);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  box-shadow: none;
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .btn-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, .26); }
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .btn-primary {
+  color: var(--hero-1);
+  border-color: #fff;
+  background: #fff;
+  box-shadow: 0 12px 26px -14px rgba(0, 0, 0, .55);
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .btn-primary:hover:not(:disabled) { transform: translateY(-1px); background: #fff; }
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) :is(.input, select) {
+  color: #0f172a;
+  border-color: rgba(255, 255, 255, .6);
+  background-color: rgba(255, 255, 255, .92);
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) :is(.x7-seg, .x7-chips button) {
+  border-color: rgba(255, 255, 255, .35);
+  background: rgba(255, 255, 255, .16);
+}
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .x7-seg button { color: rgba(255, 255, 255, .85); }
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .x7-seg button.is-on { color: var(--hero-1); background: #fff; }
+.shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) .x7-chips button { color: #fff; }
+
+/* ── the tiles, floating over the banner's edge ── */
+.shell-content :is(.x7-head, .bl-head, .stm-head, .adv-head, .veh-head):has(+ :is(.x7-tiles, .bl-cards, .stm-tiles, .adv-tiles, .veh-tiles)) { padding-bottom: 66px; }
+.shell-content :is(.x7-head, .bl-head, .stm-head, .adv-head, .veh-head) + :is(.x7-tiles, .bl-cards, .stm-tiles, .adv-tiles, .veh-tiles) {
+  position: relative;
+  z-index: 1;
+  margin-top: -56px;
+  padding: 0 18px;
+}
+.shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile) {
+  padding: 16px 18px 15px;
+  border-radius: 20px;
+  background-image: radial-gradient(130% 100% at 0% 0%, color-mix(in srgb, var(--tone, #64748b) 16%, transparent), transparent 62%);
+  box-shadow: 0 22px 44px -30px rgba(15, 23, 42, .55), inset 0 1px 0 rgba(255, 255, 255, .55);
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile):hover {
+  transform: translateY(-3px);
+  box-shadow: 0 28px 50px -30px color-mix(in srgb, var(--tone, #64748b) 60%, rgba(15, 23, 42, .6)), inset 0 1px 0 rgba(255, 255, 255, .55);
+}
+.shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile)::before {
+  height: 4px;
+  background: linear-gradient(90deg, var(--tone, #64748b), color-mix(in srgb, var(--tone, #64748b) 35%, #fff));
+}
+.shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile) b { font-size: clamp(19px, 1.65vw, 24px); font-weight: 800; letter-spacing: -.03em; }
+/* Glass tiles are see-through: over the banner they took on its colour.
+   Frosted white there instead. */
+:root[data-theme='glass'] .shell-content :is(.x7-head, .bl-head, .stm-head, .adv-head, .veh-head) + :is(.x7-tiles, .bl-cards, .stm-tiles, .adv-tiles, .veh-tiles) > * {
+  background-color: rgba(255, 255, 255, .9);
+  border-color: rgba(255, 255, 255, .95);
+}
+:root[data-theme='dark'] .shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile) { box-shadow: 0 22px 44px -30px rgba(0, 0, 0, .9), inset 0 1px 0 rgba(255, 255, 255, .06); }
+
+@keyframes hero-in { from { opacity: 0; transform: translateY(8px) scale(.99); } }
+@keyframes hero-drift { to { transform: translate(-40px, 30px) scale(1.12); } }
+
+@media (max-width: 760px) {
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) { padding: 22px 20px; border-radius: 22px; }
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .adv-head, .veh-head):has(+ :is(.x7-tiles, .bl-cards, .stm-tiles, .adv-tiles, .veh-tiles)) { padding-bottom: 56px; }
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .adv-head, .veh-head) + :is(.x7-tiles, .bl-cards, .stm-tiles, .adv-tiles, .veh-tiles) { margin-top: -50px; padding: 0 10px; }
+  .shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile) b { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head),
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::before,
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::after { animation: none; }
+  .shell-content :is(.x7-tile, .bl-card, .stm-tile, .adv-tile, .veh-tile) { transition: none; }
+}
+@media print {
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) { color: #000; background: none; box-shadow: none; padding: 0 0 8px; }
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::before,
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head)::after { display: none; }
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .cf-head, .adv-head, .veh-head) :is(h1, p) { color: #000; text-shadow: none; }
+  .shell-content :is(.x7-head, .bl-head, .stm-head, .adv-head, .veh-head) + :is(.x7-tiles, .bl-cards, .stm-tiles, .adv-tiles, .veh-tiles) { margin-top: 0; padding: 0; }
+}

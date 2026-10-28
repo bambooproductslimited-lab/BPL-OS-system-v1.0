@@ -722,8 +722,11 @@ div.tl-allergy-strip { cursor: default; }
 .tl-texted { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; padding: 3px 9px; font-size: 12px; font-weight: 800; color: #0f766e; text-decoration: none; border-radius: 999px; background: rgba(20, 184, 166, .13); }
 .tl-texted.is-wa { color: #fff; background: #22c55e; }
 
-.bk, .gc, .cs, .lo { width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
-.cs, .lo { width: min(560px, calc(100vw - 24px)); }
+/* The till's bookings, gift card, customer screen and rewards panels. Only
+   on .pos-panel: a bare .cs also caught Company settings (.dk.cs) and
+   squeezed the whole page to 560px. */
+.pos-panel:is(.bk, .gc, .cs, .lo) { width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+.pos-panel:is(.cs, .lo) { width: min(560px, calc(100vw - 24px)); }
 .bk-head, .lo-head { display: flex; align-items: center; gap: 14px; }
 .bk-head { flex-wrap: wrap; }
 .bk-head > div:not(.bk-new) { flex: 1 1 260px; min-width: 0; }
