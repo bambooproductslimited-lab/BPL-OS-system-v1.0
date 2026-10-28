@@ -99,12 +99,12 @@ function Gate({ d, onScanned }) {
       <section className="x7-card idc-scan">
         <div className="x7-seg idc-dir" role="radiogroup" aria-label={tr('Which way')}>
           <button type="button" role="radio" aria-checked={direction === 'in'} className={direction === 'in' ? 'is-on' : ''} onClick={() => setDirection('in')}>➡️ {tr('Coming in')}</button>
-          <button type="button" role="radio" aria-checked={direction === 'out'} className={direction === 'out' ? 'is-on' : ''} onClick={() => setDirection('out')}>⬅️ {tr('Going out')}</button>
+          <button type="button" role="radio" aria-checked={direction === 'out'} className={direction === 'out' ? 'is-on' : ''} onClick={() => setDirection('out')}>⬅️ {tr('Heading out')}</button>
         </div>
         {camera ? <QrScanner onCode={scan} className="idc-camera" /> : <button type="button" className="idc-cam-btn" onClick={() => setCamera(true)}><span aria-hidden="true">📷</span>{tr('Scan with the camera')}</button>}
         <form className="idc-type" onSubmit={(e) => { e.preventDefault(); scan(code); }}>
           <input ref={box} className="input" autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder={tr('Or scan with a scanner here')} aria-label={tr('Card code')} />
-          <button type="submit" className="btn btn-primary" disabled={!code.trim()}>{tr('Check')}</button>
+          <button type="submit" className="btn btn-primary" disabled={!code.trim()}>{tr('Check card')}</button>
         </form>
         {error && <div className="error-banner" role="alert">{error}</div>}
       </section>
@@ -130,7 +130,7 @@ function Gate({ d, onScanned }) {
           <div key={s.id} className={'x7-row idc-scan-row ' + RESULT[s.result][2]}>
             {s.person ? <Photo id={s.person.id} name={s.person.name} photo={s.person.photo} size={36} /> : <span className="x7-icon" aria-hidden="true">❓</span>}
             <span className="x7-who"><b>{s.person ? s.person.name : tr('Unknown card')}</b><small>{new Date(s.at).toLocaleString(activeIntlLocale(), { weekday: 'short', hour: '2-digit', minute: '2-digit' })}{s.card ? ' · ' + s.card : ''}{s.by ? ' · ' + s.by : ''}</small></span>
-            <span className="x7-pill">{s.direction === 'in' ? '➡️ ' + tr('in') : '⬅️ ' + tr('out')}</span>
+            <span className="x7-pill">{s.direction === 'in' ? '➡️ ' + tr('coming in') : '⬅️ ' + tr('going out')}</span>
             <span className={'x7-pill ' + (s.result === 'ok' ? 'is-good' : 'is-bad')}>{RESULT[s.result][0]}</span>
           </div>
         ))}</div>}

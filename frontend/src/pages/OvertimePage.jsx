@@ -106,9 +106,9 @@ function Sheet({ id, d, onClose, onChanged }) {
           <h3>🕘 {tr('What the clock said')}</h3>
           {!c ? <p className="x7-muted">{tr('No clock-in that day.')}</p> : (
             <div className="ot-clock-row">
-              <span><em>{c.in}</em><small>{tr('in')}</small></span>
+              <span><em>{c.in}</em><small>{tr('clocked in')}</small></span>
               <span className="ot-arrow" aria-hidden="true">→</span>
-              <span><em>{c.out || '—'}</em><small>{tr('out')}</small></span>
+              <span><em>{c.out || '—'}</em><small>{tr('clocked out')}</small></span>
               {c.hours != null && <span><em>{num(c.hours, 1)} h</em><small>{tr('on site')}</small></span>}
               {c.shiftEnd && <span className={c.past != null && c.past + 0.25 < r.hours ? 'is-bad' : 'is-good'}><em>{c.past != null ? num(c.past, 1) + ' h' : '—'}</em><small>{tr('past the {t} end', { t: c.shiftEnd })}</small></span>}
             </div>

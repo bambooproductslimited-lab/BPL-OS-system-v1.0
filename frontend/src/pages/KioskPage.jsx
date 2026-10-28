@@ -155,6 +155,15 @@ function useClock() {
   return now;
 }
 
+// What the server says when a card is refused (kiosk.service.js CARD_REFUSED),
+// shown in the kiosk's language.
+const CARD_REFUSED_TEXT = new Set([
+  msg('This card has been stopped. Use your PIN, or ask HR for a new card.'),
+  msg('This card has run out. Use your PIN, or ask HR for a new card.'),
+  msg('This card is not in use any more.'),
+  msg('This card is not one of ours.')
+]);
+
 export default function KioskPage() {
   const [pin, setPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -517,7 +526,7 @@ export default function KioskPage() {
           {result.kind === 'error' && (
             <>
               <p className="kiosk-result-kicker">{tr('Not clocked')}<Also locales={staffLocales} k="Not clocked" /></p>
-              <h1 className="kiosk-result-title">{result.message}{result.message === 'Incorrect PIN.' && <Also locales={staffLocales} k="Incorrect PIN." />}</h1>
+              <h1 className="kiosk-result-title">{CARD_REFUSED_TEXT.has(result.message) ? tr(result.message) : result.message}{result.message === 'Incorrect PIN.' && <Also locales={staffLocales} k="Incorrect PIN." />}</h1>
               {!result.card && <p className="kiosk-result-name">{tr('Check your PIN and try again. If it keeps happening, ask your supervisor.')}<Also locales={staffLocales} k="Check your PIN and try again. If it keeps happening, ask your supervisor." /></p>}
             </>
           )}
