@@ -230,6 +230,7 @@ var ALLOWED = {
   'GET /api/notifications/': 'own notifications',
   'POST /api/notifications/read': 'marks own notifications read',
   'GET /api/leave/': 'own leave requests — scoped, asserted below',
+  'GET /api/overtime/': 'own overtime requests and the rates; the team, its money and approvals only with leave.approve / payroll.manage (overtime.service overview)',
   'GET /api/leave/types': 'leave-type catalogue, needed to file a request',
   'GET /api/attendance/': 'own attendance row — scoped, asserted below',
   'GET /api/attendance/report': 'own attendance only, and canViewPay is false — scoped, asserted below',

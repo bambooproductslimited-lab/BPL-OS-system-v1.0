@@ -111,9 +111,9 @@ test('a billed reading can still take a photo: it backs the figure and changes n
   var r = await ok('POST', '/api/poki/readings', { meterId: water.id, periodStart: today, periodEnd: today, currentReading: 118 });
   var billed = await ok('POST', '/api/poki/readings/bill', { readingIds: [r.id] });
   var invoiceId = billed.invoices[0].invoiceId;
-  var before = (await pool.query('SELECT total FROM invoices WHERE id = $1', [invoiceId])).rows[0].total;
+  var before = (await pool.query('SELECT grand_total FROM invoices WHERE id = $1', [invoiceId])).rows[0].grand_total;
   var withPhoto = await ok('PUT', '/api/poki/readings/' + r.id + '/photo', { photo: PNG });
   assert.equal(withPhoto.hasPhoto, true);
   assert.equal(withPhoto.invoiceId, invoiceId);
-  assert.equal((await pool.query('SELECT total FROM invoices WHERE id = $1', [invoiceId])).rows[0].total, before);
+  assert.equal((await pool.query('SELECT grand_total FROM invoices WHERE id = $1', [invoiceId])).rows[0].grand_total, before);
 });
