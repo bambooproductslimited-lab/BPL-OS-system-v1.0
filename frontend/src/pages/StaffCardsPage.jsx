@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import { api } from '../api/client';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import Photo, { useBlobUrl } from '../components/Photo';
+import PrintLayer from '../components/PrintLayer';
 import QrScanner from '../components/QrScanner';
 import './seventeenth.css';
 import './twentysecond.css';
@@ -68,13 +69,12 @@ function PrintCard({ c, returnTo }) {
   );
 }
 function PrintSheet({ data, onClose }) {
-  return createPortal(
-    <div className="idc-print">
+  return (
+    <PrintLayer onClose={onClose}><div className="idc-print">
       <div className="idc-print-bar"><b>🖨️ {tr('{n} cards to print', { n: data.cards.length })}</b><small>{tr('Print on card stock, or on paper to laminate: each card is credit-card size, the front beside its back.')}</small>
         <button type="button" className="btn btn-primary" onClick={() => window.print()}>🖨️ {tr('Print')}</button><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Close')}</button></div>
       <div className="idc-print-cards">{data.cards.map((c) => <PrintCard key={c.card.id} c={c} returnTo={data.returnTo} />)}</div>
-    </div>,
-    document.body
+    </div></PrintLayer>
   );
 }
 

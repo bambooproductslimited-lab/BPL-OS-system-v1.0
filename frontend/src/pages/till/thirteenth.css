@@ -68,11 +68,9 @@
 .prp-ahead b { min-width: 48px; font-size: 15px; font-variant-numeric: tabular-nums; }
 .prp-ahead span { display: flex; flex-direction: column; }
 .prp-ahead small { font-size: 12px; color: var(--color-text-muted); }
+/* On paper (the sheet is .print-solo: theme.css prints it alone). */
 @media print {
-  body * { visibility: hidden; }
-  .dialog.prp, .dialog.prp * { visibility: visible; }
-  .dialog.prp { position: absolute; inset: 0; width: 100%; max-height: none; overflow: visible; box-shadow: none; }
-  .dialog.prp .dialog-actions, .prp-days, .prp-set-btn { display: none; }
+  .dialog.prp .dialog-actions, .prp-days, .prp-set-btn { display: none !important; }
 }
 
 /* ── checklists ── */

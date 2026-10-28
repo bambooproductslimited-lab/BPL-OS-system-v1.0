@@ -551,8 +551,9 @@
 
 @media print {
   /* Hide with display, not visibility, so the till screen around the
-     receipt stops taking up paper. */
-  .pos-shell > *:not(#pos-receipt) { display: none !important; }
-  .pos-shell { height: auto; background: #fff; }
+     receipt stops taking up paper. Only while a receipt or drawer report is
+     on screen: the table bill and prep list print from the till too. */
+  .pos-shell:has(#pos-receipt) > *:not(#pos-receipt) { display: none !important; }
+  .pos-shell:has(#pos-receipt) { height: auto; background: #fff; }
   #pos-receipt { position: static; width: 100%; max-width: none; border: none; box-shadow: none; animation: none; }
 }

@@ -59,7 +59,7 @@ function Letter({ c, kind, onClose }) {
   const body = outcome ? (c.outcome ? c.outcome.note : '') : (c.query ? c.query.text : '');
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog x7-sheet vz-print dc-letter" role="dialog" aria-modal="true" aria-labelledby="dc-l-t" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog x7-sheet vz-print dc-letter print-solo" role="dialog" aria-modal="true" aria-labelledby="dc-l-t" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="x7-x" onClick={onClose} aria-label={tr('Close')}>✕</button>
         <header><b>{c.person.company || 'Bamboo Products'}</b><span>{dayText(outcome && c.outcome ? c.outcome.at : c.query ? c.query.sentAt : today(), { weekday: undefined })}</span></header>
         <p className="dc-letter-to">{tr('To')}: <b>{c.person.name}</b>{c.person.position ? ', ' + c.person.position : ''}{c.person.department ? ' — ' + c.person.department : ''}</p>

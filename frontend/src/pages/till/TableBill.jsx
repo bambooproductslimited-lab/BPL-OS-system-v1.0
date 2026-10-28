@@ -38,7 +38,7 @@ export default function TableBill({ token, tab, companyName, printer, onClose, o
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="dialog tl-dialog tbill" role="dialog" aria-modal="true" aria-labelledby="tbill-title" onClick={(e) => e.stopPropagation()}>
-        <div className="tbill-sheet">
+        <div className="tbill-sheet print-solo">
           <header className="tbill-head">
             <span className="tl-dialog-ico is-qr" aria-hidden="true">🧾</span>
             <div><h2 id="tbill-title">{tr('The bill · {table}', { table: tab.tableName || tab.label })}</h2>

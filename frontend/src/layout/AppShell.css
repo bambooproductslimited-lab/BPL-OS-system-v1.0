@@ -339,3 +339,15 @@
 :root[data-theme='dark'] .shell-main { color-scheme: dark; }
 /* The sidebar is light-on-dark regardless of theme, so its scrollbar is too. */
 .shell-sidebar { color-scheme: dark; }
+
+/* ── on paper ── A page printed with Ctrl+P is the page itself: the menu
+   down the side and the header's buttons (theme, language, bell) stay on
+   screen, and the page takes the full width of the sheet. The title stays,
+   so a printed page says what it is. */
+@media print {
+  .shell { display: block; min-height: 0; background: none; }
+  .shell-sidebar { display: none !important; }
+  .shell-header { position: static; padding: 0 0 10px; background: none; }
+  .shell-header-actions { display: none; }
+  .shell-content { padding: 14px 0 0; overflow: visible; }
+}

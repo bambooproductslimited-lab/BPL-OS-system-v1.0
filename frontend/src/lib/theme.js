@@ -42,6 +42,32 @@ export function clearTheme() {
   try { document.documentElement.removeAttribute('data-theme'); } catch { /* no DOM (tests) */ }
 }
 
+// Paper is always the light theme. Dark mode on paper is a sheet of ink —
+// or, with the browser's "Background graphics" off (its default), pale text
+// on white that can hardly be read — and glass is see-through panels over
+// a coloured backdrop that paper does not have. The browser says when it is
+// about to print (window.print(), Ctrl+P, or Print in its menu): the light
+// theme goes on for the paper and the chosen one comes back after. The
+// dark-only rules hung off .shell-main-dark (see AppShell) step aside too.
+export function installPrintTheme() {
+  if (typeof window === 'undefined') return;
+  let held = null;
+  window.addEventListener('beforeprint', () => {
+    const root = document.documentElement;
+    const theme = root.getAttribute('data-theme');
+    if (held || !theme || theme === 'light') return;
+    held = { theme, dark: [...document.querySelectorAll('.shell-main-dark')] };
+    root.setAttribute('data-theme', 'light');
+    held.dark.forEach((el) => el.classList.remove('shell-main-dark'));
+  });
+  window.addEventListener('afterprint', () => {
+    if (!held) return;
+    document.documentElement.setAttribute('data-theme', held.theme);
+    held.dark.forEach((el) => el.classList.add('shell-main-dark'));
+    held = null;
+  });
+}
+
 // Keeps the choice on this device, for every screen of the OS and the
 // restaurant sites on it.
 export function saveTheme(theme) {

@@ -5,6 +5,7 @@ import '../index.css';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { I18nProvider } from '../components/I18nProvider.jsx';
 import { installTypeToSearch } from '../lib/typeToSearch.js';
+import { installPrintTheme } from '../lib/theme.js';
 import { AuthProvider } from '../auth/AuthContext';
 import { API_URL } from '../api/client';
 import SalesApp from '../pages/sales/SalesApp.jsx';
@@ -22,6 +23,8 @@ if ('serviceWorker' in navigator) {
 
 // Every dropdown searchable, and typing goes into a screen's search box.
 installTypeToSearch();
+// Whatever the theme on screen, it prints as the light one.
+installPrintTheme();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

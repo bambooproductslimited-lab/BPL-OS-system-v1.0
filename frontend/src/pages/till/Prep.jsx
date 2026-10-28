@@ -40,7 +40,7 @@ export default function PrepDialog({ token, onClose }) {
   const left = data ? data.dishes.length - data.done : 0;
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog prp" role="dialog" aria-modal="true" aria-labelledby="prp-title" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog prp print-solo" role="dialog" aria-modal="true" aria-labelledby="prp-title" onClick={(e) => e.stopPropagation()}>
         <div className="prp-head">
           <span className="prp-head-art" aria-hidden="true">🔪</span>
           <div>

@@ -39,10 +39,9 @@
 .tbill-chip { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; padding: 3px 9px; font-size: 12px; font-weight: 800; border-radius: 999px; color: #fff; background: linear-gradient(120deg, #0ea5e9, #6366f1); }
 .tq-calls li.is-paid { background: linear-gradient(135deg, rgba(34, 197, 94, .14), transparent); }
 @media (max-width: 640px) { .tbill-body { grid-template-columns: 1fr; } .tbill-qr { order: -1; } }
+/* On paper (the sheet is .print-solo: theme.css prints it alone). */
 @media print {
-  body * { visibility: hidden !important; }
-  .tbill-sheet, .tbill-sheet * { visibility: visible !important; }
-  .tbill-sheet { position: absolute; left: 0; top: 0; width: 100%; color: #000; }
+  .tbill-sheet { color: #000; }
   .tbill-qr { color: #000; background: none; box-shadow: none; }
 }
 

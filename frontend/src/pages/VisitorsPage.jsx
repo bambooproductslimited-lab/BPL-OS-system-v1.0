@@ -150,7 +150,7 @@ function RollCall({ company, onClose }) {
   );
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog x7-sheet is-wide vz-print" role="dialog" aria-modal="true" aria-labelledby="vz-r-t" onClick={(e) => e.stopPropagation()}>
+      <div className="dialog x7-sheet is-wide vz-print print-solo" role="dialog" aria-modal="true" aria-labelledby="vz-r-t" onClick={(e) => e.stopPropagation()}>
         <div className="x7-hero" style={{ '--g1': '#b91c1c', '--g2': '#c2410c' }}>
           <span className="x7-icon" aria-hidden="true">📣</span>
           <div><small>{tr('As at {time}', { time: when(r.at) })}</small><h2 id="vz-r-t">{tr('Who is on site')}</h2>

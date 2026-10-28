@@ -132,10 +132,10 @@
 .idc-back b { font-size: 3mm; }
 .idc-back p { margin: 0; font-size: 2.5mm; line-height: 1.35; color: #334155; }
 .idc-back small { margin-top: auto; font-size: 2.4mm; font-weight: 700; color: #0f766e; }
+/* On paper: the sheet is in the print layer (PrintLayer), so the OS
+   behind it is already gone. */
 @media print {
-  body * { visibility: hidden; }
-  .idc-print, .idc-print * { visibility: visible; }
-  .idc-print { position: absolute; inset: 0; overflow: visible; background: #fff; }
+  .idc-print { position: static; overflow: visible; background: #fff; }
   .idc-print-bar { display: none; }
   .idc-print-cards { padding: 0; gap: 4mm; justify-content: flex-start; }
   .idc-card { box-shadow: none; border: .2mm solid #cbd5e1; }

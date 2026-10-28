@@ -123,11 +123,9 @@
 .x7-mine-top > .bk-ring { display: block; }
 .x7-mine-top .bk-ring b { font-size: 12px; letter-spacing: 0; }
 
+/* On paper (the sheet is .print-solo: theme.css prints it alone). */
 @media print {
-  body * { visibility: hidden; }
-  .vz-print, .vz-print * { visibility: visible; }
-  .vz-print { position: absolute; inset: 0; width: auto !important; max-height: none !important; overflow: visible !important; box-shadow: none !important; }
-  .vz-print .x7-x, .vz-print .x7-actions { display: none; }
+  .vz-print .x7-x, .vz-print .x7-actions { display: none !important; }
 }
 
 /* The visitor's pass (public) */

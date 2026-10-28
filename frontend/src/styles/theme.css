@@ -268,6 +268,14 @@ textarea.input { font-family: inherit; resize: vertical; min-height: 72px; }
 @media print {
   body.has-print-layer > #root { display: none !important; }
 
+  /* Paper is white (lib/theme.js prints every theme as the light one), and
+     nothing on it is frosted: a blur on an element makes it the box its
+     absolutely placed contents are laid out in and clipped to, so glass
+     mode's blurred backdrop, 0px tall on paper, printed the invoice inside
+     it as a blank sheet. */
+  html, body { background: #fff !important; }
+  *, *::before, *::after { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+
   .print-layer .dialog-backdrop {
     position: static;
     inset: auto;
@@ -277,6 +285,28 @@ textarea.input { font-family: inherit; resize: vertical; min-height: 72px; }
     z-index: auto;
   }
   .no-print, .no-print * { display: none !important; }
+
+  /* A sheet printed where it stands, inside the page rather than in the
+     print layer (the till's table bill and prep list, which take the
+     till's colours; a disciplinary letter; the on-site roll): .print-solo.
+     Only it and the boxes it sits in reach the paper, and those boxes drop
+     their screen chrome. Every rule waits for a .print-solo on the page:
+     each of these sheets used to bring a bare `body * { visibility:
+     hidden }`, and as all stylesheets are loaded on every page, any other
+     print from the OS came out blank. */
+  body:has(.print-solo) *:not(.print-solo, .print-solo *, :has(.print-solo)) { display: none !important; }
+  body:has(.print-solo) :has(.print-solo) {
+    position: static !important; inset: auto !important; display: block !important; transform: none !important;
+    width: auto !important; height: auto !important; min-height: 0 !important; max-height: none !important; overflow: visible !important;
+    margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; box-shadow: none !important;
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important; filter: none !important; animation: none !important;
+  }
+  .print-solo {
+    position: static !important; inset: auto !important; transform: none !important; margin: 0 !important;
+    width: auto !important; max-width: none !important; max-height: none !important; overflow: visible !important;
+    border: 0 !important; box-shadow: none !important; animation: none !important;
+    backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  }
 
   /* Nothing is scrolled or boxed on paper. */
   .print-layer .doc-preview,
