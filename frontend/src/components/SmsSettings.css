@@ -191,3 +191,34 @@
   .ms-switch-track, .ms-switch-thumb, .ms-row-icon { transition: none; }
 }
 .ms-mail-month { margin: 0; font-size: 12.5px; }
+
+/* The sender ID card: the name, where it stands with mNotify, and what to
+   do about it. Coloured down its left edge by that standing. */
+.ms-sender { grid-template-columns: auto 1fr auto; row-gap: 12px; }
+.ms-sender.is-bad { box-shadow: inset 4px 0 0 var(--color-danger); }
+.ms-sender.is-warn { box-shadow: inset 4px 0 0 var(--color-warning); }
+.ms-sender.is-ok { box-shadow: inset 4px 0 0 var(--color-accent); }
+.ms-sender-now { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; text-align: right; }
+.ms-sender-name { font-size: 14px; font-weight: 800; letter-spacing: .02em; white-space: nowrap; }
+.ms-sender-state, .ms-sender-actions, .ms-sender-form { grid-column: 1 / -1; }
+.ms-sender-state { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--ms-r); background: color-mix(in srgb, var(--tone, var(--color-text-muted)) 10%, transparent); }
+.ms-sender-state.is-ok { --tone: var(--color-accent); }
+.ms-sender-state.is-warn { --tone: var(--color-warning); }
+.ms-sender-state.is-bad { --tone: var(--color-danger); }
+.ms-sender-icon { font-size: 18px; line-height: 1.2; }
+.ms-sender-words { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.ms-sender-words b { color: var(--tone, var(--color-text)); }
+.ms-sender-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ms-sender-form { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--color-border); border-radius: var(--ms-r); }
+.ms-sender-field { display: flex; align-items: center; gap: 10px; }
+.ms-sender-field .input, .ms-sender-short { width: 220px; max-width: 100%; font-weight: 700; letter-spacing: .02em; }
+.ms-sender-count { font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.ms-sender-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ms-sender-back { margin-left: auto; }
+.ms-sender-form textarea { resize: vertical; min-height: 56px; }
+.ms-hero-warn { font-weight: 700; }
+@media (max-width: 640px) {
+  .ms-sender { grid-template-columns: auto 1fr; }
+  .ms-sender-now { grid-column: 1 / -1; flex-direction: row; align-items: center; text-align: left; gap: 8px; }
+  .ms-sender-back { margin-left: 0; }
+}

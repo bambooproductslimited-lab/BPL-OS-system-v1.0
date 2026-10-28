@@ -30,4 +30,6 @@ app.listen(config.port, function () {
   remindersJob.start();
   paymentLinksJob.start();
   require('./services/whatsappAccess').load();
+  // The sender ID chosen in Company settings, ready before the first text.
+  require('./services/sms.service').loadSender().catch(function () {});
 });

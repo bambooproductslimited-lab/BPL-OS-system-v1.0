@@ -29,6 +29,7 @@ var saved = {};
 // What the stand-in mNotify received, and what it should answer next.
 var received = [];
 var nextAnswer = null;
+var senderAnswer = null; // the next answer to /api/senderid/…
 var balanceAnswer = { status: 'success', balance: 1486, bonus: 12 };
 
 async function call(method, path, body, token) {
@@ -50,6 +51,7 @@ async function reset() {
   await pool.query('DELETE FROM user_backup_codes WHERE user_id = (SELECT id FROM users WHERE email = $1)', [EMAIL]);
   await pool.query('DELETE FROM two_step_codes WHERE user_id = (SELECT id FROM users WHERE email = $1)', [EMAIL]);
   await pool.query("DELETE FROM sms_messages WHERE purpose IN ('test', 'two_step')");
+  await pool.query('UPDATE settings SET sms_sender_id = NULL, sms_sender_check = NULL WHERE id = 1');
 }
 // The per-account limits count texts in the last half hour; tests that send
 // several age the earlier ones instead of waiting.
@@ -68,6 +70,12 @@ test.before(async function () {
       received.push({ method: req.method, path: url.pathname, key: url.searchParams.get('key'), body: body });
       res.setHeader('Content-Type', 'application/json');
       if (url.pathname === '/api/balance/sms') return res.end(JSON.stringify(balanceAnswer));
+      if (url.pathname.indexOf('/api/senderid/') === 0) {
+        var said = senderAnswer || { status: 'success', code: '2000', summary: { _id: '86351', sender_name: body && body.sender_name, purpose: 'x', status: 'active' } };
+        senderAnswer = null;
+        res.statusCode = said.httpStatus || 200;
+        return res.end(JSON.stringify(said));
+      }
       var answer = nextAnswer || {
         status: 'success', code: '2000', message: 'messages sent successfully',
         summary: { _id: 'camp-' + received.length, type: 'API QUICK SMS', total_sent: 1, contacts: 1, total_rejected: 0, numbers_sent: body.recipient, credit_used: 1, credit_left: 1485 }
@@ -303,5 +311,124 @@ test('the Claude connector sign-in page texts the code and offers a new one', as
   assert.equal(done.status, 302);
   assert.ok(new URL(done.headers.get('location')).searchParams.get('code'));
   await pool.query("DELETE FROM mcp_oauth_clients WHERE info->>'client_name' = 'Z9MCP SMS'");
+  await reset();
+});
+
+// The sender ID. mNotify refused "BPL GHANA" — not approved on the account —
+// and every text failed, sign-in codes included: the screen now says so, can
+// ask mNotify about it, ask it to approve one, or switch to one already
+// approved, with no redeploy. One sign-in each for these tests: sign-ins
+// from one address are limited.
+var tokens = {};
+async function adminToken() { return tokens.admin || (tokens.admin = await tokenOf(ADMIN)); }
+async function staffToken() { return tokens.staff || (tokens.staff = await tokenOf(EMAIL)); }
+test('a refused sender ID: the text fails in plain words, and Company settings says why', async function () {
+  await reset();
+  var admin = await adminToken();
+  nextAnswer = { status: 'error', code: '1012', message: 'Sender ID not registered' };
+  var r = await call('POST', '/api/sms/test', { phone: '0244123456' }, admin);
+  assert.equal(r.status, 502);
+  assert.match(r.body.error.message, /sender ID "BambooOS": it isn't approved on the mNotify account yet/);
+  assert.match(r.body.error.message, /Company settings → Text messages/);
+  var s = (await call('GET', '/api/sms', null, admin)).body;
+  assert.equal(s.senderSource, 'server');
+  assert.equal(s.senderCheck.name, 'BambooOS');
+  assert.equal(s.senderCheck.state, 'refused');
+  assert.match(s.suggestedPurpose, /Sign-in codes/);
+
+  nextAnswer = { status: 'error', code: '1011', message: 'Numeric sender IDs are not allowed' };
+  r = await call('POST', '/api/sms/test', { phone: '0244123456' }, admin);
+  assert.match(r.body.error.message, /numbers only/);
+
+  // Sent fine once it is approved: the screen stops warning.
+  assert.equal((await call('POST', '/api/sms/test', { phone: '0244123456' }, admin)).status, 200);
+  assert.equal((await call('GET', '/api/sms', null, admin)).body.senderCheck.state, 'approved');
+});
+
+test('check the sender ID with mNotify: approved, waiting, refused, not on the account', async function () {
+  var admin = await adminToken();
+  var s = (await call('POST', '/api/sms/sender/check', {}, admin)).body;
+  var asked = received.filter(function (x) { return x.path === '/api/senderid/status'; }).pop();
+  assert.equal(asked.method, 'POST');
+  assert.equal(asked.key, 'test-key-123');
+  assert.deepEqual(asked.body, { sender_name: 'BambooOS' });
+  assert.equal(s.senderCheck.state, 'approved');
+
+  senderAnswer = { status: 'success', code: '2000', summary: { sender_name: 'BambooOS', status: 'pending' } };
+  assert.equal((await call('POST', '/api/sms/sender/check', {}, admin)).body.senderCheck.state, 'pending');
+  senderAnswer = { status: 'success', code: '2000', summary: { sender_name: 'BambooOS', status: 'rejected' } };
+  assert.equal((await call('POST', '/api/sms/sender/check', {}, admin)).body.senderCheck.state, 'rejected');
+  senderAnswer = { status: 'error', message: 'Sender ID not found', httpStatus: 404 };
+  assert.equal((await call('POST', '/api/sms/sender/check', {}, admin)).body.senderCheck.state, 'not_registered');
+
+  // Another name can be checked without switching to it.
+  s = (await call('POST', '/api/sms/sender/check', { name: 'BPLGhana' }, admin)).body;
+  assert.equal(s.senderId, 'BambooOS');
+  assert.equal(s.senderCheck, null, 'the check shown is the one for the sender in use');
+  assert.equal(received.filter(function (x) { return x.path === '/api/senderid/status'; }).pop().body.sender_name, 'BPLGhana');
+  var staff = await staffToken();
+  assert.equal((await call('POST', '/api/sms/sender/check', {}, staff)).status, 403);
+});
+
+test('ask mNotify to approve a sender ID: what it is for; a bad name is stopped before mNotify', async function () {
+  var admin = await adminToken();
+  assert.equal((await call('POST', '/api/sms/sender/register', { name: 'BPL GHANA', purpose: 'texts' }, admin)).status, 400, 'say what for');
+  assert.equal((await call('POST', '/api/sms/sender/register', { name: 'BAMBOOPRODUCTS', purpose: 'Sign-in codes and reminders' }, admin)).status, 400, 'over 11');
+  assert.equal((await call('POST', '/api/sms/sender/register', { name: '0244123456', purpose: 'Sign-in codes and reminders' }, admin)).status, 400, 'numbers only');
+  assert.equal((await call('POST', '/api/sms/sender/register', { name: 'BPL-GH!', purpose: 'Sign-in codes and reminders' }, admin)).status, 400, 'letters, numbers, spaces');
+  var before = received.length;
+  assert.equal(received.length, before);
+
+  senderAnswer = { status: 'success', code: '2000', message: 'sender ID Successfully Registered.', summary: { sender_name: 'BambooOS', purpose: 'x', status: 'pending' } };
+  var s = (await call('POST', '/api/sms/sender/register', { purpose: 'Sign-in codes for staff and payment reminders for customers.' }, admin)).body;
+  var asked = received.filter(function (x) { return x.path === '/api/senderid/register'; }).pop();
+  assert.deepEqual(asked.body, { sender_name: 'BambooOS', purpose: 'Sign-in codes for staff and payment reminders for customers.' });
+  assert.equal(s.senderCheck.state, 'pending');
+  var log = (await pool.query("SELECT summary FROM audit_logs WHERE action = 'sms.sender_register' ORDER BY at DESC LIMIT 1")).rows[0];
+  assert.match(log.summary, /Asked mNotify to approve the sender ID "BambooOS"/);
+
+  senderAnswer = { status: 'error', code: '1004', message: 'Invalid API key', httpStatus: 401 };
+  var bad = await call('POST', '/api/sms/sender/register', { purpose: 'Sign-in codes for staff and payment reminders for customers.' }, admin);
+  assert.equal(bad.status, 502);
+  assert.match(bad.body.error.message, /API key/);
+  assert.ok(JSON.stringify(bad.body).indexOf('test-key-123') < 0);
+});
+
+test('switch the sender ID from the screen: texts come from it at once; back to the server\'s', async function () {
+  var admin = await adminToken();
+  assert.equal((await call('PUT', '/api/sms/sender', { senderId: 'TWELVE CHARS' }, admin)).status, 400);
+  var s = (await call('PUT', '/api/sms/sender', { senderId: '  BPL   Ghana ' }, admin)).body;
+  assert.equal(s.senderId, 'BPL Ghana');
+  assert.equal(s.senderSource, 'settings');
+  assert.equal(s.serverSenderId, 'BambooOS');
+  assert.equal(s.senderCheck.state, 'approved', 'checked with mNotify straight away');
+  assert.equal((await call('POST', '/api/sms/test', { phone: '0244123456' }, admin)).status, 200);
+  assert.equal(lastText().body.sender, 'BPL Ghana');
+  var log = (await pool.query("SELECT summary FROM audit_logs WHERE action = 'sms.sender' ORDER BY at DESC LIMIT 1")).rows[0];
+  assert.match(log.summary, /Texts now come from "BPL Ghana" \(was "BambooOS"\)/);
+
+  s = (await call('PUT', '/api/sms/sender', { senderId: null }, admin)).body;
+  assert.equal(s.senderId, 'BambooOS');
+  assert.equal(s.senderSource, 'server');
+  await call('POST', '/api/sms/test', { phone: '0244123456' }, admin);
+  assert.equal(lastText().body.sender, 'BambooOS');
+
+  // With no sender ID anywhere, the screen asks for one rather than failing.
+  var server = config.sms.senderId;
+  config.sms.senderId = '';
+  try {
+    s = (await call('GET', '/api/sms', null, admin)).body;
+    assert.equal(s.configured, false);
+    assert.equal(s.apiKeySet, true);
+    var r = await call('POST', '/api/sms/test', { phone: '0244123456' }, admin);
+    assert.match(r.body.error.message, /no sender ID yet/);
+    s = (await call('PUT', '/api/sms/sender', { senderId: 'BambooOS' }, admin)).body;
+    assert.equal(s.configured, true);
+  } finally {
+    config.sms.senderId = server;
+    await call('PUT', '/api/sms/sender', { senderId: null }, admin);
+  }
+  var staff = await staffToken();
+  assert.equal((await call('PUT', '/api/sms/sender', { senderId: 'Hacked' }, staff)).status, 403);
   await reset();
 });

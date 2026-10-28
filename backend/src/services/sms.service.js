@@ -10,9 +10,17 @@ var { internationalNumber } = require('../utils/phone');
 // failed — so the Company settings screen can show what went out and what
 // it cost.
 //
-// Set up with two env vars on the server: MNOTIFY_API_KEY and
-// MNOTIFY_SENDER_ID (config.js). Until both are set nothing is sent, and the
+// Set up with MNOTIFY_API_KEY on the server (config.js) and a sender ID: the
+// name texts come from, chosen in Company settings → Text messages, else the
+// server's MNOTIFY_SENDER_ID. Until there are both nothing is sent, and the
 // screens say so rather than failing.
+//
+// mNotify sends only from a sender ID approved on the account. A name it
+// doesn't know (or hasn't approved yet) makes every text fail — sign-in
+// codes included — so the same screen can ask mNotify about the sender ID,
+// ask it to approve one, or switch to one already approved, without a
+// redeploy. The last thing mNotify said about it is kept (sms_sender_check,
+// migration 0207), and a refusal while sending is noted there too.
 
 var TIMEOUT_MS = 15000;
 var MAX_LENGTH = 612; // four texts' worth; a reminder is one or two
@@ -32,7 +40,29 @@ var MESSAGING_DEFAULTS = {
 // account in one morning.
 var AUTO_DAILY_LIMIT = 150;
 
-function configured() { return !!config.sms.configured; }
+// The sender ID chosen in Company settings and mNotify's last word on it,
+// read from the database before each text and each look at the screen (and
+// at start-up, server.js), so configured() can stay synchronous.
+var chosen = { senderId: null, check: null };
+
+async function loadSender() {
+  var r = (await pool.query('SELECT sms_sender_id, sms_sender_check FROM settings WHERE id = 1')).rows[0] || {};
+  chosen = { senderId: r.sms_sender_id || null, check: r.sms_sender_check || null };
+  return senderId();
+}
+function senderId() { return chosen.senderId || config.sms.senderId || ''; }
+
+function configured() { return !!(config.sms.apiKey && senderId()); }
+
+// mNotify: up to 11 characters, and not only numbers (it refuses those).
+function cleanSender(name) {
+  var n = String(name || '').trim().replace(/\s+/g, ' ');
+  if (!n) fail('invalid', 'Type the sender ID: the name texts come from.');
+  if (n.length > 11) fail('invalid', 'A sender ID is at most 11 characters — "' + n + '" is ' + n.length + '.');
+  if (!/^[A-Za-z0-9 ]+$/.test(n)) fail('invalid', 'A sender ID can only have letters, numbers and spaces.');
+  if (!/[A-Za-z]/.test(n)) fail('invalid', 'A sender ID needs at least one letter: mNotify doesn\'t send from numbers alone.');
+  return n;
+}
 
 // mNotify's own examples use Ghana numbers in the local form, 0244123456;
 // anything else goes in international form.
@@ -66,15 +96,27 @@ async function call(method, path, body) {
   }
 }
 
+var FIX_SENDER = 'An administrator can check it and ask mNotify to approve it in Company settings → Text messages, or switch to a sender ID already approved on the account.';
+
+// mNotify refused the sender ID (1006 invalid, 1011 numbers only, 1012 not
+// registered).
+function senderRefused(r) {
+  var j = r.json || {};
+  var code = String(j.code || '');
+  return code === '1006' || code === '1011' || code === '1012' || /sender/i.test(String(j.message || j.error || ''));
+}
+
 // mNotify's answer, in words someone at Bamboo can act on.
-function explain(r) {
+function explain(r, sender) {
   if (r.networkError) return r.networkError + ' Try again in a minute.';
   var j = r.json || {};
   var code = String(j.code || '');
   var said = String(j.message || j.error || '').trim();
+  sender = sender || senderId();
   if (code === '1003' || /balance|credit|insufficient/i.test(said)) return 'Not enough SMS credit on the mNotify account. Top up on mNotify and try again.';
   if (code === '1004' || r.httpStatus === 401 || /api key|apikey|unauthori[sz]ed/i.test(said)) return 'mNotify didn\'t accept the API key. Check MNOTIFY_API_KEY on the server.';
-  if (code === '1006' || code === '1011' || code === '1012' || /sender/i.test(said)) return 'mNotify didn\'t accept the sender ID "' + config.sms.senderId + '". It must be approved in the mNotify dashboard first (up to 11 characters).';
+  if (code === '1011') return 'mNotify doesn\'t send from a sender ID of numbers only ("' + sender + '"). ' + FIX_SENDER;
+  if (senderRefused(r)) return 'mNotify didn\'t accept the sender ID "' + sender + '": it isn\'t approved on the mNotify account yet. ' + FIX_SENDER;
   if (code === '1005' || /invalid.*(phone|number|recipient)/i.test(said)) return 'mNotify says the phone number isn\'t valid.';
   return said ? 'mNotify said: ' + said : 'mNotify didn\'t send it (' + (r.httpStatus || 'no answer') + ').';
 }
@@ -94,19 +136,27 @@ function succeeded(r) {
 // logging the attempt. opts: { to, message, purpose, refId, sentBy,
 // logMessage (what to keep in the log instead — sign-in codes are masked) }.
 async function send(opts) {
-  if (!configured()) fail('unavailable', 'Text messages aren\'t set up yet. An administrator adds MNOTIFY_API_KEY and MNOTIFY_SENDER_ID on the server (see Company settings → Text messages).');
+  await loadSender();
+  if (!configured()) fail('unavailable', config.sms.apiKey
+    ? 'Text messages have no sender ID yet. An administrator chooses one in Company settings → Text messages.'
+    : 'Text messages aren\'t set up yet. An administrator adds MNOTIFY_API_KEY on the server (see Company settings → Text messages).');
   var number = smsNumber(opts.to);
   if (!number) fail('invalid', opts.to ? 'The phone number ' + opts.to + ' isn\'t one a text can go to.' : 'There is no phone number to text.');
   var message = String(opts.message || '').trim();
   if (!message) fail('invalid', 'The message is empty.');
   if (message.length > MAX_LENGTH) message = message.slice(0, MAX_LENGTH - 1) + '…';
 
+  var sender = senderId();
   var r = await call('POST', '/api/sms/quick', {
-    recipient: [number], sender: config.sms.senderId, message: message, is_schedule: false, schedule_date: ''
+    recipient: [number], sender: sender, message: message, is_schedule: false, schedule_date: ''
   });
   var ok = succeeded(r);
   var summary = (r.json && r.json.summary) || {};
-  var error = ok ? null : explain(r);
+  var error = ok ? null : explain(r, sender);
+  // What sending says about the sender ID, for the settings screen: refused,
+  // or (the first time after a change) clearly working.
+  if (!ok && senderRefused(r)) await noteCheck(sender, 'refused', String((r.json || {}).message || ''));
+  else if (ok && !(chosen.check && chosen.check.name === sender && chosen.check.state === 'approved')) await noteCheck(sender, 'approved', '');
   var row = (await pool.query(
     'INSERT INTO sms_messages (to_phone, message, purpose, ref_id, status, error, provider_ref, credits_used, sent_by) ' +
     'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
@@ -146,11 +196,102 @@ function requireManage(ctx) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
 }
 
+// ---- the sender ID -------------------------------------------------------------
+
+async function noteCheck(name, state, said) {
+  var check = { name: name, state: state, said: said ? String(said).slice(0, 300) : null, at: new Date().toISOString() };
+  await pool.query('UPDATE settings SET sms_sender_check = $1 WHERE id = 1', [JSON.stringify(check)]);
+  chosen.check = check;
+  return check;
+}
+
+// mNotify's answer about a sender ID, as one of: approved, pending,
+// rejected, not_registered, unknown.
+function senderState(r) {
+  var j = r.json || {};
+  var code = String(j.code || '');
+  var said = String(j.message || j.error || '').trim();
+  var st = String((j.summary && (j.summary.status || j.summary.sender_status)) || j.sender_status || '').toLowerCase();
+  if (r.networkError) return { state: 'unknown', said: r.networkError };
+  if (code === '1004' || r.httpStatus === 401) return { state: 'unknown', said: explain(r) };
+  if (/^(active|approved|verified|live)$/.test(st)) return { state: 'approved', said: said };
+  if (/pend|review|process|submit|await/.test(st)) return { state: 'pending', said: said };
+  if (/reject|declin|denied|block|inactive|suspend|disabled/.test(st)) return { state: 'rejected', said: said };
+  if (r.httpStatus === 404 || /not\s*(found|exist|regist)|no\s*sender|unregistered|doesn.?t exist|does not exist/i.test(said)) return { state: 'not_registered', said: said };
+  return { state: 'unknown', said: said || 'mNotify gave no answer (' + (r.httpStatus || 'no answer') + ').' };
+}
+
+// "Check with mNotify": where the sender ID stands on the account.
+async function checkSender(ctx, p) {
+  requireManage(ctx);
+  if (!config.sms.apiKey) fail('unavailable', 'Add MNOTIFY_API_KEY on the server first: the check is made with the account\'s key.');
+  await loadSender();
+  var name = p && p.name ? cleanSender(p.name) : senderId();
+  if (!name) fail('invalid', 'Choose a sender ID first.');
+  var r = await call('POST', '/api/senderid/status', { sender_name: name });
+  var s = senderState(r);
+  await noteCheck(name, s.state, s.said);
+  return status(ctx);
+}
+
+// "Ask mNotify to approve it": registers the sender ID on the account with
+// what it is for; mNotify reviews it (usually within a working day).
+async function registerSender(ctx, p) {
+  requireManage(ctx);
+  if (!config.sms.apiKey) fail('unavailable', 'Add MNOTIFY_API_KEY on the server first: the request is made with the account\'s key.');
+  await loadSender();
+  var name = p && p.name ? cleanSender(p.name) : senderId();
+  if (!name) fail('invalid', 'Choose a sender ID first.');
+  var purpose = String((p && p.purpose) || '').trim().replace(/\s+/g, ' ');
+  if (purpose.length < 15) fail('invalid', 'Say what the texts are for, in a sentence: mNotify reads it before approving the sender ID.');
+  if (purpose.length > 300) purpose = purpose.slice(0, 300);
+  var r = await call('POST', '/api/senderid/register', { sender_name: name, purpose: purpose });
+  var j = r.json || {};
+  var said = String(j.message || j.error || '').trim();
+  var accepted = !r.networkError && r.httpStatus < 400 && (j.status === 'success' || String(j.code) === '2000');
+  if (!accepted && !/already/i.test(said)) {
+    fail('unavailable', r.networkError ? r.networkError + ' Try again in a minute.'
+      : String(j.code) === '1004' || r.httpStatus === 401 ? explain(r) : 'mNotify didn\'t take the request for "' + name + '"' + (said ? ': ' + said : '.'));
+  }
+  var s = senderState(r);
+  await noteCheck(name, s.state === 'unknown' ? 'pending' : s.state, said);
+  await audit(pool, ctx, 'sms.sender_register', 'settings', 'company', 'Asked mNotify to approve the sender ID "' + name + '": ' + purpose);
+  return status(ctx);
+}
+
+// The sender ID texts come from; null goes back to the server's
+// MNOTIFY_SENDER_ID. Checked with mNotify straight away when it can be.
+async function saveSender(ctx, p) {
+  requireManage(ctx);
+  var raw = p ? p.senderId : null;
+  var name = raw === null || raw === undefined || String(raw).trim() === '' ? null : cleanSender(raw);
+  var before = (await loadSender()) || null;
+  await pool.query('UPDATE settings SET sms_sender_id = $1, updated_at = now() WHERE id = 1', [name]);
+  chosen.senderId = name;
+  var now = senderId();
+  await audit(pool, ctx, 'sms.sender', 'settings', 'company', 'Texts now come from "' + (now || '—') + '"' + (before && before !== now ? ' (was "' + before + '")' : '') + (name ? '.' : ', the server\'s sender ID.'));
+  if (config.sms.apiKey && now) {
+    try { return await checkSender(ctx, { name: now }); } catch (e) { /* the screen shows it unchecked */ }
+  }
+  return status(ctx);
+}
+
+function suggestedPurpose(company) {
+  return 'Sign-in codes for staff, and payment reminders, booking and order updates for the customers of ' + company + '.';
+}
+
 // Company settings → Text messages.
 async function status(ctx) {
   requireManage(ctx);
+  await loadSender();
+  var sender = senderId();
+  var company = ((await pool.query('SELECT company_name FROM settings WHERE id = 1')).rows[0] || {}).company_name || 'Bamboo Products Limited';
   var out = {
-    provider: 'mNotify', configured: configured(), senderId: config.sms.senderId || null,
+    provider: 'mNotify', configured: configured(), apiKeySet: !!config.sms.apiKey,
+    senderId: sender || null, senderSource: chosen.senderId ? 'settings' : config.sms.senderId ? 'server' : null,
+    serverSenderId: config.sms.senderId || null,
+    senderCheck: chosen.check && chosen.check.name === sender ? chosen.check : null,
+    suggestedPurpose: suggestedPurpose(company),
     settings: await messaging(), dailyLimit: AUTO_DAILY_LIMIT, balance: null, balanceError: null
   };
   if (out.configured) {
@@ -199,5 +340,6 @@ async function sendTest(ctx, phone) {
 
 module.exports = {
   configured: configured, send: send, balance: balance, smsNumber: smsNumber, messaging: messaging, autoSentToday: autoSentToday,
-  status: status, saveSettings: saveSettings, sendTest: sendTest, AUTO_DAILY_LIMIT: AUTO_DAILY_LIMIT
+  status: status, saveSettings: saveSettings, sendTest: sendTest, AUTO_DAILY_LIMIT: AUTO_DAILY_LIMIT,
+  loadSender: loadSender, senderId: senderId, saveSender: saveSender, checkSender: checkSender, registerSender: registerSender
 };
