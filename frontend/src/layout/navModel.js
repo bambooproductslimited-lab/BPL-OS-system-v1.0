@@ -39,6 +39,8 @@ export const NAV_GROUPS = [
     // Confidential cases and grievances (pages/DisciplinePage.jsx); the ideas
     // box and pulse surveys, open to everyone (pages/VoicePage.jsx).
     { key: 'discipline', label: msg('Discipline and grievances'), perm: 'discipline.manage', icon: 'pen' },
+    // Policies to read and sign (pages/PoliciesPage.jsx); each person signs in My space.
+    { key: 'policies', label: msg('Policies'), perm: 'policy.manage', icon: 'document' },
     { key: 'voice', label: msg('Staff voice'), icon: 'chat' }
   ] },
   { label: msg('Work'), items: [
@@ -70,7 +72,15 @@ export const NAV_GROUPS = [
     // Batches checked on the floor (pages/QualityPage.jsx); boots, gloves and
     // uniforms handed out (pages/PpePage.jsx) — each person's own in My space.
     { key: 'quality', label: msg('Quality'), perm: ['quality.manage', 'production.read'], icon: 'sparkle' },
-    { key: 'ppe', label: msg('Uniforms and PPE'), perm: 'ppe.manage', icon: 'shield' }
+    { key: 'ppe', label: msg('Uniforms and PPE'), perm: 'ppe.manage', icon: 'shield' },
+    // What the companies must hold to trade, and when each ends (pages/LicencesPage.jsx).
+    { key: 'licences', label: msg('Licences and permits'), perm: 'licence.manage', icon: 'key' },
+    // The kilns, borate tanks and drying sheds (pages/KilnsPage.jsx); what
+    // each product is made of and costs (pages/BomPage.jsx); how each
+    // supplier has done (pages/ScorecardsPage.jsx).
+    { key: 'kilns', label: msg('Kilns and treatment'), perm: ['production.read', 'production.manage'], icon: 'sun' },
+    { key: 'bom', label: msg('Bills of materials'), perm: ['production.read', 'production.manage', 'inventory.read'], icon: 'layers' },
+    { key: 'scorecards', label: msg('Supplier scorecards'), perm: ['supplier.read', 'supplier.manage', 'procurement.approve', 'restaurant.read', 'restaurant.manage'], icon: 'chart' }
   ] },
   { label: msg('Restaurants'), items: [
     { key: 'restaurant', label: msg('Menu & inventory'), perm: 'restaurant.read', icon: 'utensils' },

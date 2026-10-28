@@ -29,6 +29,7 @@ const USUAL_STEPS = new Set([
 ]);
 function stepTitle(t) {
   if (USUAL_STEPS.has(t)) return tr(t);
+  if (t.startsWith('Read and sign: ')) return tr('Read and sign: {what}', { what: t.slice(15) });
   return t.startsWith('Hand back ') ? tr('Hand back {what}', { what: t.slice(10) }) : t;
 }
 function dayWords(l) {
@@ -45,9 +46,11 @@ function Ring({ done, total }) {
 function StepRow({ s, onTick, busy }) {
   return (
     <div className={'ob-step' + (s.done ? ' is-done' : '') + (s.late ? ' is-late' : '')}>
-      <button type="button" className="ob-tick" disabled={!s.canTick || busy} onClick={() => onTick(s)} aria-pressed={s.done} aria-label={s.done ? tr('Not done') : tr('Done')}>{s.done ? '✓' : ''}</button>
+      {/* A policy step ticks itself when they sign it in My space. */}
+      {s.kind === 'policy' && !s.done ? <span className="ob-tick is-policy" title={tr('Ticks itself when they sign it')} aria-hidden="true">📜</span>
+        : <button type="button" className="ob-tick" disabled={!s.canTick || busy} onClick={() => onTick(s)} aria-pressed={s.done} aria-label={s.done ? tr('Not done') : tr('Done')}>{s.done ? '✓' : ''}</button>}
       <span className="x7-who"><b>{stepTitle(s.title)}</b>
-        <small>{s.done ? tr('done {date} by {name}', { date: dayText(s.doneAt), name: s.doneBy || '—' }) : (s.late ? '⏰ ' : '') + tr('by {date}', { date: dayText(s.dueOn, { weekday: 'short' }) }) + (s.assignee ? ' · ' + s.assignee.name : '')}</small>
+        <small>{s.done ? tr('done {date} by {name}', { date: dayText(s.doneAt), name: s.doneBy || '—' }) : (s.late ? '⏰ ' : '') + tr('by {date}', { date: dayText(s.dueOn, { weekday: 'short' }) }) + (s.assignee ? ' · ' + s.assignee.name : '') + (s.kind === 'policy' ? ' · ' + tr('ticks itself when they sign it') : '')}</small>
       </span>
     </div>
   );
@@ -306,7 +309,7 @@ export function MyStepsCard() {
             <Ring done={d.own.done} total={d.own.total} />
           </div>
           <ul className="x7-mine-list">{d.own.steps.map((s) => (
-            <li key={s.id}><button type="button" className="ob-tick" disabled={busy} aria-pressed={s.done} onClick={() => tick(s.id, !s.done)}>{s.done ? '✓' : ''}</button><span><b>{stepTitle(s.title)}</b><small>{tr('by {date}', { date: dayText(s.dueOn) })}</small></span></li>
+            <li key={s.id}>{s.kind === 'policy' && !s.done ? <span className="ob-tick is-policy" aria-hidden="true">📜</span> : <button type="button" className="ob-tick" disabled={busy} aria-pressed={s.done} onClick={() => tick(s.id, !s.done)}>{s.done ? '✓' : ''}</button>}<span><b>{stepTitle(s.title)}</b><small>{tr('by {date}', { date: dayText(s.dueOn) })}{s.kind === 'policy' && !s.done ? ' · ' + tr('sign it under Policies: it ticks itself') : ''}</small></span></li>
           ))}</ul>
         </>
       )}
