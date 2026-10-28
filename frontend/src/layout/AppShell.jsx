@@ -74,6 +74,18 @@ export default function AppShell() {
   const currentItem = ALL_NAV_ITEMS.find((item) => item.key === currentKey);
   const currentGroup = NAV_GROUPS.find((group) => group.items.some((item) => item.key === currentKey));
 
+  // The menu's groups are folded: only their headings show, and a click on
+  // a heading opens its pages — one group at a time, so the menu stays
+  // short. Arriving on a page (a link, a notification, the address bar)
+  // opens its group by itself; it can still be folded again.
+  const currentGroupLabel = currentGroup ? currentGroup.label : null;
+  const [openGroup, setOpenGroup] = useState(currentGroupLabel);
+  const [groupSeen, setGroupSeen] = useState(currentGroupLabel);
+  if (currentGroupLabel !== groupSeen) {
+    setGroupSeen(currentGroupLabel);
+    if (currentGroupLabel) setOpenGroup(currentGroupLabel);
+  }
+
   const employee = session && session.employee;
   const employeeName = employee ? employee.firstName + ' ' + employee.lastName : '';
   const roleLine = session
@@ -100,20 +112,31 @@ export default function AppShell() {
           {NAV_GROUPS.map((group) => {
             const visibleItems = group.items.filter((item) => !item.hidden && (!item.perm || (Array.isArray(item.perm) ? item.perm.some(can) : can(item.perm))));
             if (!visibleItems.length) return null;
+            const open = openGroup === group.label;
+            const listId = 'shell-nav-' + group.label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
             return (
-              <div className="shell-nav-group" key={group.label}>
-                <div className="shell-nav-group-label">{tr(group.label)}</div>
-                {visibleItems.map((item) => (
-                  <NavLink
-                    key={item.key}
-                    to={'/' + item.key}
-                    className={({ isActive }) => 'shell-nav-item' + (isActive ? ' is-active' : '')}
-                    title={tr(item.label)}
-                  >
-                    <span className="shell-nav-icon"><Icon name={item.icon} /></span>
-                    <span className="shell-nav-label">{tr(item.label)}</span>
-                  </NavLink>
-                ))}
+              <div className={'shell-nav-group' + (open ? ' is-open' : ' is-closed') + (group === currentGroup ? ' is-here' : '')} key={group.label}>
+                <button type="button" className="shell-nav-group-label" aria-expanded={open} aria-controls={listId}
+                  onClick={() => setOpenGroup(open ? null : group.label)}>
+                  <span className="shell-nav-group-name">{tr(group.label)}</span>
+                  <span className="shell-nav-group-n" aria-hidden="true">{visibleItems.length}</span>
+                  <svg className="shell-nav-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 2.5 8 6l-3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+                <div className="shell-nav-items" id={listId}>
+                  <div className="shell-nav-items-in">
+                    {visibleItems.map((item) => (
+                      <NavLink
+                        key={item.key}
+                        to={'/' + item.key}
+                        className={({ isActive }) => 'shell-nav-item' + (isActive ? ' is-active' : '')}
+                        title={tr(item.label)}
+                      >
+                        <span className="shell-nav-icon"><Icon name={item.icon} /></span>
+                        <span className="shell-nav-label">{tr(item.label)}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
               </div>
             );
           })}

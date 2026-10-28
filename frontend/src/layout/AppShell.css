@@ -66,18 +66,69 @@
   padding: 14px 12px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 2px;
   flex: 1;
 }
 
 .shell-nav-group { display: flex; flex-direction: column; gap: 2px; }
 
+/* The groups fold (AppShell): a heading is a button that opens its pages,
+   one group at a time. Folded, it shows how many pages it holds, and a dot
+   when the page you're on is inside. */
 .shell-nav-group-label {
-  font-size: 10px;
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  opacity: 0.5;
-  padding: 0 8px 6px;
+  text-align: left;
+  opacity: 0.62;
+  cursor: pointer;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.shell-nav-group-label:hover { opacity: 1; background: rgba(255, 255, 255, 0.07); }
+.shell-nav-group-label:focus-visible { opacity: 1; outline: 2px solid var(--color-accent-300, #a8d5a2); outline-offset: -2px; }
+.shell-nav-group.is-open .shell-nav-group-label { opacity: 0.9; }
+.shell-nav-group-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.shell-nav-group.is-here.is-closed .shell-nav-group-name::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent-300, #a8d5a2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-300, #a8d5a2) 25%, transparent);
+}
+.shell-nav-group-n {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 10px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.shell-nav-group.is-open .shell-nav-group-n { display: none; }
+.shell-nav-chevron { flex: none; width: 12px; height: 12px; transition: transform 0.2s ease; }
+.shell-nav-group.is-open .shell-nav-chevron { transform: rotate(90deg); }
+
+/* Opening and folding slide (the row height eases between 0 and its
+   content); a folded group's links are out of reach of Tab and screen
+   readers once it has closed. */
+.shell-nav-items { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.22s ease; }
+.shell-nav-items-in { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; }
+.shell-nav-group.is-closed .shell-nav-items { grid-template-rows: 0fr; }
+.shell-nav-group.is-closed .shell-nav-items-in { visibility: hidden; padding-bottom: 0; transition: visibility 0s linear 0.22s, padding 0.22s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .shell-nav-items, .shell-nav-chevron, .shell-nav-group.is-closed .shell-nav-items-in { transition: none; }
 }
 
 .shell-nav-item {
@@ -298,8 +349,12 @@
   .shell { grid-template-columns: 62px 1fr; }
   .shell-brand { padding: 14px 0; justify-content: center; }
   .shell-brand-text { display: none; }
-  .shell-nav { padding: 8px 0; }
+  .shell-nav { padding: 8px 0; gap: 10px; }
   .shell-nav-group-label { display: none; }
+  /* The icon rail has no headings to click: every icon shows. */
+  .shell-nav-group.is-closed .shell-nav-items { grid-template-rows: 1fr; }
+  .shell-nav-group.is-closed .shell-nav-items-in { visibility: visible; padding-bottom: 0; }
+  .shell-nav-items-in { padding-bottom: 0; }
   .shell-nav-label { display: none; }
   .shell-nav-item { justify-content: center; padding: 10px 0; }
   .shell-user { padding: 10px 0; align-items: center; }
