@@ -217,4 +217,14 @@ async function rate(ctx, p) {
   return Object.assign(await get(ctx, kind, s.id, { days: p.days }), { ratingId: row.id });
 }
 
-module.exports = { overview: overview, get: get, rate: rate, scoreOf: scoreOf, gradeOf: gradeOf, priceScore: priceScore, WEIGHTS: WEIGHTS };
+// Each supplier's score and grade over the last days, by key ('bpl:<id>',
+// 'restaurant:<id>'): for the outgrowers and the requests for quotes.
+async function grades(ctx, days) {
+  var to = today(), from = addDays(to, -(days || 180) + 1);
+  var acc = await gather(from, to, ctx);
+  var out = {};
+  Object.keys(acc).forEach(function (k) { var s = scoreOf(acc[k]); out[k] = { score: s.score, grade: s.grade, deliveries: acc[k].deliveries }; });
+  return out;
+}
+
+module.exports = { grades: grades, overview: overview, get: get, rate: rate, scoreOf: scoreOf, gradeOf: gradeOf, priceScore: priceScore, WEIGHTS: WEIGHTS };

@@ -138,13 +138,19 @@ function InspectionSheet({ id, onClose, onChanged }) {
   );
 }
 
-function InspectDialog({ d, batchId, onClose, onDone }) {
+function InspectDialog({ d, batchId, lot, onClose, onDone }) {
   const pick = (bid) => {
     const b = d.batches.find((x) => x.id === bid) || d.notInspected.find((x) => x.id === bid);
     const list = (b && d.checklists.find((c) => c.productId === b.productId)) || d.checklists.find((c) => !c.productId) || d.checklists[0];
     return { batchId: bid || '', lotRef: '', productId: b ? b.productId || '' : '', checklistId: list ? list.id : '', lotQty: b ? String(b.outputQty) : '', sampleSize: '' };
   };
-  const [f, setF] = useState(() => pick(batchId));
+  // A production job's lot (Production jobs → Inspect the lot): its
+  // reference, product and how many, filled in.
+  const fromLot = () => {
+    const list = d.checklists.find((c) => c.productId === lot.product) || d.checklists.find((c) => !c.productId) || d.checklists[0];
+    return { batchId: '', lotRef: lot.ref, productId: lot.product || '', checklistId: list ? list.id : '', lotQty: lot.qty || '', sampleSize: '' };
+  };
+  const [f, setF] = useState(() => (lot && !batchId ? fromLot() : pick(batchId)));
   const [results, setResults] = useState([]);
   const [defects, setDefects] = useState([]);
   const [note, setNote] = useState('');
@@ -315,6 +321,7 @@ export default function QualityPage() {
   useEffect(() => { load(); }, [load]);
   const openId = params.get('inspection');
   const open = (id) => setParams(id ? { inspection: id } : {});
+  const lot = params.get('lot') ? { ref: params.get('lot'), product: params.get('product') || '', qty: params.get('qty') || '' } : null;
   if (!d) return <div className="x7"><p className="x7-wait">{error || tr('Loading…')}</p></div>;
   const s = d.summary;
   const topMax = Math.max(1, ...d.topDefects.map((t) => t.qty));
@@ -375,6 +382,7 @@ export default function QualityPage() {
         ))}</div>
       )}
       {dlg && dlg.k === 'inspect' && <InspectDialog d={d} batchId={dlg.batch} onClose={() => setDlg(null)} onDone={(x) => { setDlg(null); load(); open(x.id); }} />}
+      {lot && !dlg && d.canManage && <InspectDialog d={d} lot={lot} onClose={() => setParams({})} onDone={(x) => { load(); open(x.id); }} />}
       {dlg && dlg.k === 'lists' && <ChecklistsDialog d={d} onClose={() => setDlg(null)} onDone={load} />}
       {openId && <InspectionSheet key={openId} id={openId} onClose={() => open(null)} onChanged={load} />}
     </div>

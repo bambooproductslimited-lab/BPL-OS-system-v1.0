@@ -374,4 +374,4 @@ async function tab(companyId, by, p) {
   };
 }
 
-module.exports = { lowStock: lowStock, tellLow: tellLow, managersOf: managersOf, suppliers: suppliers, orders: orders, tab: tab, _words: words };
+module.exports = { lowStock: lowStock, tellLow: tellLow, managersOf: managersOf, suppliers: suppliers, orders: orders, tab: tab, newOrder: newOrder, linesOf: linesOf, _words: words };

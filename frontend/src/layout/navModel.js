@@ -80,7 +80,15 @@ export const NAV_GROUPS = [
     // supplier has done (pages/ScorecardsPage.jsx).
     { key: 'kilns', label: msg('Kilns and treatment'), perm: ['production.read', 'production.manage'], icon: 'sun' },
     { key: 'bom', label: msg('Bills of materials'), perm: ['production.read', 'production.manage', 'inventory.read'], icon: 'layers' },
-    { key: 'scorecards', label: msg('Supplier scorecards'), perm: ['supplier.read', 'supplier.manage', 'procurement.approve', 'restaurant.read', 'restaurant.manage'], icon: 'chart' }
+    { key: 'scorecards', label: msg('Supplier scorecards'), perm: ['supplier.read', 'supplier.manage', 'procurement.approve', 'restaurant.read', 'restaurant.manage'], icon: 'chart' },
+    // N of a product made from its bill (pages/ProductionJobsPage.jsx); the
+    // farmers who grow bamboo for us (pages/OutgrowersPage.jsx); power cuts,
+    // generators and prepaid electricity (pages/PowerPage.jsx); one request
+    // for prices to several suppliers (pages/RfqPage.jsx).
+    { key: 'production-jobs', label: msg('Production jobs'), perm: ['production.read', 'production.manage', 'inventory.read'], icon: 'toolbox' },
+    { key: 'outgrowers', label: msg('Bamboo outgrowers'), perm: ['supplier.read', 'supplier.manage', 'procurement.approve', 'bill.read'], icon: 'leaf' },
+    { key: 'power', label: msg('Power and generators'), perm: ['power.manage', 'report.read', 'restaurant.manage'], icon: 'plug' },
+    { key: 'rfqs', label: msg('Requests for quotes'), perm: ['procurement.approve', 'supplier.manage', 'supplier.read', 'procurement.read.all', 'restaurant.manage'], icon: 'receipt' }
   ] },
   { label: msg('Restaurants'), items: [
     { key: 'restaurant', label: msg('Menu & inventory'), perm: 'restaurant.read', icon: 'utensils' },
@@ -174,7 +182,9 @@ export const NAV_GROUPS = [
     { key: 'crmcommissions', label: msg('Commissions'), perm: 'crm.read', icon: 'cash' },
     { key: 'reminders', label: msg('Payment reminders'), perm: ['invoice.read', 'poki.read', 'poki.manage'], icon: 'bell' },
     { key: 'reports', label: msg('Reports'), perm: 'report.read', icon: 'chart' },
-    { key: 'financialreports', label: msg('Financial reports'), perm: 'report.read', icon: 'chart' }
+    { key: 'financialreports', label: msg('Financial reports'), perm: 'report.read', icon: 'chart' },
+    // The month for the owners as a PDF, emailed (pages/ManagementReportPage.jsx).
+    { key: 'monthly-report', label: msg('Monthly report'), perm: 'report.read', icon: 'document' }
   ] },
   { label: msg('Insights'), items: [
     { key: 'salesorders', label: msg('Sales orders'), perm: 'sales.read', icon: 'cart' }

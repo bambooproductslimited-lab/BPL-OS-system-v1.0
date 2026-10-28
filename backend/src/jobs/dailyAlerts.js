@@ -504,6 +504,45 @@ async function policyAlerts(today, settings) {
   return sent;
 }
 
+// Generators burning a quarter more fuel an hour than they should, or fuel
+// bought for one that has not run — weekly, to whoever keeps the power log
+// (power.service.js).
+async function powerAlerts(today, settings) {
+  var warn = await require('../services/power.service').fuelWarnings();
+  if (!warn.length) return 0;
+  var keepers = (await staffAlerts.holdersOf(['power.manage'])).map(function (h) { return h.employee_id; });
+  var week = weekOf(today);
+  var sent = 0;
+  for (var i = 0; i < warn.length; i++) {
+    var g = warn[i];
+    if (!(await claim('power_fuel', g.id, week.start, 0, [{ key: week.key, days: 0 }]))) continue;
+    var title = g.warn === 'high' ? 'Fuel use looks wrong: ' + g.name : 'Fuel bought, no hours run: ' + g.name;
+    var body = g.warn === 'high'
+      ? g.site + ': ' + g.lph + ' litres an hour over the last 30 days, against ' + g.expectedLph + ' (' + g.litres + ' L for ' + g.hours + ' hours).'
+      : g.site + ': ' + g.litres + ' litres bought in 30 days and no run logged.';
+    for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], title, body, '/power', settings); sent++; }
+  }
+  return sent;
+}
+
+// Production jobs past their day — weekly, to whoever runs production and
+// the job's lead (productionJobs.service.js).
+async function jobAlerts(today, settings) {
+  var late = (await pool.query("SELECT id, number, lead_id, due_on, qty, (SELECT name FROM products p WHERE p.id = j.product_id) AS name FROM production_jobs j WHERE status IN ('planned', 'in_progress') AND due_on < $1", [today])).rows;
+  if (!late.length) return 0;
+  var managers = (await staffAlerts.holdersOf(['production.manage'])).map(function (h) { return h.employee_id; });
+  var week = weekOf(today);
+  var sent = 0;
+  for (var i = 0; i < late.length; i++) {
+    var j = late[i], ref = 'J-' + String(j.number).padStart(4, '0');
+    if (!(await claim('job_late', j.id, week.start, 0, [{ key: week.key, days: 0 }]))) continue;
+    var to = managers.slice();
+    if (j.lead_id && to.indexOf(j.lead_id) < 0) to.push(j.lead_id);
+    for (var k = 0; k < to.length; k++) { await staffAlerts.alert(to[k], 'Late: ' + ref + ', ' + Number(j.qty) + ' × ' + j.name, 'It was due on ' + fmtDate(String(j.due_on instanceof Date ? j.due_on.toISOString() : j.due_on).slice(0, 10)) + '.', '/production-jobs?job=' + j.id, settings); sent++; }
+  }
+  return sent;
+}
+
 var running = false;
 
 async function runOnce(now) {
@@ -511,7 +550,7 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, discipline: 0, quality: 0, voice: 0, goals: 0, ppe: 0, licences: 0, kilns: 0, policies: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, discipline: 0, quality: 0, voice: 0, goals: 0, ppe: 0, licences: 0, kilns: 0, policies: 0, power: 0, jobs: 0, report: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
@@ -533,6 +572,10 @@ async function runOnce(now) {
       try { out.licences = await licenceAlerts(todayISO(), settings); } catch (e) { console.error('Licence alerts failed:', e.message); }
       try { out.kilns = await kilnAlerts(todayISO(), settings); } catch (e) { console.error('Kiln alerts failed:', e.message); }
       try { out.policies = await policyAlerts(todayISO(), settings); } catch (e) { console.error('Policy alerts failed:', e.message); }
+      try { out.power = await powerAlerts(todayISO(), settings); } catch (e) { console.error('Power alerts failed:', e.message); }
+      try { out.jobs = await jobAlerts(todayISO(), settings); } catch (e) { console.error('Job alerts failed:', e.message); }
+      // The month's management report to the owners, on the 1st (managementReport.service.js).
+      try { out.report = await require('../services/managementReport.service').autoSend(todayISO()); } catch (e) { console.error('Management report failed:', e.message); }
       // Monthly statements to customers who asked for them (statements.service.js).
       try { out.statements = await require('../services/statements.service').monthly(todayISO()); } catch (e) { console.error('Monthly statements failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
@@ -545,7 +588,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.licences || out.kilns || out.policies || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.licences || out.kilns || out.policies || out.power || out.jobs || out.report || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -557,4 +600,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, licenceAlerts: licenceAlerts, kilnAlerts: kilnAlerts, policyAlerts: policyAlerts, weekOf: weekOf, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, licenceAlerts: licenceAlerts, kilnAlerts: kilnAlerts, policyAlerts: policyAlerts, powerAlerts: powerAlerts, jobAlerts: jobAlerts, weekOf: weekOf, MILESTONES: MILESTONES };

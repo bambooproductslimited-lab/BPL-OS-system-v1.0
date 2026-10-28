@@ -492,7 +492,7 @@ export default function PokiBillingPage() {
                 return (
                   <li key={c.id} className={'pk-rc is-' + c.status}>
                     <div className="pk-rc-main">
-                      <strong>{c.description} · {money(c.amount, c.currency)} {FREQ_TEXT[c.frequency]}</strong>
+                      <strong>{c.description} · {money(c.amount, c.currency)} {FREQ_TEXT[c.frequency]}{c.cycleDay ? ' · ' + tr('{d}th to {d}th', { d: c.cycleDay }) : ''}</strong>
                       <span className="dk-muted tl-small">{c.tenantName} · {c.unitCode} · {c.propertyName} · {tr('booking {no}', { no: c.bookingNo })}</span>
                       <span className="dk-muted tl-small">
                         {c.periodsBilled ? tr('{n} periods billed, {amount} in all', { n: c.periodsBilled, amount: money(c.billedTotal, c.currency) }) : tr('Not billed yet')}
@@ -667,10 +667,18 @@ export default function PokiBillingPage() {
                 <option value="yearly">{tr('Yearly')}</option>
               </select>
             </div>
+            {/* CAM runs 25th to 25th, invoiced on the 25th for the month just ended (backend pokiRecurring, migration 0204). */}
             {chargeForm.id ? (
               <div className="field">
                 <label htmlFor="rc-next">{tr('Next invoice date')}</label>
                 <input id="rc-next" className="input" type="date" required value={chargeForm.nextDate} onChange={(e) => setChargeForm({ ...chargeForm, nextDate: e.target.value })} />
+                {chargeForm.kind === 'cam' && <span className="dk-muted tl-small">{tr('Always a 25th: the invoice for the month from the 25th before it.')}</span>}
+              </div>
+            ) : chargeForm.kind === 'cam' ? (
+              <div className="field">
+                <label htmlFor="rc-start">{tr('Charged from')}</label>
+                <input id="rc-start" className="input" type="date" value={chargeForm.startDate} onChange={(e) => setChargeForm({ ...chargeForm, startDate: e.target.value })} />
+                <span className="dk-muted tl-small">{tr('CAM runs from the 25th of one month to the 25th of the next, invoiced on the 25th. The first invoice covers from this day to the next 25th, by the day. Leave empty to start today (or when the booking starts).')}</span>
               </div>
             ) : (
               <div className="field">

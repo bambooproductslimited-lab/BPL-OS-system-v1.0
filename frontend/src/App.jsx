@@ -57,6 +57,11 @@ import KilnsPage from './pages/KilnsPage';
 import BomPage from './pages/BomPage';
 import ScorecardsPage from './pages/ScorecardsPage';
 import PoliciesPage from './pages/PoliciesPage';
+import ProductionJobsPage from './pages/ProductionJobsPage';
+import OutgrowersPage from './pages/OutgrowersPage';
+import PowerPage from './pages/PowerPage';
+import RfqPage from './pages/RfqPage';
+import ManagementReportPage from './pages/ManagementReportPage';
 import ReturnsPage from './pages/ReturnsPage';
 import DepreciationPage from './pages/DepreciationPage';
 import VisitorsPage from './pages/VisitorsPage';
@@ -147,7 +152,7 @@ const BUILT_SCREENS = {
   dashboard: DashboardPage, leave: LeavePage, leavetypes: LeaveTypesPage, people: EmployeesPage, departments: DepartmentsPage, attendance: AttendancePage,
   myspace: MySpacePage, tasks: WorkOrdersPage, projects: ProjectsPage, announcements: AnnouncementsPage,
   documents: DocumentsPage, messages: MessagesPage, suppliers: SuppliersPage, inventory: InventoryPage, stocksheet: StockSheetPage, stocksummary: StockSummaryPage, reminders: RemindersPage,
-  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, owner: OwnerPage, bills: BillsPage, statements: StatementsPage, cashflow: CashFlowPage, advances: AdvancesPage, vehicles: VehiclesPage, bank: BankPage, budgets: BudgetsPage, reviews: ReviewsPage, recruitment: RecruitmentPage, training: TrainingPage, onboarding: OnboardingPage, safety: SafetyPage, discipline: DisciplinePage, quality: QualityPage, voice: VoicePage, goals: GoalsPage, ppe: PpePage, licences: LicencesPage, kilns: KilnsPage, bom: BomPage, scorecards: ScorecardsPage, policies: PoliciesPage, returns: ReturnsPage, depreciation: DepreciationPage, visitors: VisitorsPage, 'report-problem': ReportProblemPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
+  assets: AssetsPage, waybills: WaybillsPage, toolroom: ToolRoomPage, itdevices: ItDevicesPage, restaurant: RestaurantsPage, restaurantcrm: RestaurantCrmPage, owner: OwnerPage, bills: BillsPage, statements: StatementsPage, cashflow: CashFlowPage, advances: AdvancesPage, vehicles: VehiclesPage, bank: BankPage, budgets: BudgetsPage, reviews: ReviewsPage, recruitment: RecruitmentPage, training: TrainingPage, onboarding: OnboardingPage, safety: SafetyPage, discipline: DisciplinePage, quality: QualityPage, voice: VoicePage, goals: GoalsPage, ppe: PpePage, licences: LicencesPage, kilns: KilnsPage, bom: BomPage, scorecards: ScorecardsPage, policies: PoliciesPage, 'production-jobs': ProductionJobsPage, outgrowers: OutgrowersPage, power: PowerPage, rfqs: RfqPage, 'monthly-report': ManagementReportPage, returns: ReturnsPage, depreciation: DepreciationPage, visitors: VisitorsPage, 'report-problem': ReportProblemPage, production: ProductionPage, procurement: ProcurementPage, approvals: ApprovalsPage,
   expenses: ExpensesPage, expensesheets: ExpenseSheetsPage, reports: ReportsPage, financialreports: FinancialReportsPage, financedash: FinanceDashboardPage, payroll: PayrollPage, customers: CustomersPage,
   catalog: CatalogPage, shoporders: ShopOrdersPage, bplvisits: VisitsPage, paymentlinks: PaymentLinksPage, contracts: ContractsPage, estimates: EstimatesPage, quotations: QuotationsPage, invoices: InvoicesPage,
   payments: PaymentsPage, receipts: ReceiptsPage, qioverview: QIOverviewPage, billingsettings: BillingSettingsPage,

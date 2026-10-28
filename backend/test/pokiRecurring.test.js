@@ -52,37 +52,55 @@ async function linesOf(invoiceId) {
 }
 
 test('charges due together go on one invoice, missed periods are caught up, and nothing is billed twice', async function () {
+  // CAM runs from the 25th to the 25th, invoiced on the 25th for the month
+  // just ended; covering from 1 January, its first invoice is on 25 January.
   var cam = await call('POST', '/api/poki/recurring-charges', { bookingId: booking.id, kind: 'cam', amount: 300, frequency: 'monthly', startDate: '2035-01-01', netDays: 10 });
   assert.equal(cam.status, 201, JSON.stringify(cam.body));
   assert.equal(cam.body.description, 'Service charge (CAM)');
+  assert.equal(cam.body.nextDate, '2035-01-25');
+  assert.equal(cam.body.cycleDay, 25);
+  assert.equal(cam.body.coveredFrom, '2035-01-01');
   var water = await recurring.create(kelvin, { bookingId: booking.id, kind: 'utility', description: 'Water (flat)', amount: 100, frequency: 'monthly', startDate: '2035-01-01' });
+  assert.equal(water.nextDate, '2035-01-01', 'a flat fee still runs from its own date');
 
   var r = await recurring.run(kelvin, { asOf: '2035-03-15' });
   var mine = r.invoices.filter(function (i) { return i.bookingNo === booking.bookingNo; });
   assert.equal(mine.length, 1);
-  assert.equal(mine[0].amount, 1200); // Jan–Mar of 300 and 100
+  // CAM: 1–25 Jan (24 of 31 days) and 25 Jan–25 Feb; water: Jan, Feb, Mar.
+  assert.equal(mine[0].amount, 232.26 + 300 + 300);
   var inv = (await pool.query('SELECT * FROM invoices WHERE id = $1', [mine[0].invoiceId])).rows[0];
   assert.equal(inv.doc_kind, 'other'); // CAM and utility together
   assert.equal(String(inv.period_start).slice(0, 10), '2035-01-01');
   assert.equal(String(inv.period_end).slice(0, 10), '2035-03-31');
-  assert.equal((await linesOf(inv.id)).length, 6);
+  var lines = await linesOf(inv.id);
+  assert.equal(lines.length, 5);
+  var camLines = lines.filter(function (l) { return /CAM/.test(l.description); });
+  assert.match(camLines[0].notes, /^1 Jan 2035 – 25 Jan 2035/);
+  assert.match(camLines[0].notes, /Part period: 24 of 31 days/);
+  assert.match(camLines[1].notes, /^25 Jan 2035 – 25 Feb 2035 \(monthly\)$/);
 
   var again = await recurring.run(kelvin, { asOf: '2035-03-15' });
   assert.equal(again.invoices.filter(function (i) { return i.bookingNo === booking.bookingNo; }).length, 0);
   var list = (await call('GET', '/api/poki/recurring-charges')).body.filter(function (c) { return c.bookingId === booking.id; });
   var camRow = list.find(function (c) { return c.kind === 'cam'; });
-  assert.equal(camRow.nextDate, '2035-04-01');
-  assert.equal(camRow.periodsBilled, 3);
-  assert.equal(camRow.billedTotal, 900);
+  assert.equal(camRow.nextDate, '2035-03-25');
+  assert.equal(camRow.periodsBilled, 2);
+  assert.equal(camRow.billedTotal, 532.26);
   assert.equal(camRow.lastInvoice.invoiceNo, mine[0].invoiceNo);
 
-  // Bill the next CAM period early: April, on its own invoice, due in 10 days.
+  // Bill the next CAM period early: 25 February to 25 March, on its own invoice.
   var early = await call('POST', '/api/poki/recurring-charges/' + cam.body.id + '/bill-now');
   assert.equal(early.status, 200, JSON.stringify(early.body));
   assert.equal(early.body.invoices[0].amount, 300);
-  var aprInv = (await pool.query('SELECT doc_kind, period_start FROM invoices WHERE id = $1', [early.body.invoices[0].invoiceId])).rows[0];
-  assert.equal(aprInv.doc_kind, 'cam');
-  assert.equal(String(aprInv.period_start).slice(0, 10), '2035-04-01');
+  var marInv = (await pool.query('SELECT doc_kind, period_start, period_end FROM invoices WHERE id = $1', [early.body.invoices[0].invoiceId])).rows[0];
+  assert.equal(marInv.doc_kind, 'cam');
+  assert.equal(String(marInv.period_start).slice(0, 10), '2035-02-25');
+  assert.equal(String(marInv.period_end).slice(0, 10), '2035-03-25');
+  // Its next invoice date is put on the 25th, whatever is typed.
+  var moved = await recurring.update(kelvin, cam.body.id, { nextDate: '2035-04-10' });
+  assert.equal(moved.nextDate, '2035-04-25');
+  moved = await recurring.update(kelvin, cam.body.id, { nextDate: '2035-04-25' });
+  await assert.rejects(recurring.update(kelvin, cam.body.id, { nextDate: '2035-03-20' }), /after the period already billed/);
 
   // A billed charge can't be deleted, only ended.
   var del = await call('DELETE', '/api/poki/recurring-charges/' + water.id);
@@ -91,20 +109,30 @@ test('charges due together go on one invoice, missed periods are caught up, and 
 });
 
 test('the last period is cut at the end date and charged pro rata; the booking end stops a charge', async function () {
+  // From 1 April to 15 May: 1–25 April (24 of 31 days), then 25 April to
+  // 15 May (21 of 30 days), both on the 25th.
   var c = await recurring.create(kelvin, { bookingId: booking.id, kind: 'cam', description: RC('Car park'), amount: 310, frequency: 'monthly', startDate: '2035-04-01', endDate: '2035-05-15' });
-  var r = await recurring.run(kelvin, { asOf: '2035-05-20' });
+  assert.equal(c.nextDate, '2035-04-25');
+  var r = await recurring.run(kelvin, { asOf: '2035-05-26' });
   var inv = r.invoices.find(function (i) { return i.bookingNo === booking.bookingNo; });
   var lines = (await linesOf(inv.invoiceId)).filter(function (l) { return /Car park/.test(l.description); });
-  assert.deepEqual(lines.map(function (l) { return l.price; }), [310, 150]); // May 1–15: 310 × 15/31
-  assert.match(lines[1].notes, /Part period: 15 of 31 days/);
-  assert.match(lines[1].notes, /× 15 ÷ 31 = GHS/, 'the pro rata sum is written out');
+  assert.deepEqual(lines.map(function (l) { return l.price; }), [240, 217]); // 310 × 24/31, 310 × 21/30
+  assert.match(lines[1].notes, /^25 Apr 2035 – 15 May 2035/);
+  assert.match(lines[1].notes, /Part period: 21 of 30 days/);
+  assert.match(lines[1].notes, /× 21 ÷ 30 = GHS/, 'the pro rata sum is written out');
   var row = (await recurring.list(kelvin)).find(function (x) { return x.id === c.id; });
   assert.equal(row.status, 'ended');
 
-  // The CAM charge runs to the booking's end (30 June) and then stops.
+  // The CAM charge runs to the booking's end (30 June): its last days are
+  // invoiced on the 25th after, and then it stops.
   await recurring.run(kelvin, { asOf: '2035-07-10' });
   var cam = (await recurring.list(kelvin)).find(function (x) { return x.bookingId === booking.id && x.description === 'Service charge (CAM)'; });
+  assert.equal(cam.status, 'active');
+  assert.equal(cam.lastPeriod.end, '2035-06-25');
+  await recurring.run(kelvin, { asOf: '2035-07-25' });
+  cam = (await recurring.list(kelvin)).find(function (x) { return x.id === cam.id; });
   assert.equal(cam.status, 'ended');
+  assert.equal(cam.lastPeriod.start, '2035-06-25');
   assert.equal(cam.lastPeriod.end, '2035-06-30');
 });
 
@@ -122,6 +150,18 @@ test('pause skips what passed; checks and permissions', async function () {
 });
 
 function RC(s) { return s + ' ' + MARK; }
+
+test('a CAM charge set up before the 25th cycle carries on from its first day not billed, to the next 25th', async function () {
+  // As migration 0204 leaves it: covered from 3 March (its old next date), invoiced on 25 March.
+  var c = await recurring.create(kelvin, { bookingId: booking.id, kind: 'cam', description: RC('Old CAM'), amount: 300, frequency: 'monthly', startDate: '2035-01-03' });
+  await pool.query("UPDATE poki_recurring_charges SET cycle_from = '2035-03-03', next_date = '2035-03-25' WHERE id = $1", [c.id]);
+  var plan = recurring.periodFor(Object.assign({}, (await pool.query('SELECT * FROM poki_recurring_charges WHERE id = $1', [c.id])).rows[0]), '2035-03-25', '2035-06-30');
+  assert.deepEqual([plan.start, plan.end, plan.daysUsed, plan.daysFull, plan.amount], ['2035-03-03', '2035-03-25', 22, 28, 235.71]);
+  var next = recurring.periodFor(Object.assign({}, (await pool.query('SELECT * FROM poki_recurring_charges WHERE id = $1', [c.id])).rows[0]), plan.nextStart, '2035-06-30');
+  assert.deepEqual([next.start, next.end, next.part, next.amount], ['2035-03-25', '2035-04-25', false, 300]);
+  assert.equal(recurring.cycleOnOrAfter('2035-12-26', 25), '2036-01-25');
+  await call('DELETE', '/api/poki/recurring-charges/' + c.id);
+});
 
 test('nothing is billed by itself: the morning job leaves due charges for a person to bill', async function () {
   var job = require('../src/jobs/dailyAlerts');
@@ -143,6 +183,9 @@ var RB = 'RBTEST';
 var rbBooking, other, elec, water, otherMeter, cam, flat, rbInvoice;
 var { todayISO } = require('../src/utils/documents');
 function addDays(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+// The latest 25th on or before a day, and a month before a 25th.
+function last25(iso) { return Number(iso.slice(8, 10)) >= 25 ? iso.slice(0, 8) + '25' : monthBefore(iso.slice(0, 8) + '25'); }
+function monthBefore(iso) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); }
 async function ok(method, path, body) {
   var r = await call(method, path, body);
   assert.ok(r.status < 300, path + ' ' + r.status + ' ' + JSON.stringify(r.body));
@@ -179,8 +222,8 @@ async function setupReadings() {
   elec = await ok('POST', '/api/poki/meters', { unitId: a.unit.id, utilityType: 'electricity', measureUnit: 'kWh', rate: 2 });
   water = await ok('POST', '/api/poki/meters', { unitId: a.unit.id, utilityType: 'water', measureUnit: 'm³', rate: 10 });
   otherMeter = await ok('POST', '/api/poki/meters', { unitId: o.unit.id, utilityType: 'electricity', measureUnit: 'kWh', rate: 2 });
-  // CAM came due ten days ago; a flat fee starts in five days.
-  cam = await ok('POST', '/api/poki/recurring-charges', { bookingId: rbBooking.id, kind: 'cam', amount: 300, frequency: 'monthly', startDate: addDays(today, -10), netDays: 7 });
+  // A full month of CAM has come due (25th to 25th); a flat fee starts in five days.
+  cam = await ok('POST', '/api/poki/recurring-charges', { bookingId: rbBooking.id, kind: 'cam', amount: 300, frequency: 'monthly', startDate: monthBefore(last25(today)), netDays: 7 });
   flat = await ok('POST', '/api/poki/recurring-charges', { bookingId: rbBooking.id, kind: 'utility', description: 'Refuse collection', amount: 50, frequency: 'monthly', startDate: addDays(today, 5) });
 }
 
@@ -326,7 +369,7 @@ test('readings: a bill raised by mistake is voided and everything on it can be b
   var usdTenant = await ok('POST', '/api/poki/tenants', { name: RB + ' Dollar Shop', email: 'usd@example.com', phone: '0200000099' });
   var usdBk = await ok('POST', '/api/poki/bookings', { unitId: usdUnit.id, tenantId: usdTenant.id, startDate: addDays(today, -20), durationMonths: 6, durationDays: 0, depositAmount: 0, status: 'active', currency: 'USD', fxRate: 12, notes: RB });
   assert.equal(usdBk.currency, 'USD');
-  var usdCam = await ok('POST', '/api/poki/recurring-charges', { bookingId: usdBk.id, kind: 'cam', amount: 350, frequency: 'monthly', startDate: addDays(today, -5) });
+  var usdCam = await ok('POST', '/api/poki/recurring-charges', { bookingId: usdBk.id, kind: 'cam', amount: 350, frequency: 'monthly', startDate: monthBefore(last25(today)) });
   assert.equal(usdCam.currency, 'GHS', 'CAM is in cedis');
   var parking = await ok('POST', '/api/poki/recurring-charges', { bookingId: usdBk.id, kind: 'other', description: 'Parking', amount: 20, frequency: 'monthly', startDate: addDays(today, -5) });
   assert.equal(parking.currency, 'USD', 'another kind follows the booking');

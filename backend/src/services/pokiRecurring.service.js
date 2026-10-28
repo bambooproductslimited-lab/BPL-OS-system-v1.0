@@ -23,6 +23,12 @@ var { periodWorking } = require('../utils/workings');
 // person bills it from the Rent & utilities page — everything that has come
 // due (run()), or one charge's next period, early if need be (bill-now).
 // Until then a due charge waits, shown as due.
+//
+// The service charge (CAM) is different (migration 0204): it runs from the
+// 25th of one month to the 25th of the next and is invoiced on the 25th for
+// the month just ended. Its next_date is that invoice date; the first period
+// runs from the day it starts covering (cycle_from) to the next 25th, by the
+// day, as does a last one cut short.
 
 var KINDS = ['cam', 'utility', 'other'];
 
@@ -34,21 +40,53 @@ var CURRENCY_SQL = "CASE WHEN c.kind IN ('cam', 'utility') THEN 'GHS' ELSE COALE
 var FREQUENCIES = { monthly: 1, quarterly: 3, yearly: 12 };
 var DEFAULT_TEXT = { cam: 'Service charge (CAM)', utility: 'Utilities (flat fee)', other: 'Recurring charge' };
 var MAX_PERIODS_PER_RUN = 12;
+var CAM_DAY = 25;
 
 function dateOnly(d) { return d ? (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null; }
 function addDays(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function days(fromISO, toISO) { return Math.round((new Date(toISO + 'T00:00:00Z') - new Date(fromISO + 'T00:00:00Z')) / 86400000) + 1; }
 function round2(n) { return Math.round(n * 100) / 100; }
 function minDate(a, b) { return !a ? b : !b ? a : (a < b ? a : b); }
+// Whole days from one date up to (not including) another.
+function daysBetween(fromISO, toISO) { return Math.round((new Date(toISO + 'T00:00:00Z') - new Date(fromISO + 'T00:00:00Z')) / 86400000); }
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+// The cycle day on or after a date (the 25th of its month, or of the next).
+function cycleOnOrAfter(iso, day) {
+  var y = Number(iso.slice(0, 4)), m = Number(iso.slice(5, 7));
+  if (Number(iso.slice(8, 10)) > day) { m += 1; if (m > 12) { m = 1; y += 1; } }
+  return y + '-' + pad2(m) + '-' + pad2(day);
+}
+// The first invoice date of a charge covering from `from`: the next cycle day after it.
+function firstCycleDate(from, day) {
+  var d = cycleOnOrAfter(from, day);
+  return d === from ? poki.addMonths(d, 1) : d;
+}
 
 // The period a charge bills from `start`, cut at `limit`, with its amount.
+// A charge on a cycle (CAM) bills the period ending on `start` instead — its
+// invoice date — from the cycle day before it.
 function periodFor(charge, start, limit) {
+  if (charge.cycle_day) return cyclePeriod(charge, start, limit);
   var fullEnd = addDays(poki.addMonths(start, FREQUENCIES[charge.frequency]), -1);
   var end = minDate(fullEnd, limit);
   var amount = Number(charge.amount);
   var part = end < fullEnd;
   if (part) amount = round2(amount * days(start, end) / days(start, fullEnd));
   return { start: start, end: end, amount: amount, part: part, daysUsed: days(start, end), daysFull: days(start, fullEnd), nextStart: addDays(fullEnd, 1) };
+}
+function cyclePeriod(charge, billDate, limit) {
+  var months = FREQUENCIES[charge.frequency];
+  var fullStart = poki.addMonths(billDate, -months);
+  var from = dateOnly(charge.cycle_from) || dateOnly(charge.start_date);
+  var start = from && from > fullStart ? from : fullStart;
+  var cut = !!(limit && limit < billDate);
+  var end = cut ? limit : billDate;
+  var daysFull = daysBetween(fullStart, billDate);
+  var daysUsed = daysBetween(start, cut ? addDays(limit, 1) : billDate);
+  var amount = Number(charge.amount);
+  var part = daysUsed < daysFull;
+  if (part) amount = round2(amount * daysUsed / daysFull);
+  return { start: start, end: end, amount: amount, part: part, daysUsed: daysUsed, daysFull: daysFull, nextStart: poki.addMonths(billDate, months) };
 }
 
 var LIST_SQL =
@@ -67,6 +105,7 @@ function rowToCharge(r) {
     id: r.id, bookingId: r.booking_id, bookingNo: r.booking_no, bookingStatus: r.booking_status, bookingEnd: dateOnly(r.booking_end),
     kind: r.kind, description: r.description, amount: Number(r.amount), currency: r.currency || 'GHS', frequency: r.frequency,
     startDate: dateOnly(r.start_date), endDate: dateOnly(r.end_date), nextDate: dateOnly(r.next_date), netDays: r.net_days, status: r.status,
+    cycleDay: r.cycle_day || null, coveredFrom: dateOnly(r.cycle_from),
     unitCode: r.unit_code, propertyName: r.property_name, customerId: r.customer_id, tenantName: r.tenant_name, tenantPhone: r.tenant_phone || '',
     periodsBilled: r.periods_billed, billedTotal: Number(r.billed_total),
     lastPeriod: r.last_period_start ? { start: dateOnly(r.last_period_start), end: dateOnly(r.last_period_end) } : null,
@@ -104,12 +143,15 @@ async function create(ctx, p) {
   var netDays = p.netDays === undefined || p.netDays === '' ? 14 : Number(p.netDays);
   if (!Number.isInteger(netDays) || netDays < 0 || netDays > 90) fail('invalid', 'Days to pay must be a whole number from 0 to 90.');
 
+  // CAM covers from `start` and is invoiced on the 25th after it.
+  var cycleDay = kind === 'cam' ? CAM_DAY : null;
+  var next = cycleDay ? firstCycleDate(start, cycleDay) : start;
   var row = (await pool.query(
-    'INSERT INTO poki_recurring_charges (booking_id, kind, description, amount, frequency, start_date, end_date, next_date, net_days, created_by) ' +
-    'VALUES ($1,$2,$3,$4,$5,$6,$7,$6,$8,$9) RETURNING id',
-    [booking.id, kind, description, amount, frequency, start, end, netDays, ctx.employee ? ctx.employee.id : null])).rows[0];
+    'INSERT INTO poki_recurring_charges (booking_id, kind, description, amount, frequency, start_date, end_date, next_date, net_days, created_by, cycle_day, cycle_from) ' +
+    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id',
+    [booking.id, kind, description, amount, frequency, start, end, next, netDays, ctx.employee ? ctx.employee.id : null, cycleDay, cycleDay ? start : null])).rows[0];
   await audit(pool, ctx, 'poki.recurring.create', 'poki_recurring_charge', row.id,
-    'Set up ' + description + ' of ' + amount + ' ' + frequency + ' on booking ' + booking.booking_no + ', first invoice ' + start + '.');
+    'Set up ' + description + ' of ' + amount + ' ' + frequency + ' on booking ' + booking.booking_no + (cycleDay ? ', from ' + start + ', invoiced on the ' + cycleDay + 'th from ' + next : ', first invoice ' + start) + '.');
   return getOne(row.id);
 }
 
@@ -127,6 +169,7 @@ async function update(ctx, id, p) {
   var netDays = p.netDays === undefined ? c.net_days : Number(p.netDays);
   if (!Number.isInteger(netDays) || netDays < 0 || netDays > 90) fail('invalid', 'Days to pay must be a whole number from 0 to 90.');
   var next = p.nextDate === undefined ? dateOnly(c.next_date) : V.date(p.nextDate, 'Next invoice date');
+  if (c.cycle_day && p.nextDate !== undefined) next = cycleOnOrAfter(next, c.cycle_day);
   var lastRun = (await pool.query('SELECT max(period_end) AS e FROM poki_recurring_charge_runs WHERE charge_id = $1', [id])).rows[0].e;
   if (lastRun && next <= dateOnly(lastRun)) fail('invalid', 'The next invoice date must be after the period already billed (to ' + dateOnly(lastRun) + ').');
   var end = p.endDate === undefined ? dateOnly(c.end_date) : (p.endDate ? V.date(p.endDate, 'Last date') : null);
@@ -178,18 +221,20 @@ function periodsToBill(c, asOf, early) {
   var next = dateOnly(c.next_date);
   var until = early ? next : asOf;
   var periods = [];
-  while (next <= until && next <= limit && periods.length < MAX_PERIODS_PER_RUN) {
+  // A period starts on its date; one on a cycle started a cycle before it.
+  var startOf = function (d) { return c.cycle_day ? poki.addMonths(d, -FREQUENCIES[c.frequency]) : d; };
+  while (next <= until && startOf(next) <= limit && periods.length < MAX_PERIODS_PER_RUN) {
     var per = periodFor(c, next, limit);
     periods.push(per);
     next = per.nextStart;
   }
-  return { periods: periods, next: next, limit: limit };
+  return { periods: periods, next: next, limit: limit, ended: startOf(next) > limit };
 }
 
 // Moves the charge's next date past what is being billed; past its last
 // date it ends. True when it ended.
 async function moveOn(client, c, plan) {
-  if (plan.next > plan.limit) {
+  if (plan.ended) {
     await client.query("UPDATE poki_recurring_charges SET status = 'ended', next_date = $2, updated_at = now() WHERE id = $1", [c.id, plan.next]);
     return true;
   }
@@ -273,9 +318,14 @@ async function billAlong(client, ctx, bookingId, chargeIds, asOf) {
 // again — their claims go, and each charge's next date steps back to the
 // first of them (an ended charge whose booking still runs picks up again).
 async function release(client, invoiceId) {
-  var runs = (await client.query('DELETE FROM poki_recurring_charge_runs WHERE invoice_id = $1 RETURNING charge_id, period_start', [invoiceId])).rows;
+  var runs = (await client.query(
+    'DELETE FROM poki_recurring_charge_runs r USING poki_recurring_charges c WHERE r.invoice_id = $1 AND c.id = r.charge_id RETURNING r.charge_id, r.period_start, r.period_end, c.cycle_day', [invoiceId])).rows;
   var first = {};
-  runs.forEach(function (r) { var d = dateOnly(r.period_start); if (!first[r.charge_id] || d < first[r.charge_id]) first[r.charge_id] = d; });
+  // A CAM's next date is the invoice date of its first period freed: the 25th it ends on.
+  runs.forEach(function (r) {
+    var d = r.cycle_day ? cycleOnOrAfter(dateOnly(r.period_end), r.cycle_day) : dateOnly(r.period_start);
+    if (!first[r.charge_id] || d < first[r.charge_id]) first[r.charge_id] = d;
+  });
   var ids = Object.keys(first);
   for (var i = 0; i < ids.length; i++) {
     await client.query(
@@ -361,5 +411,5 @@ async function run(ctx, opts) {
   });
 }
 
-module.exports = { GHS_KINDS: GHS_KINDS, CURRENCY_SQL: CURRENCY_SQL, list: list, create: create, update: update, setStatus: setStatus, remove: remove, run: run, periodFor: periodFor,
+module.exports = { CAM_DAY: CAM_DAY, cycleOnOrAfter: cycleOnOrAfter, GHS_KINDS: GHS_KINDS, CURRENCY_SQL: CURRENCY_SQL, list: list, create: create, update: update, setStatus: setStatus, remove: remove, run: run, periodFor: periodFor,
   offerFor: offerFor, billAlong: billAlong, attachRuns: attachRuns, release: release };
