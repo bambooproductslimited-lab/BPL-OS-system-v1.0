@@ -1,0 +1,17 @@
+DELETE FROM role_permissions WHERE permission_key IN ('licence.manage', 'policy.manage');
+DELETE FROM permissions WHERE key IN ('licence.manage', 'policy.manage');
+DELETE FROM onboard_steps WHERE kind = 'policy';
+ALTER TABLE onboard_steps DROP CONSTRAINT onboard_steps_kind_check;
+ALTER TABLE onboard_steps ADD CONSTRAINT onboard_steps_kind_check CHECK (kind IN ('task', 'device', 'tool', 'asset', 'ppe', 'final_pay', 'exit_interview', 'mark_left'));
+DROP TABLE IF EXISTS policy_signatures;
+DROP TABLE IF EXISTS policy_versions;
+DROP TABLE IF EXISTS policies;
+DROP TABLE IF EXISTS supplier_ratings;
+DROP TABLE IF EXISTS product_cost_history;
+DROP TABLE IF EXISTS bom_costs;
+DROP TABLE IF EXISTS bom_lines;
+DROP TABLE IF EXISTS kiln_readings;
+DROP TABLE IF EXISTS kiln_charges;
+DROP TABLE IF EXISTS kilns;
+DROP TABLE IF EXISTS licence_renewals;
+DROP TABLE IF EXISTS licences;

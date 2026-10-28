@@ -5,6 +5,7 @@ import '../index.css';
 import '../layout/AppShell.css';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { I18nProvider } from '../components/I18nProvider.jsx';
+import { installTypeToSearch } from '../lib/typeToSearch.js';
 import ShopPage from '../pages/ShopPage';
 import BookPage from '../pages/BookPage';
 import SharePage from '../pages/SharePage';
@@ -26,6 +27,9 @@ import JobsPage from '../pages/JobsPage';
 // /statement/<its link>, the jobs open at /jobs (and one at /jobs/<its
 // name>, with the form to apply), and the customer's own account at
 // /account (a code, no password). None of the OS around it.
+// Every dropdown searchable, and typing goes into a screen's search box.
+installTypeToSearch();
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>

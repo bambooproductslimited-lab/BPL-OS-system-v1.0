@@ -15,7 +15,7 @@ var money = require('./restaurantTillMoney.service');
 // It also counts the guests who sat down, for the spend per guest.
 
 var KINDS = ['all', 'sales', 'refunds', 'voided', 'iou'];
-var FULFILLMENTS = ['dine_in', 'pickup', 'delivery'];
+var FULFILLMENTS = ['dine_in', 'togo', 'pickup', 'delivery'];
 var DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function round2(n) { return Math.round(Number(n || 0) * 100) / 100; }

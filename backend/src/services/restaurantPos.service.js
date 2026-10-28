@@ -386,19 +386,21 @@ async function guestContact(token, id, p) {
   return rowToGuestTile(await guestById(pool, session.posCompanyId, id));
 }
 
-// Dine in (at a table), pickup (at the counter) or delivery (needs who, a
-// phone and where). An order from before these says nothing ('').
-var FULFILLMENT_NAME = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
+// Dine in (at a table), to go (bought at the counter, packed to take away),
+// pickup (ordered ahead, collected at the counter: who and a phone) or
+// delivery (needs who, a phone and where). An order from before these says
+// nothing ('').
+var FULFILLMENT_NAME = { dine_in: 'Dine in', togo: 'To go', pickup: 'Pickup', delivery: 'Delivery' };
 function cleanText(v, max) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max); }
 async function orderType(client, companyId, p, refs) {
-  var f = p.fulfillment === undefined || p.fulfillment === null || p.fulfillment === '' ? '' : V.oneOf(p.fulfillment, access.FULFILLMENTS, 'Dine in, pickup or delivery');
+  var f = p.fulfillment === undefined || p.fulfillment === null || p.fulfillment === '' ? '' : V.oneOf(p.fulfillment, access.FULFILLMENTS, 'Dine in, to go, pickup or delivery');
   var guest = refs.guestId ? (await client.query('SELECT name, phone FROM restaurant_guests WHERE id = $1', [refs.guestId])).rows[0] : null;
   var out = { fulfillment: f, customerName: cleanText(p.customerName, 120) || (guest ? guest.name : ''), customerPhone: cleanText(p.customerPhone, 40) || (guest ? guest.phone || '' : ''), deliveryAddress: '' };
   if (f === 'dine_in' && !refs.tableId && !p.kioskOrder) {
     var hasTables = (await client.query("SELECT 1 FROM restaurant_tables WHERE company_id = $1 AND status = 'active' LIMIT 1", [companyId])).rows.length > 0;
     if (hasTables) fail('invalid', 'Pick the table for this dine-in order.');
   }
-  if (f === 'pickup' || f === 'delivery') refs.tableId = null;
+  if (f === 'togo' || f === 'pickup' || f === 'delivery') refs.tableId = null;
   // A pickup: who it is for, and a number to call when it is ready.
   // (A delivery app's order is handed to the app's rider; a kiosk's
   // customer is called by their number.)
@@ -449,15 +451,15 @@ async function resolveRefs(client, companyId, p) {
   }
   return { tableId: tableId, waiterId: waiterId, guestId: guestId };
 }
-// The table's, waiter's and customer's names, for a kitchen ticket; a
-// pickup is at the counter, and a delivery goes to its customer.
+// The table's, waiter's and customer's names, for a kitchen ticket; to go
+// and a pickup are at the counter, and a delivery goes to its customer.
 async function refNames(client, refs, type) {
   var r = (await client.query(
     "SELECT (SELECT name FROM restaurant_tables WHERE id = $1) AS table_name, (SELECT first_name || ' ' || last_name FROM employees WHERE id = $2) AS waiter_name, " +
     '(SELECT name FROM restaurant_guests WHERE id = $3) AS guest_name', [refs.tableId, refs.waiterId, refs.guestId])).rows[0];
   type = type || {};
   return {
-    tableName: r.table_name || (type.fulfillment === 'pickup' ? 'Counter' : type.fulfillment === 'delivery' ? 'Delivery' : null),
+    tableName: r.table_name || (type.fulfillment === 'togo' ? 'To go' : type.fulfillment === 'pickup' ? 'Counter' : type.fulfillment === 'delivery' ? 'Delivery' : null),
     waiterName: r.waiter_name || null, guestName: r.guest_name || type.customerName || null,
     fulfillment: type.fulfillment || '', customerPhone: type.customerPhone || '', deliveryAddress: type.deliveryAddress || ''
   };
@@ -575,7 +577,7 @@ async function chargeOrder(session, p, clientRef) {
     if (p.tabId) fail('invalid', 'A delivery app\'s order is rung up on its own.');
     p = Object.assign({}, p, { fulfillment: 'pickup', tableId: null, appOrder: true, customerName: p.customerName || app.customer || app.name });
   }
-  if (tillSettings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
+  if (tillSettings.requireWaiter && p.tableId && !p.waiterId && (p.fulfillment || 'dine_in') === 'dine_in') fail('invalid', 'Pick the waiter for this table.');
   var asked = Array.isArray(p.payments) && p.payments.length ? p.payments
     : [{ method: p.paymentMethod || 'cash', tendered: p.cashTendered }];
   // Paid through Paystack (the customer's phone, or the kiosk): checked with Paystack.
@@ -722,7 +724,7 @@ async function chargeOrder(session, p, clientRef) {
     }
     await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.sale',
       summary: 'Sale ' + orderNo + (takenAt ? ' (taken offline at ' + takenAt.toISOString().slice(11, 16) + ')' : '') + ': ' + bill.total.toFixed(2) + (tip > 0 ? ' + a tip of ' + tip.toFixed(2) : '') + ' by ' + money.paymentText(plan.rows) +
-        (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + (names.tableName && type.fulfillment !== 'pickup' && type.fulfillment !== 'delivery' ? ' · ' + names.tableName : '') +
+        (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + (names.tableName && (type.fulfillment || 'dine_in') === 'dine_in' ? ' · ' + names.tableName : '') +
         (names.guestName ? ' · ' + names.guestName : '') + (rest ? ' · some dishes of the open order, the rest stays open' : '') + '.' + discountWords(bill),
       amount: bill.total, refType: 'order', refId: order.id,
       details: { method: plan.method, payments: plan.rows.map(function (r) { return { method: r.method, amount: r.amount, currency: r.currency }; }),
@@ -937,7 +939,7 @@ async function fromKiosk(db, tabId) {
 }
 async function keepTab(session, p, clientRef) {
   if (p.id && !p.kioskOrder && await fromKiosk(pool, p.id)) p = Object.assign({}, p, { kioskOrder: true });
-  if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && p.fulfillment !== 'pickup' && p.fulfillment !== 'delivery') fail('invalid', 'Pick the waiter for this table.');
+  if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && (p.fulfillment || 'dine_in') === 'dine_in') fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
   var refs = await resolveRefs(pool, company, p);
   var type = await orderType(pool, company, p, refs);

@@ -41,6 +41,13 @@ function daysBetween(fromISO, toISO) {
 function fmtDate(iso) {
   return new Date(String(iso).slice(0, 10) + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
+// The week (Monday to Sunday) a day falls in: its key and its Monday, so a
+// weekly alert is claimed once for the whole week, not once a day.
+var MONDAY = 4 * 86400000; // 5 January 1970
+function weekOf(day) {
+  var idx = Math.floor((Date.parse(day + 'T00:00:00Z') - MONDAY) / (7 * 86400000));
+  return { key: 'w' + idx, start: new Date(MONDAY + idx * 7 * 86400000).toISOString().slice(0, 10) };
+}
 function inWords(daysLeft) {
   return daysLeft === 1 ? 'tomorrow' : 'in ' + daysLeft + ' days';
 }
@@ -394,11 +401,11 @@ async function voiceAlerts(today, settings) {
 // once a week (goals.service.js).
 async function goalAlerts(today, settings) {
   var rows = await require('../services/goals.service').staleKeyResults();
-  var week = 'w' + Math.floor(Date.parse(today + 'T00:00:00Z') / (7 * 86400000));
+  var week = weekOf(today);
   var sent = 0;
   for (var i = 0; i < rows.length; i++) {
     var k = rows[i];
-    if (!(await claim('goal_checkin', k.id, today, 0, [{ key: week, days: 0 }]))) continue;
+    if (!(await claim('goal_checkin', k.id, week.start, 0, [{ key: week.key, days: 0 }]))) continue;
     await staffAlerts.alert(k.owner_id, 'Check in: ' + k.title, 'Where is it now, and how confident are you? — ' + k.o_title, '/myspace', settings);
     sent++;
   }
@@ -420,10 +427,78 @@ async function ppeAlerts(today, settings) {
   var low = await ppe.lowStock();
   if (low.length) {
     var keepers = (await staffAlerts.holdersOf(['ppe.manage'])).map(function (h) { return h.employee_id; });
-    var week = 'w' + Math.floor(Date.parse(today + 'T00:00:00Z') / (7 * 86400000));
+    var week = weekOf(today);
     for (var k = 0; k < low.length; k++) {
-      if (!(await claim('ppe_low', low[k].id, today, 0, [{ key: week, days: 0 }]))) continue;
+      if (!(await claim('ppe_low', low[k].id, week.start, 0, [{ key: week.key, days: 0 }]))) continue;
       for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], 'Running low: ' + low[k].name, 'In the store: ' + low[k].sizes.join(', ') + '.', '/ppe', settings); sent++; }
+    }
+  }
+  return sent;
+}
+
+// Licences and permits: 60, 30, 14 and 7 days before one ends, and when it
+// has — to its owner and whoever keeps the licences (licences.service.js).
+async function licenceAlerts(today, settings) {
+  var due = await require('../services/licences.service').dueSoon();
+  var keepers = (await staffAlerts.holdersOf(['licence.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  for (var i = 0; i < due.length; i++) {
+    var l = due[i], day = String(l.expires_on instanceof Date ? l.expires_on.toISOString() : l.expires_on).slice(0, 10), left = daysBetween(today, day);
+    if (!(await claim('licence', l.id, day, left))) continue;
+    var to = keepers.slice();
+    if (l.owner_id && to.indexOf(l.owner_id) < 0) to.push(l.owner_id);
+    var title = left < 0 ? 'Expired: ' + l.title : left === 0 ? 'Ends today: ' + l.title : l.title + ' ends ' + inWords(left);
+    var body = [l.authority, l.number, l.company].filter(Boolean).join(' · ') + (l.status === 'renewing' && l.renewing_since ? ' — renewal applied for on ' + fmtDate(l.renewing_since) + '.' : ' — ' + fmtDate(day) + '. Renew it in Licences and permits.');
+    for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], title, body, '/licences?licence=' + l.id, settings); sent++; }
+  }
+  return sent;
+}
+
+// Kilns and tanks: a soak that has had its days, a charge running past its
+// plan, a kiln not read for two days (kilns.service.js).
+async function kilnAlerts(today, settings) {
+  var kilns = require('../services/kilns.service');
+  var charges = await kilns.runningCharges();
+  if (!charges.length) return 0;
+  var holders = (await staffAlerts.holdersOf(['production.manage'])).map(function (h) { return h.employee_id; });
+  var week = weekOf(today);
+  var sent = 0;
+  for (var i = 0; i < charges.length; i++) {
+    var c = charges[i], started = new Date(c.startedAt).toISOString().slice(0, 10);
+    var to = holders.slice();
+    if (c.startedById && to.indexOf(c.startedById) < 0) to.push(c.startedById);
+    var link = '/kilns?charge=' + c.id, msg = null;
+    if (c.kiln.kind === 'tank' && c.ready && await claim('kiln_soaked', c.id, started, 0, [{ key: 'done', days: 0 }])) msg = [c.kiln.name + ': the soak is done — ' + c.ref, c.description + ', ' + c.days + ' days. Take it out and record it.'];
+    else if (c.late && await claim('kiln_late', c.id, started, 0, [{ key: 'late', days: 0 }])) {
+      msg = [c.kiln.name + ': ' + c.ref + ' is taking longer than planned', 'Day ' + Math.floor(c.days) + ' of ' + c.plannedDays + (c.latestMoisture != null ? '; ' + c.latestMoisture + '% moisture, the target ' + c.targetMoisture + '%.' : '.')];
+      // One message today, not a second for the missing readings.
+      if (c.quiet) await claim('kiln_quiet', c.id, week.start, 0, [{ key: week.key, days: 0 }]);
+    }
+    else if (c.quiet && await claim('kiln_quiet', c.id, week.start, 0, [{ key: week.key, days: 0 }])) msg = [c.kiln.name + ': no reading for two days', c.ref + ' · ' + c.description + '. Read its moisture.'];
+    if (!msg) continue;
+    for (var j = 0; j < to.length; j++) { await staffAlerts.alert(to[j], msg[0], msg[1], link, settings); sent++; }
+  }
+  return sent;
+}
+
+// Policies: those late to sign, once a week, and whoever keeps the policies
+// (policies.service.js).
+async function policyAlerts(today, settings) {
+  var late = await require('../services/policies.service').lateSigners();
+  var week = weekOf(today);
+  var sent = 0;
+  for (var emp in late.byPerson) {
+    if (!(await claim('policy_sign', emp, week.start, 0, [{ key: week.key, days: 0 }]))) continue;
+    var titles = late.byPerson[emp];
+    await staffAlerts.alert(emp, titles.length === 1 ? 'A policy to sign: ' + titles[0] : titles.length + ' policies to sign', titles.join(', ') + '. Read and sign in My space.', '/myspace', settings);
+    sent++;
+  }
+  if (late.byPolicy.length) {
+    var keepers = (await staffAlerts.holdersOf(['policy.manage'])).map(function (h) { return h.employee_id; });
+    for (var k = 0; k < late.byPolicy.length; k++) {
+      var p = late.byPolicy[k];
+      if (!(await claim('policy_late', p.id, week.start, 0, [{ key: week.key, days: 0 }]))) continue;
+      for (var j = 0; j < keepers.length; j++) { await staffAlerts.alert(keepers[j], p.late + ' late to sign ' + p.title, p.late + ' of ' + p.of + ' have not signed it by their day.', '/policies?policy=' + p.id, settings); sent++; }
     }
   }
   return sent;
@@ -436,7 +511,7 @@ async function runOnce(now) {
   running = true;
   var at = now || new Date();
   var hour = at.getUTCHours();
-  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, discipline: 0, quality: 0, voice: 0, goals: 0, ppe: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
+  var out = { expiry: 0, bills: 0, services: 0, vehicles: 0, certs: 0, budgets: 0, steps: 0, safety: 0, returns: 0, passes: 0, discipline: 0, quality: 0, voice: 0, goals: 0, ppe: 0, licences: 0, kilns: 0, policies: 0, statements: 0, bookings: 0, texts: 0, emails: 0 };
   try {
     if (hour >= ALERTS_FROM_HOUR) {
       var settings = await sms.messaging();
@@ -455,6 +530,9 @@ async function runOnce(now) {
       try { out.voice = await voiceAlerts(todayISO(), settings); } catch (e) { console.error('Staff voice alerts failed:', e.message); }
       try { out.goals = await goalAlerts(todayISO(), settings); } catch (e) { console.error('Goal alerts failed:', e.message); }
       try { out.ppe = await ppeAlerts(todayISO(), settings); } catch (e) { console.error('PPE alerts failed:', e.message); }
+      try { out.licences = await licenceAlerts(todayISO(), settings); } catch (e) { console.error('Licence alerts failed:', e.message); }
+      try { out.kilns = await kilnAlerts(todayISO(), settings); } catch (e) { console.error('Kiln alerts failed:', e.message); }
+      try { out.policies = await policyAlerts(todayISO(), settings); } catch (e) { console.error('Policy alerts failed:', e.message); }
       // Monthly statements to customers who asked for them (statements.service.js).
       try { out.statements = await require('../services/statements.service').monthly(todayISO()); } catch (e) { console.error('Monthly statements failed:', e.message); }
       out.bookings = await pokiReminders.sweep({ force: true });
@@ -467,7 +545,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.licences || out.kilns || out.policies || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -479,4 +557,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, licenceAlerts: licenceAlerts, kilnAlerts: kilnAlerts, policyAlerts: policyAlerts, weekOf: weekOf, MILESTONES: MILESTONES };

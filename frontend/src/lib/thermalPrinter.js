@@ -141,7 +141,7 @@ function money2(n) { return 'GHS ' + Number(n || 0).toFixed(2); }
 function modsEn(mods) {
   return mods.map(function (m) { return m.how === 'no' ? 'No ' + m.name : m.how === 'extra' ? 'Extra ' + m.name : m.how === 'side' ? m.name + ' on the side' : m.name; }).join(', ');
 }
-var FULFILLMENT_EN = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
+var FULFILLMENT_EN = { dine_in: 'Dine in', togo: 'To go', pickup: 'Pickup', delivery: 'Delivery' };
 var METHOD_EN = { cash: 'Cash', mobile_money: 'Mobile Money', alipay: 'Alipay', wechat: 'WeChat Pay', vip: 'VIP', iou: 'IOU', other: 'Other', split: 'Split payment', card: 'Card', app: 'Paid on the app', gift_card: 'Gift card' };
 
 // A QR code (ESC/POS GS ( k: model 2, module size, error correction M,
@@ -210,7 +210,7 @@ export function buildRunnerTicketBytes(ticket, companyName, opts) {
   if (companyName) out = out.concat(line(companyName));
   out = out.concat(BOLD_ON, DOUBLE_ON, line('#' + ticket.number + ' READY'), DOUBLE_OFF);
   var kind = FULFILLMENT_EN[ticket.fulfillment] || '';
-  var where = ticket.fulfillment === 'pickup' ? 'COUNTER' : ticket.fulfillment === 'delivery' ? 'DELIVERY' : (ticket.tableName || ticket.label || 'COUNTER');
+  var where = ticket.fulfillment === 'togo' ? 'TO GO' : ticket.fulfillment === 'pickup' ? 'COUNTER' : ticket.fulfillment === 'delivery' ? 'DELIVERY' : (ticket.tableName || ticket.label || 'COUNTER');
   out = out.concat(DOUBLE_ON, line(where.toUpperCase().slice(0, 16)), DOUBLE_OFF, BOLD_OFF);
   if (kind && ticket.fulfillment === 'dine_in') out = out.concat(line(kind));
   out = out.concat(ALIGN_LEFT, line(rule));
@@ -247,7 +247,7 @@ export function buildKitchenChitBytes(chit, companyName, opts) {
   var out = [].concat(INIT, ALIGN_CENTER);
   out = out.concat(BOLD_ON, line(String(chit.station || 'Kitchen').toUpperCase()), BOLD_OFF);
   out = out.concat(BOLD_ON, DOUBLE_ON, line('#' + chit.number), DOUBLE_OFF);
-  var where = chit.fulfillment === 'pickup' ? 'COUNTER' : chit.fulfillment === 'delivery' ? 'DELIVERY' : (chit.tableName || chit.label || 'COUNTER');
+  var where = chit.fulfillment === 'togo' ? 'TO GO' : chit.fulfillment === 'pickup' ? 'COUNTER' : chit.fulfillment === 'delivery' ? 'DELIVERY' : (chit.tableName || chit.label || 'COUNTER');
   out = out.concat(DOUBLE_ON, line(where.toUpperCase().slice(0, 16)), DOUBLE_OFF, BOLD_OFF);
   if (opts.courseName) out = out.concat(BOLD_ON, line('** ' + opts.courseName.toUpperCase() + ' **'), BOLD_OFF);
   out = out.concat(ALIGN_LEFT, line(rule));

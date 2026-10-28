@@ -12,9 +12,11 @@
 .tl-small { font-size: 12.5px; }
 .tl-ful { display: inline-flex; align-items: center; gap: 5px; margin-left: 6px; padding: 2px 9px 2px 7px; font-size: 11px; font-weight: 800; vertical-align: middle; border-radius: 999px; color: #0369a1; background: rgba(14, 165, 233, .13); }
 .tl-ful .dk-icon { width: 13px; height: 13px; }
+.tl-ful.is-togo { color: #047857; background: rgba(16, 185, 129, .14); }
 .tl-ful.is-pickup { color: #b45309; background: rgba(245, 158, 11, .15); }
 .tl-ful.is-delivery { color: #7c3aed; background: rgba(139, 92, 246, .14); }
 :root[data-theme='dark'] .tl-ful { color: #7dd3fc; }
+:root[data-theme='dark'] .tl-ful.is-togo { color: #6ee7b7; }
 :root[data-theme='dark'] .tl-ful.is-pickup { color: #fcd34d; }
 :root[data-theme='dark'] .tl-ful.is-delivery { color: #c4b5fd; }
 
@@ -71,15 +73,20 @@
 .tl-send-total strong { font-size: 20px; font-variant-numeric: tabular-nums; }
 
 /* ── the order panel ── */
-.tl-ful-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0 16px 10px; padding: 4px; border-radius: 14px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
-.tl-ful-switch button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 6px; font: inherit; font-size: 13px; font-weight: 800; color: var(--color-text-muted); background: none; border: 0; border-radius: 10px; cursor: pointer; transition: background .12s ease, color .12s ease; }
-.tl-ful-switch button .dk-icon { width: 17px; height: 17px; }
+.tl-ful-switch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 0 16px 10px; padding: 4px; border-radius: 14px; background: var(--pos-soft); border: 1px solid var(--pos-line); }
+.tl-ful-switch button { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0; padding: 6px 3px 5px; font: inherit; font-size: 12px; line-height: 1.15; white-space: nowrap; font-weight: 800; color: var(--color-text-muted); background: none; border: 0; border-radius: 10px; cursor: pointer; transition: background .12s ease, color .12s ease; }
+.tl-ful-switch button .dk-icon { flex: none; width: 17px; height: 17px; }
 .tl-ful-switch button:hover { color: var(--color-text); }
 .tl-ful-switch button.is-on { color: #fff; box-shadow: 0 8px 18px -12px rgba(0, 0, 0, .5); }
 .tl-ful-switch button.is-dine_in.is-on { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
+.tl-ful-switch button.is-togo.is-on { background: linear-gradient(135deg, #34d399, #059669); }
 .tl-ful-switch button.is-pickup.is-on { background: linear-gradient(135deg, #f59e0b, #d97706); }
 .tl-ful-switch button.is-delivery.is-on { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
-.pos-order-who.is-pickup, .pos-order-who.is-delivery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tl-ful-switch button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 380px) { .tl-ful-switch button { font-size: 11.5px; } }
+.pos-order-who.is-togo, .pos-order-who.is-pickup, .pos-order-who.is-delivery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pos-order-who .pos-who-fixed.is-togo { background: rgba(16, 185, 129, .1); border-color: rgba(16, 185, 129, .45); }
+.pos-order-who .pos-who-fixed.is-togo .dk-icon { color: #059669; }
 .pos-order-who .pos-who-fixed { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: 'g l' 'g v'; column-gap: 7px; align-items: center; padding: 8px 9px; color: var(--color-text); background: rgba(245, 158, 11, .1); border: 1px solid rgba(245, 158, 11, .45); border-radius: 12px; }
 .pos-order-who .pos-who-fixed .dk-icon, .pos-order-who .pos-who-wide .dk-icon { grid-area: g; width: 20px; height: 20px; color: #d97706; }
 .pos-order-who .pos-who-wide .dk-icon { color: #7c3aed; }
@@ -115,6 +122,7 @@
 
 /* open orders */
 .tl-ful-ico.is-dine_in { color: #0284c7; background: rgba(14, 165, 233, .13); }
+.tl-ful-ico.is-togo { color: #059669; background: rgba(16, 185, 129, .14); }
 .tl-ful-ico.is-pickup { color: #d97706; background: rgba(245, 158, 11, .15); }
 .tl-ful-ico.is-delivery { color: #7c3aed; background: rgba(139, 92, 246, .14); }
 .tl-tab-deliver { display: flex; align-items: center; gap: 5px; }

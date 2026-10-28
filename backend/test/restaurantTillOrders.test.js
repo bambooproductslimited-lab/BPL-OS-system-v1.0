@@ -85,7 +85,7 @@ test.before(async function () {
 });
 test.after(async function () { await cleanup(); await pool.end(); });
 
-test('dine in needs its table, pickup is at the counter, delivery needs who, a phone and where', async function () {
+test('dine in needs its table, to go and pickup are at the counter, delivery needs who, a phone and where', async function () {
   await assert.rejects(pos.saveTab(tok.ama, { fulfillment: 'dine_in', items: [{ menuItemId: fish, qty: 1 }] }), /Pick the table for this dine-in order/);
   var dine = await pos.saveTab(tok.ama, { fulfillment: 'dine_in', tableId: t1, items: [{ menuItemId: fish, qty: 1 }] });
   assert.deepEqual([dine.fulfillment, dine.tableName], ['dine_in', 'Zqo T1']);
@@ -98,6 +98,16 @@ test('dine in needs its table, pickup is at the counter, delivery needs who, a p
   var board = await kitchen.board(tok.esi, { station: 'all' });
   var pt = board.cooking.find(function (t) { return t.id && t.label === 'Zqo Kofi'; });
   assert.deepEqual([pt.tableName, pt.fulfillment], ['Counter', 'pickup']);
+  // To go: bought at the counter and packed to take away — no table, no
+  // name or phone needed; the kitchen sees it is to go.
+  var togo = await pos.saveTab(tok.ama, { fulfillment: 'togo', tableId: t2, label: 'Zqo to go 1', items: [{ menuItemId: beer, qty: 2 }] });
+  assert.deepEqual([togo.fulfillment, togo.tableId], ['togo', null]);
+  board = await kitchen.board(tok.esi, { station: 'all' });
+  var tt = board.cooking.find(function (t) { return t.label === 'Zqo to go 1'; });
+  assert.deepEqual([tt.tableName, tt.fulfillment], ['To go', 'togo']);
+  var togoSale = await pos.createOrder(tok.ama, { tabId: togo.id, fulfillment: 'togo', items: [{ menuItemId: beer, qty: 2 }], payments: [{ method: 'cash' }] });
+  assert.equal(togoSale.fulfillment, 'togo');
+  await assert.rejects(pos.saveTab(tok.ama, { fulfillment: 'takeaway', items: [{ menuItemId: beer, qty: 1 }] }), /Dine in, to go, pickup or delivery/);
   // Delivery: who, a phone and where, each asked for.
   await assert.rejects(pos.saveTab(tok.ama, { fulfillment: 'delivery', customerName: 'Zqo Abla', items: [{ menuItemId: fish, qty: 1 }] }), /phone number/);
   await assert.rejects(pos.saveTab(tok.ama, { fulfillment: 'delivery', customerName: 'Zqo Abla', customerPhone: '0200000101', items: [{ menuItemId: fish, qty: 1 }] }), /location/);

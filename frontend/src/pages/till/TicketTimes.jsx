@@ -14,7 +14,7 @@ import './tenth.css';
 // slowest tenth is the grey tick.
 
 const STATE = { ok: ['✓', () => tr('On time')], slow: ['⚠', () => tr('Slow')], late: ['⏰', () => tr('Late')] };
-const KIND = { dine_in: ['🍽️', () => tr('Dine in')], pickup: ['🛍️', () => tr('Pickup')], delivery: ['🛵', () => tr('Delivery')], takeaway: ['🥡', () => tr('Takeaway')] };
+const KIND = { dine_in: ['🍽️', () => tr('Dine in')], togo: ['🥤', () => tr('To go')], pickup: ['🛍️', () => tr('Pickup')], delivery: ['🛵', () => tr('Delivery')], takeaway: ['🥡', () => tr('Takeaway')] };
 function num(n) { return Number(n).toLocaleString(activeIntlLocale(), { maximumFractionDigits: 1 }); }
 function mins(n) { return n == null ? '—' : tr('{n} min', { n: num(n) }); }
 function stateOf(m, t) { return m == null ? 'none' : m > t.lateAfter ? 'late' : m > t.warnAfter ? 'slow' : 'ok'; }

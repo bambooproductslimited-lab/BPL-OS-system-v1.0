@@ -68,16 +68,21 @@ export function methodCurrencies(method, live) {
   return live.filter((c) => ok.includes(c.code));
 }
 
-// Dine in, pickup or delivery.
+// Dine in, to go (bought at the counter, packed to take away), pickup
+// (ordered ahead: who and a phone) or delivery.
 export const FULFILLMENT = [
   { key: 'dine_in', label: msg('Dine in'), icon: 'table' },
+  { key: 'togo', label: msg('To go'), icon: 'cup' },
   { key: 'pickup', label: msg('Pickup'), icon: 'bag' },
   { key: 'delivery', label: msg('Delivery'), icon: 'send' }
 ];
 export function fulfillmentName(k) { const f = FULFILLMENT.find((x) => x.key === k); return f ? tr(f.label) : ''; }
 const TABLE_PATH = <path d="M3 9h18M6 9v10M18 9v10M4.5 9 7 5h10l2.5 4" />;
+// A takeaway cup with its lid and straw.
+const CUP_PATH = <path d="M6 8h12M7 8l1.2 12.2a1 1 0 0 0 1 .8h5.6a1 1 0 0 0 1-.8L17 8M6.5 8l.6-2.4A1 1 0 0 1 8.1 5h7.8a1 1 0 0 1 1 .6L17.5 8M13 5l1.2-3M8 13h8" />;
 export function FulfillmentIcon({ kind }) {
   if (kind === 'dine_in') return <svg className="dk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{TABLE_PATH}</svg>;
+  if (kind === 'togo') return <svg className="dk-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{CUP_PATH}</svg>;
   return <Icon name={kind === 'delivery' ? 'send' : 'bag'} />;
 }
 

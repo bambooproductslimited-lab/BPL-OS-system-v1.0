@@ -41,7 +41,7 @@ import './KdsPage.css';
 // dropped connection (it shows the last it had, and says so). Timers run
 // on the server's clock, whatever the screen's own clock says.
 //
-// Each ticket says dine in, pickup or delivery (with the address and
+// Each ticket says dine in, to go, pickup or delivery (with the address and
 // phone), and each dish its note. When the till settings ask for it
 // (kitchen.printReady), finishing a ticket prints one for the runner: the
 // number, who it is for and where it goes, every dish — on a thermal
@@ -115,6 +115,7 @@ function mmss(ms) {
 }
 function timeOf(iso) { return new Date(iso).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }); }
 function whereOf(t) {
+  if (t.fulfillment === 'togo') return (t.label || t.guestName || '') + ' · ' + tr('To go');
   if (t.fulfillment === 'pickup') return (t.label || t.guestName || '') + ' · ' + tr('Counter');
   if (t.fulfillment === 'delivery') return t.guestName || t.label || tr('Delivery');
   return t.tableName || t.label || t.guestName || tr('Counter');
@@ -641,7 +642,7 @@ export default function KdsPage() {
         <div className="kds-print" aria-hidden="true">
           <p className="kds-print-co">{session.companyName}</p>
           <p className="kds-print-no">#{paper.number} · {tr('READY')}</p>
-          <p className="kds-print-where">{paper.fulfillment === 'pickup' ? tr('Counter') : paper.fulfillment === 'delivery' ? tr('Delivery') : (paper.tableName || paper.label || tr('Counter'))}</p>
+          <p className="kds-print-where">{paper.fulfillment === 'togo' ? tr('To go') : paper.fulfillment === 'pickup' ? tr('Counter') : paper.fulfillment === 'delivery' ? tr('Delivery') : (paper.tableName || paper.label || tr('Counter'))}</p>
           {paper.fulfillment === 'dine_in' && <p>{fulfillmentName(paper.fulfillment)}</p>}
           {(paper.guestName || paper.label) && <p><b>{tr('For:')}</b> {paper.guestName || paper.label}</p>}
           {paper.fulfillment === 'delivery' && <p><b>{tr('To:')}</b> {paper.deliveryAddress}<br />{paper.customerPhone}</p>}

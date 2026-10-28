@@ -21,7 +21,7 @@ import './online.css';
 function whenText(at) {
   return new Date(at).toLocaleString(activeIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
-const FULFIL = { dine_in: ['🍽️', () => tr('Dine in')], pickup: ['🥡', () => tr('Pickup')], delivery: ['🛵', () => tr('Delivery')] };
+const FULFIL = { dine_in: ['🍽️', () => tr('Dine in')], togo: ['🥤', () => tr('To go')], pickup: ['🥡', () => tr('Pickup')], delivery: ['🛵', () => tr('Delivery')] };
 
 export default function OnlineReceipt({ token }) {
   const [r, setR] = useState(null);

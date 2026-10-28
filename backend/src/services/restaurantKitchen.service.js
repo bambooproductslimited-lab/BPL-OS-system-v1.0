@@ -55,7 +55,7 @@ function modsOut(text) {
   try { return JSON.parse(text).map(function (m) { return { how: m[0], name: m[1] }; }); } catch (e) { return []; }
 }
 
-var WHERE_NAME = { dine_in: 'Dine in', pickup: 'Pickup', delivery: 'Delivery' };
+var WHERE_NAME = { dine_in: 'Dine in', togo: 'To go', pickup: 'Pickup', delivery: 'Delivery' };
 
 async function activeStations(client, companyId) {
   return (await client.query('SELECT * FROM restaurant_kds_stations WHERE company_id = $1 AND active ORDER BY sort_order, name', [companyId])).rows;
@@ -457,7 +457,7 @@ async function readyText(companyId, ticketId) {
   var settings = (await access.settingsOf(companyId)).readyText;
   if (!settings.on) return null;
   var t = (await pool.query('SELECT t.*, c.name AS company_name FROM restaurant_kitchen_tickets t JOIN companies c ON c.id = t.company_id WHERE t.id = $1', [ticketId])).rows[0];
-  if (!t || t.fulfillment !== 'pickup' || !t.customer_phone || t.status !== 'ready') return null;
+  if (!t || (t.fulfillment !== 'pickup' && t.fulfillment !== 'togo') || !t.customer_phone || t.status !== 'ready') return null;
   var by = t.tab_id ? 'tab_id' : 'order_id', key = t.tab_id || t.order_id;
   if (!key) return null;
   var others = (await pool.query("SELECT count(*) FILTER (WHERE status IN ('cooking', 'held'))::int AS cooking, count(*) FILTER (WHERE ready_text IS NOT NULL)::int AS texted " +

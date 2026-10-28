@@ -35,7 +35,7 @@ var OFF_AT_FIRST = ['card'];
 // did not choose about these, so they are on.
 var OLD_METHODS = ['cash', 'mobile_money', 'vip', 'iou', 'other'];
 var CURRENCIES = ['USD', 'CNY'];
-var FULFILLMENTS = ['dine_in', 'pickup', 'delivery'];
+var FULFILLMENTS = ['dine_in', 'togo', 'pickup', 'delivery'];
 var ROLES = ['manager', 'cashier', 'waiter', 'kitchen', 'none'];
 var EDITABLE_ROLES = ['cashier', 'waiter', 'kitchen'];
 // keepOpen is "send orders to the kitchen" (an order kept open to pay
@@ -76,7 +76,7 @@ var DEFAULTS = {
   // percentage, on the order types picked; taxed: the taxes are charged on
   // it too) and the taxes (included in the menu prices, or added on top).
   discounts: [],
-  serviceCharge: { on: false, name: 'Service charge', rate: 10, types: { dine_in: true, pickup: false, delivery: false }, taxed: true },
+  serviceCharge: { on: false, name: 'Service charge', rate: 10, types: { dine_in: true, togo: false, pickup: false, delivery: false }, taxed: true },
   tax: { included: true, list: [] },
   // The clock (restaurantTillTimes.service.js): courses (the later ones
   // wait at the kitchen until called; each category's course, 0 right
@@ -398,7 +398,7 @@ function cleanSettings(p, base) {
     });
   }
   if (p.defaultFulfillment !== undefined) {
-    if (['dine_in', 'pickup'].indexOf(p.defaultFulfillment) < 0) fail('invalid', 'A new order starts as dine in or pickup.');
+    if (['dine_in', 'togo', 'pickup'].indexOf(p.defaultFulfillment) < 0) fail('invalid', 'A new order starts as dine in, to go or pickup.');
     out.defaultFulfillment = p.defaultFulfillment;
   }
   if (p.receipt) {

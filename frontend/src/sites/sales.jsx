@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import '../index.css';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { I18nProvider } from '../components/I18nProvider.jsx';
+import { installTypeToSearch } from '../lib/typeToSearch.js';
 import { AuthProvider } from '../auth/AuthContext';
 import { API_URL } from '../api/client';
 import SalesApp from '../pages/sales/SalesApp.jsx';
@@ -18,6 +19,9 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js?api=' + encodeURIComponent(API_URL), { scope: '/' }).catch(() => {});
   });
 }
+
+// Every dropdown searchable, and typing goes into a screen's search box.
+installTypeToSearch();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

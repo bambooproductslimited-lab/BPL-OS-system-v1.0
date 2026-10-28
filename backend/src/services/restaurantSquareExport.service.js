@@ -28,7 +28,7 @@ var PER_LOCATION = ['Enabled', 'Current Quantity', 'New Quantity', 'Stock Alert 
 var SALES_HEAD = ['Date', 'Time', 'Time Zone', 'Category', 'Item', 'Qty', 'Price Point Name', 'SKU', 'Modifiers Applied', 'Gross Sales', 'Discounts', 'Net Sales', 'Tax',
   'Transaction ID', 'Payment ID', 'Device Name', 'Notes', 'Details', 'Event Type', 'Location', 'Dining Option', 'Unit', 'Count', 'Itemization Type',
   'Fulfillment Note', 'Channel', 'Token', 'Card Brand', 'PAN Suffix'];
-var DINING = { dine_in: 'For Here', pickup: 'To Go', delivery: 'Delivery' };
+var DINING = { dine_in: 'For Here', togo: 'To Go', pickup: 'To Go', delivery: 'Delivery' };
 // The item library's item types as the sales download writes them.
 var SALES_TYPE = { 'Physical good': 'Physical Good', 'Prepared food and beverage': 'Prepared Food and Beverage', Service: 'Service', Digital: 'Digital', Event: 'Event', Donation: 'Donation', Membership: 'Membership' };
 var DAY = /^\d{4}-\d{2}-\d{2}$/;

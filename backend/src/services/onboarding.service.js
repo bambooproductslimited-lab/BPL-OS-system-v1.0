@@ -201,6 +201,8 @@ async function start(ctx, p, opts) {
   held.tools.forEach(function (t) { rows.push({ title: 'Hand back ' + t.label, owner: 'manager', due: day, kind: 'tool', ref: t.id }); });
   held.assets.forEach(function (a) { rows.push({ title: 'Hand back ' + a.label, owner: 'manager', due: day, kind: 'asset', ref: a.id }); });
   held.ppe.forEach(function (x) { rows.push({ title: 'Hand back ' + x.label, owner: 'hr', due: day, kind: 'ppe', ref: x.id }); });
+  // A joiner signs the policies that apply to them (ticked when they do).
+  if (kind === 'join') (await require('./policies.service').forJoiner(e.id)).forEach(function (x) { rows.push({ title: 'Read and sign: ' + x.title, owner: 'person', due: addDays(day, Math.min(x.sign_days, 14)), kind: 'policy', ref: x.id }); });
   var listId = await withTransaction(async function (db) {
     var l = (await db.query('INSERT INTO onboard_lists (employee_id, kind, day, reason, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id', [e.id, kind, day, reason, me(ctx)])).rows[0];
     for (var i = 0; i < rows.length; i++) {
@@ -242,6 +244,7 @@ async function tick(ctx, id, p) {
   var done = p.done !== false;
   if (done && s.kind === 'exit_interview' && !(await pool.query('SELECT exit FROM onboard_lists WHERE id = $1', [s.list])).rows[0].exit) fail('invalid', 'Write the exit interview first.');
   if (done && s.kind === 'mark_left' && !ctx.can('employee.write')) fail('forbidden', 'Marking them as left needs employee.write.');
+  if (done && s.kind === 'policy' && s.ref_id && !(await require('./policies.service').hasSigned(s.ref_id, s.employee_id))) fail('invalid', 'They sign it themselves, in My space: it ticks itself when they do.');
   await withTransaction(async function (db) {
     await db.query('UPDATE onboard_steps SET done_at = $2, done_by = $3, note = $4 WHERE id = $1', [s.id, done ? new Date() : null, done ? me(ctx) : null, p.note === undefined ? s.note : text(p.note, 300)]);
     if (done && s.ref_id) {

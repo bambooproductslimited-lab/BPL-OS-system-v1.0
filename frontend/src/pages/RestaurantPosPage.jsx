@@ -1307,6 +1307,7 @@ export default function RestaurantPosPage() {
   }
   function whereText() {
     if (fulfillment === 'dine_in') return selectedTable ? selectedTable.name : currentTab ? currentTab.name : tr('No table');
+    if (fulfillment === 'togo') return tr('To go');
     if (fulfillment === 'pickup') return tr('Counter');
     return delivery.address || tr('Delivery');
   }
@@ -1440,6 +1441,7 @@ export default function RestaurantPosPage() {
   function pickupLabel() {
     if (currentTab && currentTab.label) return currentTab.label;
     if (fulfillment === 'delivery') return delivery.name;
+    if (fulfillment === 'togo') return (selectedGuest && selectedGuest.name) || tr('To go') + ' ' + now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
     if (fulfillment === 'pickup') return pickupWho().name || tr('Counter') + ' ' + now.toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' });
     return '';
   }
@@ -1540,7 +1542,7 @@ export default function RestaurantPosPage() {
     } catch (err) { setToast(err.message); }
   }
   function tabName(t) {
-    if (t.fulfillment === 'pickup' || t.fulfillment === 'delivery') return t.label || t.customerName || t.guestName || fulfillmentName(t.fulfillment);
+    if (t.fulfillment === 'togo' || t.fulfillment === 'pickup' || t.fulfillment === 'delivery') return t.label || t.customerName || t.guestName || fulfillmentName(t.fulfillment);
     return t.tableName || t.label || t.guestName || tr('Order');
   }
   function openTab(t, pay) {
@@ -1983,7 +1985,7 @@ export default function RestaurantPosPage() {
       </div>
       {appOrder && <AppBanner app={appOrder} total={cartTotal} onChange={() => setAppPickOpen(true)} onCancel={() => setAppOrder(null)} />}
       {!appOrder && (<>
-      <div className="tl-ful-switch" role="radiogroup" aria-label={tr('Dine in, pickup or delivery')}>
+      <div className="tl-ful-switch" role="radiogroup" aria-label={tr('Dine in, to go, pickup or delivery')}>
         {FULFILLMENT.map((f) => (
           <button key={f.key} type="button" role="radio" aria-checked={fulfillment === f.key} className={'is-' + f.key + (fulfillment === f.key ? ' is-on' : '')}
             onClick={() => {
@@ -2004,6 +2006,9 @@ export default function RestaurantPosPage() {
             <WhoGlyph name="waiter" /><small>{tr('Waiter')}</small><span>{selectedWaiter ? selectedWaiter.name : tr('None')}</span>
           </button>
         </>)}
+        {fulfillment === 'togo' && (
+          <span className="pos-who-fixed is-togo"><FulfillmentIcon kind="togo" /><small>{tr('To go')}</small><span>{tr('Packed to take away')}</span></span>
+        )}
         {fulfillment === 'pickup' && (
           <button type="button" className={'pos-who-wide' + (pickupWho().name && pickupWho().phone ? ' is-set' : ' is-needed')} onClick={() => setDeliveryOpen(true)}>
             <Icon name="bag" /><small>{tr('Pickup for')}</small><span>{pickupWho().name ? pickupWho().name + (pickupWho().phone ? ' · ' + pickupWho().phone : '') : tr('Name and phone')}</span>
@@ -2069,7 +2074,7 @@ export default function RestaurantPosPage() {
             <strong>{tr('Ready for the next order')}</strong>
             <p>{tr('Nothing on this order yet. Tap dishes on the left; tap again to add another.')}</p>
             <ol className="pos-steps">
-              <li><b>1</b>{tr('Dine in, pickup or delivery')}</li>
+              <li><b>1</b>{tr('Dine in, to go, pickup or delivery')}</li>
               <li><b>2</b>{tr('Tap the dishes; ✎ adds a note to one')}</li>
               <li><b>3</b>{tr('Send it to the kitchen, or charge it')}</li>
             </ol>
@@ -2569,7 +2574,7 @@ export default function RestaurantPosPage() {
                   <li key={t.id} className="dk-row">
                     <span className="pos-ready-no">#{t.number}</span>
                     <div className="dk-row-main">
-                      <div className="dk-row-title">{t.fulfillment === 'pickup' ? (t.label || t.guestName || tr('Counter')) : t.fulfillment === 'delivery' ? (t.guestName || t.label) : (t.tableName || t.label || t.guestName || tr('Counter'))}
+                      <div className="dk-row-title">{t.fulfillment === 'togo' ? (t.label || t.guestName || tr('To go')) : t.fulfillment === 'pickup' ? (t.label || t.guestName || tr('Counter')) : t.fulfillment === 'delivery' ? (t.guestName || t.label) : (t.tableName || t.label || t.guestName || tr('Counter'))}
                         {t.fulfillment && <span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span>}
                         {t.onlineRef && <span className="tl-web">{t.onlineRef}</span>}</div>
                       <div className="dk-muted dk-row-meta">{[t.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: t.dishes }), t.waiterName, t.waitingMinutes ? tr('ready {n} min ago', { n: t.waitingMinutes }) : tr('just ready')].filter(Boolean).join(' · ')}</div>

@@ -56,7 +56,7 @@ export function AllergyStrip({ allergy, onClick, className }) {
 
 function chitHtml(c, settings) {
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
-  const where = c.fulfillment === 'pickup' ? tr('Counter') : c.fulfillment === 'delivery' ? tr('Delivery') : (c.tableName || c.label || tr('Counter'));
+  const where = c.fulfillment === 'togo' ? tr('To go') : c.fulfillment === 'pickup' ? tr('Counter') : c.fulfillment === 'delivery' ? tr('Delivery') : (c.tableName || c.label || tr('Counter'));
   const items = c.items.map((it) => {
     const bad = clashes(it.allergens, { list: c.allergens });
     return '<li><b>' + (it.seat ? '[S' + it.seat + '] ' : '') + esc(it.qty) + ' × ' + esc(it.name) + '</b>' +
@@ -93,7 +93,7 @@ export function KitchenChits({ chits, settings, onClose }) {
         <div className="tl-chit-list">
           {chits.map((c, i) => (
             <article key={i} className="tl-chit">
-              <header><small>{c.station}</small><strong>#{c.number}</strong><span>{c.fulfillment === 'pickup' ? tr('Counter') : c.fulfillment === 'delivery' ? tr('Delivery') : (c.tableName || c.label)}</span></header>
+              <header><small>{c.station}</small><strong>#{c.number}</strong><span>{c.fulfillment === 'togo' ? tr('To go') : c.fulfillment === 'pickup' ? tr('Counter') : c.fulfillment === 'delivery' ? tr('Delivery') : (c.tableName || c.label)}</span></header>
               {c.course > 0 && <p className="tl-chit-course">{courseName(settings, c.course, tr)}</p>}
               <AllergyStrip allergy={(c.allergens || []).length || c.allergy ? { list: c.allergens, note: c.allergy } : null} />
               <ul className="is-plain">

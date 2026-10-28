@@ -62,7 +62,7 @@ async function byArea(companyId, p, settings) {
     else if (r.channel === 'website') { key = 'Website'; kind = 'website'; }
     else if (r.channel === 'kiosk') { key = 'Kiosk'; kind = 'kiosk'; }
     else if (r.fulfillment === 'delivery') { key = 'Delivery'; kind = 'delivery'; }
-    else if (r.fulfillment === 'pickup') { key = 'Takeaway'; kind = 'takeaway'; }
+    else if (r.fulfillment === 'pickup' || r.fulfillment === 'togo') { key = 'Takeaway'; kind = 'takeaway'; }
     else if (r.at_table) { key = r.area || 'Tables'; kind = 'floor'; }
     else { key = r.channel === 'square' ? 'Square' : 'Counter'; kind = r.channel === 'square' ? 'square' : 'counter'; }
     if (!out[key]) out[key] = { name: key, kind: kind, orders: 0, amount: 0 };

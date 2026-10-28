@@ -43,7 +43,7 @@ async function ordersOf(companyId) {
     "SELECT k.id, k.number, k.label, k.status, k.created_at, k.ready_at, k.tab_id, k.order_id, k.guest_name, coalesce(t.customer_name, o.customer_name) AS customer_name, " +
     "  coalesce(t.fulfillment, o.fulfillment) AS fulfillment FROM restaurant_kitchen_tickets k LEFT JOIN restaurant_open_tabs t ON t.id = k.tab_id LEFT JOIN restaurant_orders o ON o.id = k.order_id " +
     "WHERE k.company_id = $1 AND k.status IN ('held', 'cooking', 'ready', 'served') AND k.created_at > now() - ($2 || ' hours')::interval " +
-    "  AND (coalesce(t.fulfillment, o.fulfillment) = 'pickup' OR k.label ~ '^[KW]-[0-9]') ORDER BY k.created_at", [companyId, String(WINDOW_HOURS)])).rows;
+    "  AND (coalesce(t.fulfillment, o.fulfillment) IN ('pickup', 'togo') OR k.label ~ '^[KW]-[0-9]') ORDER BY k.created_at", [companyId, String(WINDOW_HOURS)])).rows;
   var groups = {}, order = [];
   rows.forEach(function (r) {
     var g = r.tab_id || r.order_id || r.id;

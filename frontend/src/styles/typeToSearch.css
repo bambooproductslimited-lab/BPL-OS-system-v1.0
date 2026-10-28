@@ -1,0 +1,70 @@
+/* Type to search on every dropdown (lib/typeToSearch.js): the list that
+   opens instead of the browser's own, under the dropdown on a wide screen
+   and as a sheet from the bottom on a phone. Light, dark and glass. */
+
+.tts-layer {
+  position: fixed; inset: 0; z-index: 2147483000;
+  width: auto; height: auto; max-width: none; max-height: none;
+  margin: 0; padding: 0; border: 0; overflow: visible;
+  color: var(--color-text); background: transparent;
+  pointer-events: none;
+}
+.tts-layer::backdrop { background: transparent; }
+.tts {
+  position: fixed; display: flex; flex-direction: column; min-height: 0;
+  pointer-events: auto; overflow: hidden;
+  font-family: var(--font-body, system-ui, sans-serif); font-size: 14px; line-height: 1.35;
+  color: var(--color-text); background: var(--color-bg, #fff);
+  border: 1px solid var(--color-border, #d9d6d1); border-radius: 14px;
+  box-shadow: 0 2px 6px rgba(20, 20, 40, .08), 0 22px 48px -18px rgba(20, 20, 40, .42);
+  animation: tts-in .14s ease-out;
+}
+@keyframes tts-in { from { opacity: 0; transform: translateY(-4px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.tts-field { position: relative; display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin: 8px; padding: 0 10px; border-radius: 10px; background: var(--color-bg-subtle, #f7f7f5); border: 1px solid var(--color-divider, #e4e2df); }
+.tts-field:focus-within { border-color: var(--color-accent, #3f7d3b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent, #3f7d3b) 18%, transparent); }
+.tts-field svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--color-text-muted); }
+.tts-input { flex: 1; min-width: 0; height: 38px; padding: 0; font: inherit; font-size: 15px; color: inherit; background: none; border: 0; outline: none; }
+.tts-input::placeholder { color: var(--color-text-faint, rgba(32, 30, 29, .4)); }
+.tts-count { flex-shrink: 0; min-width: 0; padding: 1px 7px; font-size: 11px; font-weight: 800; color: var(--color-text-muted); border-radius: 999px; background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.tts-count:empty { display: none; }
+
+.tts-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 6px; -webkit-overflow-scrolling: touch; }
+.tts-group { position: sticky; top: 0; z-index: 1; padding: 9px 10px 4px; font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); background: var(--color-bg, #fff); }
+.tts-opt { position: relative; display: flex; align-items: baseline; gap: 8px; min-height: 38px; padding: 9px 30px 9px 10px; border-radius: 9px; cursor: pointer; user-select: none; }
+.tts-opt .tts-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tts-opt small { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--color-text-muted); }
+.tts-opt mark { padding: 0 1px; color: inherit; font-weight: 800; background: color-mix(in srgb, var(--color-accent, #3f7d3b) 22%, transparent); border-radius: 3px; }
+.tts-opt.is-active { background: var(--color-accent-100, #e8f1e7); }
+.tts-opt.is-chosen { font-weight: 700; }
+.tts-opt.is-chosen::after { content: ''; position: absolute; right: 11px; top: 50%; width: 6px; height: 11px; margin-top: -7px; border: solid var(--color-accent, #3f7d3b); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg); }
+.tts-opt.is-off { cursor: default; opacity: .45; }
+.tts-none { padding: 18px 12px 20px; text-align: center; font-size: 13px; color: var(--color-text-muted); }
+
+/* a phone: a sheet from the bottom over a dimmed page */
+.tts-layer.is-sheet { pointer-events: auto; background: rgba(15, 18, 30, .38); animation: tts-dim .16s ease-out; }
+@keyframes tts-dim { from { background: rgba(15, 18, 30, 0); } }
+.tts-layer.is-sheet .tts { left: 0; right: 0; bottom: 0; top: auto; max-height: min(78vh, 560px); border-radius: 20px 20px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom, 0); animation: tts-up .2s cubic-bezier(.2, .8, .2, 1); }
+@keyframes tts-up { from { transform: translateY(40%); opacity: .4; } to { transform: none; opacity: 1; } }
+.tts-layer.is-sheet .tts::before { content: ''; align-self: center; flex-shrink: 0; width: 38px; height: 4px; margin: 8px 0 2px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 22%, transparent); }
+.tts-head { flex-shrink: 0; padding: 6px 16px 0; font-size: 15px; font-weight: 800; }
+.tts-layer.is-sheet .tts-opt { min-height: 46px; font-size: 15px; }
+.tts-layer.is-sheet .tts-input { font-size: 16px; }
+
+/* the dropdown while its list is open */
+select.tts-is-open { outline: 2px solid var(--color-accent, #3f7d3b); outline-offset: 1px; }
+
+:root[data-theme='dark'] .tts { background: #151d2f; border-color: #2c3a5e; box-shadow: 0 2px 6px rgba(0, 0, 0, .3), 0 24px 52px -16px rgba(0, 0, 0, .7); }
+:root[data-theme='dark'] .tts-group { background: #151d2f; }
+:root[data-theme='dark'] .tts-field { background: #1b2437; border-color: #2c3a5e; }
+:root[data-theme='dark'] .tts-opt.is-active { background: rgba(110, 231, 183, .13); }
+:root[data-theme='dark'] .tts-opt mark { background: rgba(110, 231, 183, .25); }
+:root[data-theme='dark'] .tts-opt.is-chosen::after { border-color: #6ee7b7; }
+
+:root[data-theme='glass'] .tts { background: rgba(255, 255, 255, .74); border-color: rgba(255, 255, 255, .8); -webkit-backdrop-filter: blur(30px) saturate(190%); backdrop-filter: blur(30px) saturate(190%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 2px 6px rgba(31, 38, 80, .08), 0 24px 48px -18px rgba(31, 38, 80, .42); }
+:root[data-theme='glass'] .tts-group { background: rgba(250, 251, 255, .92); }
+:root[data-theme='glass'] .tts-field { background: rgba(255, 255, 255, .6); border-color: rgba(60, 60, 67, .12); }
+:root[data-theme='glass'] .tts-opt.is-active { background: rgba(74, 222, 158, .2); }
+:root[data-theme='glass'] .tts-layer.is-sheet { background: rgba(30, 36, 70, .22); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+
+@media (prefers-reduced-motion: reduce) { .tts, .tts-layer.is-sheet, .tts-layer.is-sheet .tts { animation: none; } }

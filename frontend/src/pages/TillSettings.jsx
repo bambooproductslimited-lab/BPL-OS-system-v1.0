@@ -452,7 +452,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
                       </button>
                     ))}
                   </div>
-                  <small className="dk-muted">{tr('The cashier can switch any order to dine in, pickup or delivery.')}</small>
+                  <small className="dk-muted">{tr('The cashier can switch any order to dine in, to go, pickup or delivery.')}</small>
                 </div>
                 <button type="button" role="switch" aria-checked={draft.requireWaiter} className="ts-toggle-row" onClick={() => set(['requireWaiter'], !draft.requireWaiter)}>
                   <span><strong>{tr('Every table needs its waiter')}</strong><small>{tr('An order at a table cannot be sent to the kitchen or charged without picking the waiter.')}</small></span>

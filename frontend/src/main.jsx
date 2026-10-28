@@ -8,6 +8,10 @@ import { I18nProvider } from './components/I18nProvider.jsx'
 import { AuthProvider } from './auth/AuthContext'
 import { API_URL } from './api/client'
 import { LazySalesApp } from './pages/sales/lazySalesApp.js'
+import { installTypeToSearch } from './lib/typeToSearch.js'
+
+// Every dropdown searchable, and typing goes into a screen's search box.
+installTypeToSearch()
 
 // oseitutu.com/sales is the sales team's own app (pages/sales/SalesApp.jsx),
 // the same one as sales.oseitutu.com (src/sites/sales.jsx): only Sales &
