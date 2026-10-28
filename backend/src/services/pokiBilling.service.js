@@ -179,7 +179,8 @@ function rowToReading(r) {
     periodStart: r.period_start, periodEnd: r.period_end,
     previousReading: Number(r.previous_reading), currentReading: Number(r.current_reading),
     consumption: Number(r.consumption), rate: Number(r.rate), amount: Number(r.amount),
-    invoiceId: r.invoice_id, invoiceNo: r.invoice_no || null, readOn: r.read_on, notes: r.notes
+    invoiceId: r.invoice_id, invoiceNo: r.invoice_no || null, readOn: r.read_on, notes: r.notes,
+    hasPhoto: !!(r.photo && r.photo.key), photoAt: r.photo && r.photo.at ? r.photo.at : null
   };
 }
 
@@ -224,12 +225,13 @@ async function recordReading(ctx, p) {
   var consumption = money(current - previous);
   var rate = p.rate !== undefined ? num(p.rate) : Number(m.rate);
   var amount = money(consumption * rate);
+  var photo = p.photo ? await meterPhoto(p.photo, m, periodEnd) : null;
 
   var res = await pool.query(
-    'INSERT INTO poki_meter_readings (meter_id, period_start, period_end, previous_reading, current_reading, consumption, rate, amount, read_on, read_by, notes) ' +
-    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id',
+    'INSERT INTO poki_meter_readings (meter_id, period_start, period_end, previous_reading, current_reading, consumption, rate, amount, read_on, read_by, notes, photo) ' +
+    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id',
     [p.meterId, periodStart, periodEnd, previous, current, consumption, rate, amount,
-      p.readOn || todayISO(), ctx.employee ? ctx.employee.id : null, (p.notes || '').trim()]
+      p.readOn || todayISO(), ctx.employee ? ctx.employee.id : null, (p.notes || '').trim(), photo ? JSON.stringify(photo) : null]
   );
   await audit(pool, ctx, 'poki.reading.record', 'poki_meter_reading', res.rows[0].id,
     'Recorded ' + m.utility_type + ' reading for ' + m.unit_code + ': ' + consumption + ' ' + m.measure_unit + '.');
@@ -241,6 +243,44 @@ async function recordReading(ctx, p) {
     [res.rows[0].id]
   );
   return rowToReading(full.rows[0]);
+}
+
+// The photo of the meter taken with a reading (sent as a data URL, shrunk
+// by the browser first): kept in the file store as the proof of the figure.
+async function meterPhoto(dataUrl, m, periodEnd) {
+  var name = 'meter-' + String(m.unit_code || 'unit').replace(/[^A-Za-z0-9-]+/g, '-') + '-' + m.utility_type + '-' + periodEnd;
+  var ph = await require('./restaurantCashOffice.service').photoFrom(dataUrl, name);
+  return { key: ph.key, type: ph.type, at: new Date().toISOString() };
+}
+
+// PUT /api/poki/readings/:id/photo { photo } — a photo added to a reading
+// afterwards, or a better one; { photo: null } takes it off. A billed
+// reading can take one too: the photo backs the figure, it changes no money.
+async function setReadingPhoto(ctx, id, p) {
+  poki.canManage(ctx);
+  var companyId = await poki.pokiCompanyId();
+  var r = (await pool.query(
+    'SELECT r.id, r.period_end, r.photo, m.utility_type, u.code AS unit_code FROM poki_meter_readings r JOIN poki_meters m ON m.id = r.meter_id ' +
+    'JOIN poki_units u ON u.id = m.unit_id JOIN poki_properties pr ON pr.id = u.property_id WHERE r.id = $1 AND pr.company_id = $2', [id, companyId])).rows[0];
+  if (!r) fail('notfound', 'Reading not found.');
+  var photo = p && p.photo ? await meterPhoto(p.photo, r, r.period_end) : null;
+  await pool.query('UPDATE poki_meter_readings SET photo = $1 WHERE id = $2', [photo ? JSON.stringify(photo) : null, id]);
+  await audit(pool, ctx, photo ? 'poki.reading.photo' : 'poki.reading.photo_remove', 'poki_meter_reading', id,
+    (photo ? (r.photo ? 'Replaced' : 'Added') + ' the meter photo on the ' : 'Took the meter photo off the ') + r.utility_type + ' reading for ' + r.unit_code + '.');
+  var rows = await listReadings(ctx, {});
+  return rows.find(function (x) { return x.id === id; });
+}
+
+// GET /api/poki/readings/:id/photo — the meter photo, for staff who can see
+// the property billing.
+async function readingPhoto(ctx, id) {
+  poki.canRead(ctx);
+  var companyId = await poki.pokiCompanyId();
+  var r = (await pool.query(
+    'SELECT r.photo, r.period_end, m.utility_type, u.code AS unit_code FROM poki_meter_readings r JOIN poki_meters m ON m.id = r.meter_id ' +
+    'JOIN poki_units u ON u.id = m.unit_id JOIN poki_properties pr ON pr.id = u.property_id WHERE r.id = $1 AND pr.company_id = $2', [id, companyId])).rows[0];
+  if (!r || !r.photo || !r.photo.key) fail('notfound', 'No photo on this reading.');
+  return { key: r.photo.key, name: 'meter-' + r.unit_code + '-' + r.utility_type + (r.photo.type === 'image/png' ? '.png' : r.photo.type === 'image/webp' ? '.webp' : '.jpg') };
 }
 
 // A reading entered by mistake: deleted, as long as it hasn't been billed
@@ -981,7 +1021,7 @@ async function saveAgreement(ctx, bookingId, body) {
 
 module.exports = {
   listMeters: listMeters, createMeter: createMeter, updateMeter: updateMeter,
-  listReadings: listReadings, recordReading: recordReading, billReadings: billReadings, previewReadingsBill: previewReadingsBill, deleteReading: deleteReading, releaseReadings: releaseReadings,
+  listReadings: listReadings, recordReading: recordReading, setReadingPhoto: setReadingPhoto, readingPhoto: readingPhoto, billReadings: billReadings, previewReadingsBill: previewReadingsBill, deleteReading: deleteReading, releaseReadings: releaseReadings,
   listMasterBills: listMasterBills, createMasterBill: createMasterBill, masterBillSplit: masterBillSplit, billMasterBill: billMasterBill,
   arrears: arrears, listInvoices: listInvoices,
   listRequests: listRequests, createRequest: createRequest, updateRequest: updateRequest, chargeRequestToTenant: chargeRequestToTenant,

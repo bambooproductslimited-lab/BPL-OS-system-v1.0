@@ -22,6 +22,7 @@ import './PokiPages.css';
 import './PokiRentals.css';
 import { PkBanner } from './PokiFun';
 import RowMenu from '../components/RowMenu';
+import { MeterPhotoField, MeterPhotoThumb, MeterPhotoViewer } from '../components/MeterPhoto';
 
 import { tr, activeIntlLocale, docTr } from '../lib/i18n.jsx';
 import { formatDocDate } from '../lib/dates';
@@ -79,6 +80,7 @@ export default function PokiBillingPage() {
   const [units, setUnits] = useState([]);
   const [meters, setMeters] = useState([]);
   const [readings, setReadings] = useState([]);
+  const [meterPhoto, setMeterPhoto] = useState(null); // the reading whose meter photo is open
   const [masterBills, setMasterBills] = useState([]);
   const [properties, setProperties] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -221,7 +223,7 @@ export default function PokiBillingPage() {
         setToast(tr('Meter added.'));
       } else if (dialog === 'reading') {
         await api.post('/poki/readings', form);
-        setToast(tr('Reading recorded.'));
+        setToast(form.photo ? tr('Reading recorded, with the photo of the meter.') : tr('Reading recorded.'));
       } else if (dialog === 'master') {
         await api.post('/poki/master-bills', form);
         setToast(tr('Master bill recorded.'));
@@ -549,6 +551,7 @@ export default function PokiBillingPage() {
                       <div className="tl-tags">
                         {late ? <Status tone="warn">{m.lastReadOn ? tr('Last read {date}', { date: fmtDate(m.lastReadOn) }) : tr('Never read')}</Status> : m.lastReadOn ? <Status tone="muted">{tr('Last read {date}', { date: fmtDate(m.lastReadOn) })}</Status> : <Status tone="muted">{tr('Never read')}</Status>}
                         {waiting.length > 0 && <Status tone="warn">{tr('{amount} not billed', { amount: money(waiting.reduce((t, r) => t + r.amount, 0)) })}</Status>}
+                        {rs[0] && rs[0].hasPhoto && <span className="pk-meter-photo"><MeterPhotoThumb reading={rs[0]} onOpen={setMeterPhoto} size={46} /></span>}
                       </div>
                       <div className="tl-foot">
                         <span className="dk-muted tl-small">{tr('reading {n} {unit}', { n: m.lastReading, unit: m.measureUnit })} · {tr('{rate} per {unit}', { rate: money(m.rate), unit: m.measureUnit })}</span>
@@ -576,6 +579,9 @@ export default function PokiBillingPage() {
                       {!r.invoiceId && canManage
                         ? <input type="checkbox" checked={!!selected['r_' + r.id]} onChange={(e) => setSelected({ ...selected, ['r_' + r.id]: e.target.checked })} aria-label={tr('Select reading for {unitCode}', { unitCode: r.unitCode })} />
                         : <span className="pk-reading-pad" />}
+                      {r.hasPhoto ? <MeterPhotoThumb reading={r} onOpen={setMeterPhoto} />
+                        : canManage ? <button type="button" className="mtr-add" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMeterPhoto(r); }} aria-label={tr('Add a photo of the meter for {unit}', { unit: r.unitCode })} title={tr('Add a photo of the meter')}><span aria-hidden="true">📷</span></button>
+                        : <span className="mtr-none-pad" />}
                       <span className="rs-row-main">
                         <strong>{r.unitCode} · {codeLabel(r.utilityType)}</strong>
                         <span className="dk-muted tl-small">{fmtDate(r.periodStart)} – {fmtDate(r.periodEnd)} · {r.previousReading} → {r.currentReading} · {tr('{n} {unit} used', { n: r.consumption, unit: r.measureUnit })}</span>
@@ -585,7 +591,7 @@ export default function PokiBillingPage() {
                         {r.invoiceId ? <Status tone="good">{r.invoiceNo}</Status> : <Status tone="warn">{tr('unbilled')}</Status>}
                       </span>
                     </label>
-                    {!r.invoiceId && canManage && <RowMenu actions={[{ label: tr('Delete reading'), onClick: () => deleteReading(r), danger: true, disabled: busy }]} />}
+                    {canManage && <RowMenu actions={[{ label: r.hasPhoto ? tr('Meter photo') : tr('Add a photo of the meter'), onClick: () => setMeterPhoto(r) }].concat(!r.invoiceId ? [{ label: tr('Delete reading'), onClick: () => deleteReading(r), danger: true, disabled: busy }] : [])} />}
                   </li>
                 ))}
               </ul>
@@ -775,6 +781,9 @@ export default function PokiBillingPage() {
                 <div className="field">
                   <label htmlFor="prd-cur">{tr('Current reading')}</label>
                   <input id="prd-cur" className="input" type="number" step="0.001" value={form.currentReading} onChange={set('currentReading')} required />
+                </div>
+                <div className="field poki-dialog-span">
+                  <MeterPhotoField value={form.photo || null} onChange={(v) => setForm((f) => ({ ...f, photo: v }))} />
                 </div>
                 <p className="poki-dialog-hint">
                   {tr('Leave the previous reading blank to carry forward this meter\'s last recorded figure.')}
@@ -1005,6 +1014,12 @@ export default function PokiBillingPage() {
             </div>
           </form>
         </div>
+      )}
+
+      {meterPhoto && (
+        <MeterPhotoViewer reading={meterPhoto} canManage={canManage} utilityLabel={codeLabel} fmtDate={fmtDate}
+          onClose={() => setMeterPhoto(null)}
+          onChanged={(next) => setReadings((rs) => rs.map((x) => (x.id === next.id ? next : x)))} />
       )}
 
       {billIds && (

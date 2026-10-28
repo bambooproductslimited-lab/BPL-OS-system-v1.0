@@ -8,6 +8,7 @@ var pokiInvoices = require('../services/pokiInvoices.service');
 var rentSideMove = require('../services/rentSideMove.service');
 var recurring = require('../services/pokiRecurring.service');
 var invoiceCleanup = require('../services/invoiceCleanup.service');
+var fileStore = require('../lib/fileStore');
 
 // Poki (property rentals) — mounted at /api/poki. Every route is behind
 // requireAuth; the poki.read / poki.manage gates live in the services so
@@ -162,6 +163,12 @@ router.get('/readings', async function (req, res, next) {
 });
 router.post('/readings', async function (req, res, next) {
   try { res.status(201).json(await billing.recordReading(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.put('/readings/:id/photo', async function (req, res, next) {
+  try { res.json(await billing.setReadingPhoto(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.get('/readings/:id/photo', async function (req, res, next) {
+  try { var f = await billing.readingPhoto(req.ctx, req.params.id); await fileStore.send(res, f.key, f.name, true); } catch (e) { next(e); }
 });
 router.delete('/readings/:id', async function (req, res, next) {
   try { res.json(await billing.deleteReading(req.ctx, req.params.id)); } catch (e) { next(e); }
