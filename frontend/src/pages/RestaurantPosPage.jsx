@@ -1879,12 +1879,12 @@ export default function RestaurantPosPage() {
                   <span>{money(p.amount)}</span>
                 </div>
               ))}
-              {receipt.change > 0 && <div className="pos-receipt-line"><span>{tr('Change')}</span><span>{money(receipt.change)}</span></div>}
+              {receipt.change > 0 && <div className="pos-receipt-line"><span>{tr('Change due')}</span><span>{money(receipt.change)}</span></div>}
             </div>
           ) : receipt.cashTendered != null && (
             <div className="pos-receipt-lines pos-receipt-cash">
               <div className="pos-receipt-line"><span>{tr('Cash')}</span><span>{money(receipt.cashTendered)}</span></div>
-              <div className="pos-receipt-line"><span>{tr('Change')}</span><span>{money(receipt.change)}</span></div>
+              <div className="pos-receipt-line"><span>{tr('Change due')}</span><span>{money(receipt.change)}</span></div>
             </div>
           )}
           {receipt.refunds && receipt.refunds.length > 0 && (

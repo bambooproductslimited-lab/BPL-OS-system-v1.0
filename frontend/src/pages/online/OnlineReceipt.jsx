@@ -94,7 +94,7 @@ export default function OnlineReceipt({ token }) {
             {r.payments.map((p, i) => (
               <div key={i}><span>{methodName(p.method)}{p.giftCard ? ' •••• ' + p.giftCard : ''}{p.currency && p.currency !== 'GHS' && p.foreignAmount ? ' · ' + fmt(p.foreignAmount, p.currency) : ''}</span><b>{money(p.amount)}</b></div>
             ))}
-            {r.change > 0 && <div className="is-change"><span>{tr('Change')}</span><b>{money(r.change)}</b></div>}
+            {r.change > 0 && <div className="is-change"><span>{tr('Change due')}</span><b>{money(r.change)}</b></div>}
           </div>
         )}
 

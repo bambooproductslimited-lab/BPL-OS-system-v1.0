@@ -462,7 +462,7 @@ export default function PokiBillingPage() {
                       {i.balanceDue > 0 && i.status !== 'void' && t && <ContactButtons name={i.customerName} phone={t.phone} email={t.email} />}
                       <RowMenu actions={[
                         { label: tr('Print'), onClick: () => openPreview(i) },
-                        { label: tr('Change'), onClick: () => setEditId(i.id), hidden: !(canManage && i.status !== 'void' && EDITABLE.includes(i.docKind)) },
+                        { label: tr('Edit'), onClick: () => setEditId(i.id), hidden: !(canManage && i.status !== 'void' && EDITABLE.includes(i.docKind)) },
                         { label: tr('Credit note'), onClick: () => setCreditFor(i), hidden: !(canManage && i.status !== 'void' && (i.grandTotal - (i.creditTotal || 0) > 0.005 || i.amountPaid > i.grandTotal - (i.creditTotal || 0) + 0.005)) },
                         { label: tr('Void'), onClick: () => voidInvoice(i), disabled: busy, danger: true, hidden: !(canManage && i.status !== 'void' && Number(i.amountPaid) === 0) }
                       ]} />

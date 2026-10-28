@@ -244,7 +244,7 @@ function Account({ id, meta, onBack, onChanged }) {
           <p>{a.company}{a.bankName ? ' · ' + a.bankName : ''}{a.last4 ? ' · ••' + a.last4 : ''}{a.reconciledUntil ? ' · 🔒 ' + tr('reconciled up to {date}', { date: dayText(a.reconciledUntil, { year: 'numeric' }) }) : ''}</p>
         </div>
         <div className="x7-head-actions">
-          <button type="button" className="btn btn-secondary" onClick={() => setDlg('edit')}>✏️ {tr('Change')}</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setDlg('edit')}>✏️ {tr('Edit')}</button>
           <button type="button" className="btn btn-secondary" onClick={rematch}>⚡ {tr('Look for matches again')}</button>
           <button type="button" className="btn btn-secondary" onClick={() => setDlg('reconcile')}>🔒 {tr('Reconcile')}</button>
           <button type="button" className="btn btn-primary" onClick={() => setDlg('import')}>📥 {tr('Import a statement')}</button>

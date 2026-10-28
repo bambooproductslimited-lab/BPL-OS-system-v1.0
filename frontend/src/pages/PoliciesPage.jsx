@@ -133,7 +133,7 @@ function PolicySheet({ id, d, onClose, onChanged }) {
         {view === 'versions' && (!p.versions.length ? <p className="x7-muted">{tr('Not published yet.')}</p> : <ol className="lic-history">{p.versions.map((v) => <li key={v.version}><b>{tr('Version {n}', { n: v.version })} · {dayText(v.publishedAt, { year: 'numeric' })}</b><small>{[v.note, v.by].filter(Boolean).join(' · ')}</small></li>)}</ol>)}
         <div className="x7-actions">
           {p.status !== 'retired' && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => act('/retire', tr('Retire "{t}"? Nobody will be asked to sign it.', { t: p.title }))}>🗄️ {tr('Retire')}</button>}
-          {p.status !== 'retired' && <button type="button" className="btn btn-secondary is-end" onClick={() => setEditing(true)}>✏️ {tr('Change')}</button>}
+          {p.status !== 'retired' && <button type="button" className="btn btn-secondary is-end" onClick={() => setEditing(true)}>✏️ {tr('Edit')}</button>}
           {p.status === 'published' && p.mustSign && waiting.length + late.length > 0 && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => act('/remind')}>🔔 {tr('Remind {n}', { n: waiting.length + late.length })}</button>}
           {p.status === 'draft' && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act('/publish', tr('Publish "{t}"? Everyone it is for is told.', { t: p.title }))}>📢 {tr('Publish')}</button>}
         </div>

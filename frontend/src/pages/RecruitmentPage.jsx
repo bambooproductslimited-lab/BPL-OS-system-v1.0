@@ -223,7 +223,7 @@ function Opening({ id, meta, onBack, onChanged, openApplicant }) {
         </div>
         <div className="x7-head-actions">
           {o.open && <button type="button" className="btn btn-secondary" onClick={copy}>🔗 {copied ? tr('Link copied') : tr('Copy the link')}</button>}
-          <button type="button" className="btn btn-secondary" onClick={() => setDlg('edit')}>✏️ {tr('Change')}</button>
+          <button type="button" className="btn btn-secondary" onClick={() => setDlg('edit')}>✏️ {tr('Edit')}</button>
           <button type="button" className="btn btn-primary" onClick={() => setDlg('add')}>➕ {tr('Add an applicant')}</button>
         </div>
       </header>

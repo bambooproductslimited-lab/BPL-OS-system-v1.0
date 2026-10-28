@@ -123,7 +123,7 @@
 i.is-mat { background: #2563eb; } i.is-lab { background: #f59e0b; } i.is-ovh { background: #8b5cf6; }
 i.is-price { width: 3px !important; height: 14px !important; border-radius: 2px !important; background: var(--color-text); }
 .bom-rows { display: flex; flex-direction: column; gap: 4px; }
-.bom-row { display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1.5fr) 110px 70px 150px 84px; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 14px; border: 1px solid transparent; background: none; text-align: left; font: inherit; color: var(--color-text); cursor: pointer; }
+.bom-row { display: grid; grid-template-columns: minmax(150px, 1.3fr) minmax(120px, 1.5fr) 128px 70px 150px 84px; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; border-radius: 14px; border: 1px solid transparent; background: none; text-align: left; font: inherit; color: var(--color-text); cursor: pointer; }
 .bom-row:hover { border-color: var(--color-border); background: var(--x7-soft); }
 .bom-name, .bom-num { display: flex; flex-direction: column; min-width: 0; }
 .bom-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

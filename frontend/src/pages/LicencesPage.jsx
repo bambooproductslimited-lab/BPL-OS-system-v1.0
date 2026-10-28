@@ -205,7 +205,7 @@ function LicenceSheet({ id, d, onClose, onChanged }) {
         )}
         {!form && (
           <div className="x7-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => setDlg('edit')}>✏️ {tr('Change')}</button>
+            <button type="button" className="btn btn-secondary" onClick={() => setDlg('edit')}>✏️ {tr('Edit')}</button>
             {l.status === 'closed' ? <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => act('/reopen')}>♻️ {tr('Open it again')}</button> : <>
               <button type="button" className="btn btn-secondary" onClick={() => setForm({ k: 'close', note: '' })}>🗄️ {tr('No longer needed')}</button>
               {l.status !== 'renewing' && l.expiresOn && <button type="button" className="btn btn-secondary is-end" onClick={() => setForm({ k: 'applied', on: today(), note: '' })}>⏳ {tr('Applied for renewal')}</button>}
