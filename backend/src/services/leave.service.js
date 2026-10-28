@@ -328,7 +328,7 @@ async function setBalance(ctx, p) {
 }
 
 function rowToHoliday(r) {
-  return { id: r.id, companyId: r.company_id, date: r.date, name: r.name };
+  return { id: r.id, companyId: r.company_id, date: r.date, name: r.name, estimated: !!r.estimated, source: r.source || 'manual' };
 }
 
 // kernel.js: handlers['leave.holidays'] — one company's public holidays.
@@ -360,6 +360,52 @@ async function addHoliday(ctx, p) {
     return rowToHoliday(res.rows[0]);
   } catch (err) {
     if (err.code === '23505') fail('conflict', 'That date is already a holiday for ' + company.name + '.');
+    throw err;
+  }
+}
+
+// POST /api/leave/holidays/ghana { companyId | all: true, year } — Ghana's
+// statutory list for the year, in one go (utils/ghanaHolidays.js). Days a
+// company already has are left as they are; the Eids go in as estimates to
+// confirm (or move) once the date is announced.
+async function loadGhana(ctx, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  p = p || {};
+  var year = Number(p.year);
+  if (!(year >= 2000 && year <= 2100)) fail('invalid', 'Which year?');
+  var companies = p.all
+    ? (await pool.query("SELECT id, name FROM companies WHERE status = 'active' ORDER BY name")).rows
+    : (await pool.query('SELECT id, name FROM companies WHERE id = $1', [p.companyId])).rows;
+  if (!companies.length) fail('invalid', 'Unknown company.');
+  var list = require('../utils/ghanaHolidays').ghanaHolidays(year);
+  var added = 0, kept = 0;
+  await withTransaction(async function (client) {
+    for (var c = 0; c < companies.length; c++) {
+      for (var i = 0; i < list.length; i++) {
+        var r = await client.query("INSERT INTO holidays (company_id, date, name, estimated, source) VALUES ($1,$2,$3,$4,'ghana') ON CONFLICT (company_id, date) DO NOTHING RETURNING id",
+          [companies[c].id, list[i].date, list[i].name, list[i].estimated]);
+        if (r.rowCount) added++; else kept++;
+      }
+    }
+    await audit(client, ctx, 'leave.holiday.ghana', 'holiday', null, 'Loaded Ghana\'s ' + year + ' public holidays for ' + companies.map(function (c) { return c.name; }).join(', ') + ': ' + added + ' added, ' + kept + ' already there.');
+  });
+  return { year: year, companies: companies.length, added: added, kept: kept, estimated: list.filter(function (h) { return h.estimated; }).length, holidays: list };
+}
+
+// PUT /api/leave/holidays/:id { date, name } — an estimate confirmed or
+// moved to the announced day.
+async function updateHoliday(ctx, id, p) {
+  if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).');
+  var cur = (await pool.query('SELECT * FROM holidays WHERE id = $1', [id])).rows[0];
+  if (!cur) fail('notfound', 'Holiday not found.');
+  var date = p && p.date ? V.date(p.date, 'Date') : String(cur.date instanceof Date ? cur.date.toISOString() : cur.date).slice(0, 10);
+  var name = p && p.name ? V.text(p.name, 'Name', 100) : cur.name;
+  try {
+    var res = await pool.query('UPDATE holidays SET date = $2, name = $3, estimated = false WHERE id = $1 RETURNING *', [id, date, name]);
+    await audit(pool, ctx, 'leave.holiday.update', 'holiday', id, 'Holiday ' + name + ' set to ' + date + (cur.estimated ? ' (confirmed)' : '') + '.');
+    return rowToHoliday(res.rows[0]);
+  } catch (err) {
+    if (err.code === '23505') fail('conflict', 'That date is already a holiday for this company.');
     throw err;
   }
 }
@@ -759,7 +805,7 @@ module.exports = {
   listTypes: listTypes, list: list, requestLeave: requestLeave, decide: decide, cancel: cancel, rowToLeaveRequest: rowToLeaveRequest,
   listAllTypes: listAllTypes, createType: createType, updateType: updateType,
   getBalances: getBalances, setBalance: setBalance, rollover: rollover, recalculateBalances: recalculateBalances,
-  listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday,
+  listHolidays: listHolidays, addHoliday: addHoliday, removeHoliday: removeHoliday, loadGhana: loadGhana, updateHoliday: updateHoliday,
   getEntitlements: getEntitlements, setEntitlement: setEntitlement, clearEntitlement: clearEntitlement, setLeaveDaysTotal: setLeaveDaysTotal,
   overview: overview
 };

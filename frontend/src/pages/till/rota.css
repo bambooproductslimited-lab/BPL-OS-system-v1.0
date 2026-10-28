@@ -19,6 +19,8 @@
 .ro-dname { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); }
 .ro-ddate { display: block; font-size: 14px; }
 .ro-dsales { display: block; font-size: 10px; font-weight: 600; color: #2b8a3e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ro-grid th.is-holiday { background: linear-gradient(180deg, color-mix(in srgb, #f59e0b 22%, transparent), transparent); }
+.ro-holiday { display: block; margin-top: 3px; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 800; color: #b45309; background: color-mix(in srgb, #f59e0b 20%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ro-who-h { text-align: left !important; }
 .ro-who { position: sticky; left: 0; z-index: 1; display: flex; gap: 8px; align-items: center; text-align: left; background: var(--pos-card, var(--color-bg)); }
 .ro-who strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

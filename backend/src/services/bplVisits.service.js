@@ -93,13 +93,14 @@ async function namesOf(ids, first) {
   return new Map((await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1::uuid[])', [all])).rows.map(function (e) { return [e.id, first ? String(e.first_name || '').trim() : nameOf(e)]; }));
 }
 
-var VISIT_SELECT = 'SELECT v.*, o.order_no AS shop_order_no, o.token AS shop_token, s.order_no AS sales_order_no, r.number AS service_number FROM bpl_visits v ' +
-  'LEFT JOIN shop_orders o ON o.id = v.shop_order_id LEFT JOIN sales_orders s ON s.id = v.sales_order_id LEFT JOIN bpl_service_requests r ON r.id = v.service_id ';
+var VISIT_SELECT = 'SELECT v.*, o.order_no AS shop_order_no, o.token AS shop_token, s.order_no AS sales_order_no, r.number AS service_number, wc.number AS claim_number FROM bpl_visits v ' +
+  'LEFT JOIN shop_orders o ON o.id = v.shop_order_id LEFT JOIN sales_orders s ON s.id = v.sales_order_id LEFT JOIN bpl_service_requests r ON r.id = v.service_id LEFT JOIN warranty_claims wc ON wc.id = v.claim_id ';
 function visitOut(r, names, firsts) {
   return {
     id: r.id, ref: vref(r.number), kind: r.kind, status: r.status, day: dayText(r.day), from: r.time_from, to: r.time_to,
     shopOrder: r.shop_order_id ? { id: r.shop_order_id, orderNo: r.shop_order_no } : null, salesOrder: r.sales_order_id ? { id: r.sales_order_id, orderNo: r.sales_order_no } : null,
     service: r.service_id ? { id: r.service_id, ref: sref(r.service_number) } : null,
+    claim: r.claim_id ? { id: r.claim_id, ref: 'W-' + String(r.claim_number).padStart(4, '0') } : null,
     name: r.name, phone: r.phone, email: r.email, address: r.address, area: r.area,
     crew: (r.crew || []).map(function (id) { return { id: id, name: names.get(id) || '', first: firsts.get(id) || '' }; }), vehicle: r.vehicle, items: r.items || [], note: r.note,
     steps: r.steps || {}, signedName: r.signed_name, hasSignature: !!r.signature, signature: r.signature || null, photos: (r.photos || []).length, outcome: r.outcome,
@@ -185,6 +186,14 @@ async function linked(client, p) {
     var lines = await require('../utils/documents').loadLineItems(client, 'sales_order', so.id);
     return { sales: so, name: so.name, phone: so.phone, email: so.email, address: so.address, area: '', items: lines.map(function (l) { return { description: l.description, qty: Number(l.qty) || 1 }; }) };
   }
+  if (p.claimId) {
+    // A warranty claim's repair (warranty.service.js): its repair request
+    // follows too, when it came from one.
+    var c = (await client.query('SELECT * FROM warranty_claims WHERE id = $1', [p.claimId])).rows[0];
+    if (!c) fail('notfound', 'That warranty claim is gone.');
+    if (c.status === 'closed') fail('conflict', 'That claim is closed.');
+    return { claim: c, service: c.service_id ? { id: c.service_id } : null, name: c.name, phone: c.phone, email: c.email, address: c.address, area: '', items: c.item ? [{ description: c.item, qty: 1 }] : [] };
+  }
   if (p.serviceId) {
     var r = (await client.query('SELECT * FROM bpl_service_requests WHERE id = $1', [p.serviceId])).rows[0];
     if (!r) fail('notfound', 'That repair request is gone.');
@@ -238,12 +247,13 @@ async function save(ctx, p) {
       try {
         await client.query('SAVEPOINT v');
         made = (await client.query(
-          'INSERT INTO bpl_visits (number, kind, shop_order_id, sales_order_id, service_id, name, phone, email, address, area, day, time_from, time_to, crew, vehicle, items, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *',
-          [n, kind, link.shop ? link.shop.id : null, link.sales ? link.sales.id : null, link.service ? link.service.id : null].concat(vals, [ctx.employee ? ctx.employee.id : null]))).rows[0];
+          'INSERT INTO bpl_visits (number, kind, shop_order_id, sales_order_id, service_id, name, phone, email, address, area, day, time_from, time_to, crew, vehicle, items, note, created_by, claim_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *',
+          [n, kind, link.shop ? link.shop.id : null, link.sales ? link.sales.id : null, link.service ? link.service.id : null].concat(vals, [ctx.employee ? ctx.employee.id : null, link.claim ? link.claim.id : null]))).rows[0];
       } catch (e) { await client.query('ROLLBACK TO SAVEPOINT v'); if (e.code !== '23505') throw e; }
     }
     if (!made) fail('conflict', 'Could not number the visit. Try again.');
     if (link.service) await client.query("UPDATE bpl_service_requests SET status = 'visit', updated_at = now() WHERE id = $1 AND status IN ('new', 'visit')", [link.service.id]);
+    if (link.claim) await client.query("UPDATE warranty_claims SET status = 'in_hand', updated_at = now() WHERE id = $1 AND status = 'open'", [link.claim.id]);
     return { row: made, isNew: true, moved: false, oldCrew: [] };
   });
   var r = saved.row;
@@ -318,6 +328,9 @@ async function act(ctx, id, action, p) {
   if (status === 'done' && v.sales_order_id && v.kind !== 'repair') {
     await pool.query("UPDATE sales_orders SET status = 'delivered', delivered_at = coalesce(delivered_at, now()) WHERE id = $1 AND status IN ('pending', 'processing')", [v.sales_order_id]);
   }
+  // A warranty claim's repair or replacement done: the claim is resolved;
+  // its costs and the customer's word are added on the claim.
+  if (v.claim_id && status === 'done') await pool.query("UPDATE warranty_claims SET status = 'resolved', resolved_on = current_date, updated_at = now() WHERE id = $1 AND status IN ('open', 'in_hand') AND remedy IN ('repair', 'replace')", [v.claim_id]);
   if (v.service_id && status === 'done') await pool.query("UPDATE bpl_service_requests SET status = 'fixed', updated_at = now() WHERE id = $1 AND status IN ('new', 'visit')", [v.service_id]);
   if (v.service_id && (status === 'failed' || status === 'cancelled')) await pool.query("UPDATE bpl_service_requests SET status = 'new', updated_at = now() WHERE id = $1 AND status = 'visit'", [v.service_id]);
   return Object.assign((await visitsOut([(await pool.query(VISIT_SELECT + 'WHERE v.id = $1', [v.id])).rows[0]]))[0], { told: told });
@@ -452,4 +465,4 @@ async function forOrder(o) {
 }
 
 module.exports = { KINDS: KINDS, settingsOf: settingsOf, saveSettings: saveSettings, board: board, save: save, act: act, photoKey: photoKey, ask: ask, serviceView: serviceView, serviceUpdate: serviceUpdate,
-  servicePhotoKey: servicePhotoKey, forOrder: forOrder, MAX_PHOTOS: MAX_PHOTOS, MAX_PHOTO_BYTES: MAX_PHOTO_BYTES, _askedBy: askedBy };
+  servicePhotoKey: servicePhotoKey, forOrder: forOrder, MAX_PHOTOS: MAX_PHOTOS, MAX_PHOTO_BYTES: MAX_PHOTO_BYTES, _askedBy: askedBy, tellCustomer: tellCustomer, warrantyUntil: warrantyUntil };

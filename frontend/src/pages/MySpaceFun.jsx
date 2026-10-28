@@ -206,7 +206,7 @@ export function PayCard({ slip }) {
       </span>
       <div className="msx-pay-legend">
         {parts.map((p) => <span key={p.key}><i className={'is-' + p.key} />{p.label} <b>{money(p.value, 'GHS')}</b></span>)}
-        <span className="msx-muted">{tr('of {gross} gross · {days} days', { gross: money(slip.gross, 'GHS'), days: slip.daysWorked })}{slip.payeByCompany ? ' · ' + tr('PAYE paid by the company') : ''}</span>
+        <span className="msx-muted">{tr('of {gross} gross · {days} days', { gross: money(slip.gross, 'GHS'), days: slip.daysWorked })}{slip.overtime > 0 ? ' · ' + tr('incl. {amount} overtime ({h} h)', { amount: money(slip.overtime, 'GHS'), h: slip.overtimeHours }) : ''}{slip.payeByCompany ? ' · ' + tr('PAYE paid by the company') : ''}</span>
       </div>
     </div>
   );

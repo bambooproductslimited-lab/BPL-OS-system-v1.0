@@ -24,8 +24,13 @@ export const NAV_GROUPS = [
     { key: 'people', label: msg('Employee directory'), perm: 'employee.read', icon: 'users' },
     { key: 'departments', label: msg('Companies'), perm: 'employee.read', icon: 'building' },
     { key: 'attendance', label: msg('Attendance'), icon: 'clock' },
+    // Hours past the shift, asked for by anyone and paid by payroll
+    // (pages/OvertimePage.jsx).
+    { key: 'overtime', label: msg('Overtime'), icon: 'history' },
     { key: 'leave', label: msg('Leave'), icon: 'calendar' },
     { key: 'leavetypes', label: msg('Leave types & balances'), perm: 'employee.write', icon: 'calendar' },
+    // Photo ID cards with a QR code for the kiosk and the gate (pages/StaffCardsPage.jsx).
+    { key: 'id-cards', label: msg('Staff ID cards'), perm: ['employee.write', 'visitor.manage'], icon: 'user' },
     // Reviews, hiring and certificates (pages/ReviewsPage, RecruitmentPage,
     // TrainingPage). A reviewer without review.manage gets to their reviews
     // from My space and the notifications.
@@ -150,6 +155,10 @@ export const NAV_GROUPS = [
     // Deliveries, fitting and repairs (pages/VisitsPage.jsx); a crew member
     // without invoice.read opens it from their notification (?mine=1).
     { key: 'bplvisits', label: msg('Deliveries and fitting'), perm: 'invoice.read', icon: 'truck' },
+    // Furniture that went wrong after delivery, judged against its warranty
+    // (pages/WarrantyPage.jsx); the papers for a shipment abroad (pages/ExportsPage.jsx).
+    { key: 'warranty', label: msg('Warranty claims'), perm: 'invoice.read', icon: 'shield' },
+    { key: 'exports', label: msg('Export papers'), perm: 'sales.read', icon: 'route' },
     { key: 'paymentlinks', label: msg('Payment links'), perm: 'invoice.read', icon: 'link' },
     { key: 'contracts', label: msg('Contracts'), perm: 'quotation.read', icon: 'pen' },
     { key: 'billingsettings', label: msg('Settings'), perm: 'settings.manage', icon: 'gear' }
@@ -165,6 +174,8 @@ export const NAV_GROUPS = [
     { key: 'expenses', label: msg('Expense claims'), perm: 'expense.request', icon: 'receipt', hidden: true },
     // What we owe suppliers, BPL and the restaurants (pages/BillsPage.jsx).
     { key: 'bills', label: msg('Bills to pay'), perm: 'bill.read', icon: 'receipt' },
+    // Leases and contracts, their notice dates and renewals (pages/AgreementsPage.jsx).
+    { key: 'agreements', label: msg('Leases and contracts'), perm: 'agreement.manage', icon: 'folder' },
     // The next 13 weeks of money in and out, by company (pages/CashFlowPage.jsx).
     { key: 'cashflow', label: msg('Cash flow forecast'), perm: 'report.read', icon: 'chart' },
     // Each month's budget by category against what was spent (pages/BudgetsPage.jsx).

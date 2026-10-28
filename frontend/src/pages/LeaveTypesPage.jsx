@@ -283,6 +283,8 @@ export default function LeaveTypesPage() {
 
   const [holidayCompanyId, setHolidayCompanyId] = useState('');
   const [holidayForm, setHolidayForm] = useState(EMPTY_HOLIDAY_FORM);
+  const [holidayEdit, setHolidayEdit] = useState(null);
+  const [ghanaBusy, setGhanaBusy] = useState(false);
   const [holidaySaving, setHolidaySaving] = useState(false);
   const [holidayError, setHolidayError] = useState('');
 
@@ -387,6 +389,23 @@ export default function LeaveTypesPage() {
       if (holidayForm.date.slice(0, 4) !== year) setYear(holidayForm.date.slice(0, 4));
       else await loadOverview(year);
     } catch (err) { setHolidayError(errText(err, tr('Could not add that holiday.'))); } finally { setHolidaySaving(false); }
+  }
+  // Ghana's statutory list for the year, for this company or all of them.
+  async function loadGhana(all) {
+    setGhanaBusy(true);
+    setHolidayError('');
+    try {
+      const r = await api.post('/leave/holidays/ghana', { companyId: holidayCompanyId, all, year: Number(year) });
+      setToast(r.added
+        ? tr('{n} public holidays added for {year}; {e} of them (the Eids) are estimates to confirm when announced.', { n: r.added, year: r.year, e: r.estimated * r.companies })
+        : tr('Every {year} public holiday was there already.', { year: r.year }));
+      await loadOverview(year);
+    } catch (err) { setHolidayError(errText(err, tr('Could not load the holidays.'))); } finally { setGhanaBusy(false); }
+  }
+  // An estimate confirmed, or moved to the day announced.
+  async function saveHolidayDate(h, date) {
+    setHolidayError('');
+    try { await api.put('/leave/holidays/' + h.id, { date }); setHolidayEdit(null); setToast(tr('{name} set to {date}.', { name: h.name, date: fmtDate(date) })); await loadOverview(year); } catch (err) { setHolidayError(errText(err, tr('Could not change that holiday.'))); }
   }
   async function removeHoliday(h) {
     if (!window.confirm(tr('Remove {name} ({date})?', { name: h.name, date: fmtDate(h.date) }))) return;
@@ -739,6 +758,12 @@ export default function LeaveTypesPage() {
           })}
         </div>
         {holidayError && <div className="error-banner">{holidayError}</div>}
+        <div className="lt-ghana">
+          <span className="lt-ghana-flag" aria-hidden="true">🇬🇭</span>
+          <span className="lt-ghana-text"><strong>{tr('Ghana\'s public holidays for {year}', { year })}</strong><small>{tr('The statutory days in one go, with Easter, Farmers\' Day and a weekend holiday moved to the Monday. The Eids and Shaqq Day follow the moon: they come in as estimates to confirm once announced.')}</small></span>
+          <button type="button" className="btn btn-secondary" disabled={ghanaBusy || !holidayCompanyId} onClick={() => loadGhana(false)}>{tr('Load for this company')}</button>
+          <button type="button" className="btn btn-primary" disabled={ghanaBusy} onClick={() => loadGhana(true)}>{tr('Load for every company')}</button>
+        </div>
         {holidayList.length ? (
           <ul className="lt-holidays">
             {holidayList.map((h) => {
@@ -752,10 +777,20 @@ export default function LeaveTypesPage() {
                     <small>{d.toLocaleDateString(activeIntlLocale(), { month: 'short' })}</small>
                   </span>
                   <span className="lt-holiday-text">
-                    <strong>{h.name}</strong>
-                    <span className="dk-muted">{d.toLocaleDateString(activeIntlLocale(), { weekday: 'long' })}{sunday ? ' · ' + tr('a Sunday, already not counted') : ''}{h.date === today ? ' · ' + tr('today') : ''}</span>
+                    <strong>{h.name}{h.estimated && <span className="lt-estimate">{tr('date to confirm')}</span>}</strong>
+                    {holidayEdit && holidayEdit.id === h.id ? (
+                      <form className="lt-holiday-move" onSubmit={(e) => { e.preventDefault(); saveHolidayDate(h, holidayEdit.date); }}>
+                        <input type="date" className="input" value={holidayEdit.date} onChange={(e) => setHolidayEdit({ ...holidayEdit, date: e.target.value })} aria-label={tr('The announced date')} required />
+                        <button type="submit" className="btn btn-primary btn-sm">{tr('Save')}</button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setHolidayEdit(null)}>{tr('Cancel')}</button>
+                      </form>
+                    ) : <span className="dk-muted">{d.toLocaleDateString(activeIntlLocale(), { weekday: 'long' })}{sunday ? ' · ' + tr('a Sunday, already not counted') : ''}{h.date === today ? ' · ' + tr('today') : ''}</span>}
                   </span>
-                  <RowMenu actions={[{ label: tr('Remove'), onClick: () => removeHoliday(h), danger: true }]} />
+                  <RowMenu actions={[
+                    ...(h.estimated ? [{ label: tr('The date is right'), onClick: () => saveHolidayDate(h, h.date) }] : []),
+                    { label: h.estimated ? tr('Move to the announced day') : tr('Change the date'), onClick: () => setHolidayEdit({ id: h.id, date: h.date }) },
+                    { label: tr('Remove'), onClick: () => removeHoliday(h), danger: true }
+                  ]} />
                 </li>
               );
             })}

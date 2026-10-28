@@ -162,9 +162,10 @@ export default function RotaTab({ token, pin, onFail }) {
             <tr>
               <th className="ro-who-h">{tr('Who')}</th>
               {data.days.map((d) => (
-                <th key={d.day} className={d.day === data.today ? 'is-today' : ''}>
+                <th key={d.day} className={(d.day === data.today ? 'is-today' : '') + (d.holiday ? ' is-holiday' : '')}>
                   <span className="ro-dname">{dayName(d.day, { weekday: 'short' })}</span>
                   <span className="ro-ddate">{dayName(d.day, { day: 'numeric', month: 'short' })}</span>
+                  {d.holiday && <span className="ro-holiday" title={tr('Public holiday: shifts are paid at the holiday rate.') + (d.holiday.estimated ? ' ' + tr('The date is still to be confirmed.') : '')}>🎉 {d.holiday.name}</span>}
                   {d.salesLastWeek > 0 && <small className="ro-dsales" title={tr('Sold the same day last week')}>{money(d.salesLastWeek)}</small>}
                 </th>
               ))}

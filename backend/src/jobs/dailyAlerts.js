@@ -454,6 +454,40 @@ async function licenceAlerts(today, settings) {
   return sent;
 }
 
+// Agreements (agreements.service.js): one that renews itself and has passed
+// its end moves on to its next term (its owner is told); the others remind
+// their owner and whoever keeps the agreements 60, 30, 14 and 7 days before
+// the last day to give notice, and — one that does not renew itself — 30
+// and 7 days before it ends, and when it has.
+var NOTICE_MILESTONES = [{ key: 'n60', days: 60 }, { key: 'n30', days: 30 }, { key: 'n14', days: 14 }, { key: 'n7', days: 7 }, { key: 'n0', days: 0 }];
+var AGREEMENT_END = [{ key: 'e30', days: 30 }, { key: 'e7', days: 7 }, { key: 'ended', days: 0 }];
+async function agreementAlerts(today, settings) {
+  var svc = require('../services/agreements.service');
+  var keepers = (await staffAlerts.holdersOf(['agreement.manage'])).map(function (h) { return h.employee_id; });
+  var sent = 0;
+  function people(a) { var to = keepers.slice(); if (a.owner_id && to.indexOf(a.owner_id) < 0) to.push(a.owner_id); return to; }
+  var moved = await svc.rollOver(today);
+  for (var m = 0; m < moved.length; m++) {
+    var r = moved[m], to = people(r);
+    for (var k = 0; k < to.length; k++) { await staffAlerts.alert(to[k], r.title + ' renewed itself', r.party + ' — now to ' + fmtDate(r.new_end) + '.', '/agreements?agreement=' + r.id, settings); sent++; }
+  }
+  var due = await svc.dueSoon();
+  for (var i = 0; i < due.length; i++) {
+    var a = due[i], end = String(a.ends_on instanceof Date ? a.ends_on.toISOString() : a.ends_on).slice(0, 10), nb = svc.noticeBy(a);
+    var msg = null, noticeLeft = daysBetween(today, nb), endLeft = daysBetween(today, end);
+    if (a.status !== 'renegotiating' && noticeLeft >= 0 && await claim('agreement_notice', a.id, nb, noticeLeft, NOTICE_MILESTONES)) {
+      msg = [(noticeLeft === 0 ? 'Last day to give notice: ' : 'Notice due ' + inWords(noticeLeft) + ': ') + a.title,
+        a.party + ' — ' + (a.auto_renews ? 'it renews itself for ' + a.renew_months + ' months on ' + fmtDate(end) + ' unless notice is given by ' + fmtDate(nb) + '.' : 'it ends on ' + fmtDate(end) + '; say by ' + fmtDate(nb) + ' whether to renew it.')];
+    } else if (!a.auto_renews && await claim('agreement_end', a.id, end, endLeft, AGREEMENT_END)) {
+      msg = [endLeft < 0 ? 'Ended: ' + a.title : endLeft === 0 ? 'Ends today: ' + a.title : a.title + ' ends ' + inWords(endLeft), a.party + ' — ' + fmtDate(end) + '. Renew it, or mark it ended, in Agreements.'];
+    }
+    if (!msg) continue;
+    var tos = people(a);
+    for (var j = 0; j < tos.length; j++) { await staffAlerts.alert(tos[j], msg[0], msg[1], '/agreements?agreement=' + a.id, settings); sent++; }
+  }
+  return sent;
+}
+
 // Kilns and tanks: a soak that has had its days, a charge running past its
 // plan, a kiln not read for two days (kilns.service.js).
 async function kilnAlerts(today, settings) {
@@ -570,6 +604,7 @@ async function runOnce(now) {
       try { out.goals = await goalAlerts(todayISO(), settings); } catch (e) { console.error('Goal alerts failed:', e.message); }
       try { out.ppe = await ppeAlerts(todayISO(), settings); } catch (e) { console.error('PPE alerts failed:', e.message); }
       try { out.licences = await licenceAlerts(todayISO(), settings); } catch (e) { console.error('Licence alerts failed:', e.message); }
+      try { out.agreements = await agreementAlerts(todayISO(), settings); } catch (e) { console.error('Agreement alerts failed:', e.message); }
       try { out.kilns = await kilnAlerts(todayISO(), settings); } catch (e) { console.error('Kiln alerts failed:', e.message); }
       try { out.policies = await policyAlerts(todayISO(), settings); } catch (e) { console.error('Policy alerts failed:', e.message); }
       try { out.power = await powerAlerts(todayISO(), settings); } catch (e) { console.error('Power alerts failed:', e.message); }
@@ -588,7 +623,7 @@ async function runOnce(now) {
       // The same reminders by email, to customers with an address on file.
       out.emails = await require('../services/documentEmails.service').autoReminders();
     }
-    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.licences || out.kilns || out.policies || out.power || out.jobs || out.report || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
+    if (out.expiry || out.bills || out.services || out.vehicles || out.certs || out.budgets || out.steps || out.safety || out.returns || out.passes || out.discipline || out.quality || out.voice || out.goals || out.ppe || out.licences || out.agreements || out.kilns || out.policies || out.power || out.jobs || out.report || out.statements || out.bookings || out.texts || out.emails) console.log('Daily alerts:', JSON.stringify(out));
   } finally {
     running = false;
   }
@@ -600,4 +635,4 @@ function start() {
   setInterval(function () { runOnce().catch(function (e) { console.error('Daily alerts failed:', e.message); }); }, INTERVAL_MS).unref();
 }
 
-module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, licenceAlerts: licenceAlerts, kilnAlerts: kilnAlerts, policyAlerts: policyAlerts, powerAlerts: powerAlerts, jobAlerts: jobAlerts, weekOf: weekOf, MILESTONES: MILESTONES };
+module.exports = { start: start, runOnce: runOnce, expiryAlerts: expiryAlerts, billAlerts: billAlerts, serviceAlerts: serviceAlerts, vehicleAlerts: vehicleAlerts, certAlerts: certAlerts, budgetAlerts: budgetAlerts, onboardingAlerts: onboardingAlerts, safetyAlerts: safetyAlerts, returnsAlerts: returnsAlerts, gatePassAlerts: gatePassAlerts, disciplineAlerts: disciplineAlerts, qualityAlerts: qualityAlerts, voiceAlerts: voiceAlerts, goalAlerts: goalAlerts, ppeAlerts: ppeAlerts, licenceAlerts: licenceAlerts, agreementAlerts: agreementAlerts, kilnAlerts: kilnAlerts, policyAlerts: policyAlerts, powerAlerts: powerAlerts, jobAlerts: jobAlerts, weekOf: weekOf, MILESTONES: MILESTONES };

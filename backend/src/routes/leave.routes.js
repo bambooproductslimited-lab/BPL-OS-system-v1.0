@@ -86,6 +86,14 @@ router.post('/holidays', async function (req, res, next) {
   try { res.status(201).json(await leaveService.addHoliday(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
+// Ghana's statutory holidays for a year, for one company or all of them.
+router.post('/holidays/ghana', async function (req, res, next) {
+  try { res.json(await leaveService.loadGhana(req.ctx, req.body)); } catch (e) { next(e); }
+});
+router.put('/holidays/:id', async function (req, res, next) {
+  try { res.json(await leaveService.updateHoliday(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
+
 // kernel.js: handlers['leave.holidays.remove'] -> DELETE /api/leave/holidays/:id
 router.delete('/holidays/:id', async function (req, res, next) {
   try { res.json(await leaveService.removeHoliday(req.ctx, req.params.id)); } catch (e) { next(e); }

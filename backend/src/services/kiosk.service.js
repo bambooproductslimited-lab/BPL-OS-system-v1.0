@@ -432,7 +432,45 @@ async function clock(pin, ip, occurredAt, location, faceDescriptor) {
     recordFailure(ip);
     fail('invalid', 'Incorrect PIN.');
   }
+  return clockAs(emp, ip, occurredAt, location, faceDescriptor);
+}
 
+// The person a staff ID card belongs to (staffCards.service.js), shown at
+// the kiosk instead of a PIN: same rate limiting, and a card that has been
+// stopped, has run out or belongs to someone who has left is refused.
+var CARD_REFUSED = {
+  revoked: 'This card has been stopped. Use your PIN, or ask HR for a new card.',
+  expired: 'This card has run out. Use your PIN, or ask HR for a new card.',
+  inactive: 'This card is not in use any more.',
+  unknown: 'This card is not one of ours.'
+};
+async function cardEmployee(code, ip) {
+  checkRateLimit(ip);
+  var found = await require('./staffCards.service').lookup(code);
+  if (found.result !== 'ok') {
+    recordFailure(ip);
+    fail('invalid', CARD_REFUSED[found.result] || CARD_REFUSED.unknown);
+  }
+  var emp = (await pool.query('SELECT e.id, e.first_name, e.last_name, e.face_descriptor, ' + PERSON_LOCALE + " AS locale FROM employees e WHERE e.id = $1 AND e.status = 'active'", [found.emp.id])).rows[0];
+  if (!emp) { recordFailure(ip); fail('invalid', CARD_REFUSED.inactive); }
+  return emp;
+}
+
+// kiosk.identifyCard — like identify, for a card.
+async function identifyCard(code, ip) {
+  var emp = await cardEmployee(code, ip);
+  recordSuccess(ip);
+  return { employeeName: emp.first_name + ' ' + emp.last_name, requiresFace: !!emp.face_descriptor, locale: emp.locale || null };
+}
+
+// kiosk.clockCard — a tap with a card instead of a PIN.
+async function clockCard(code, ip, occurredAt, location, faceDescriptor) {
+  var emp = await cardEmployee(code, ip);
+  return clockAs(emp, ip, occurredAt, location, faceDescriptor);
+}
+
+// The tap itself, once the person is known (by PIN or by card).
+async function clockAs(emp, ip, occurredAt, location, faceDescriptor) {
   // An employee with a face on file must match it every tap — the PIN
   // alone is no longer enough for them (that's the whole point: someone
   // else who knows/is handed their PIN can't clock them in). Nothing
@@ -548,7 +586,7 @@ async function tapSummary(employeeId, rec, dateStr) {
 }
 
 module.exports = {
-  setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify, deviceConfig: deviceConfig,
+  setPin: setPin, clearPin: clearPin, getPin: getPin, clock: clock, identify: identify, clockCard: clockCard, identifyCard: identifyCard, deviceConfig: deviceConfig,
   enrollFace: enrollFace, clearFace: clearFace, getFaceStatus: getFaceStatus,
   createFaceEnrollLink: createFaceEnrollLink, getFaceEnrollTarget: getFaceEnrollTarget, enrollFaceViaLink: enrollFaceViaLink,
   verifyFaceEnrollPin: verifyFaceEnrollPin, sendFaceEnrollLinkViaWhatsApp: sendFaceEnrollLinkViaWhatsApp

@@ -303,6 +303,18 @@ export default function VisitsPage() {
   const load = useCallback((f) => api.get('/visits' + (f ? '?from=' + f : '')).then((d) => { setData(d); setFrom(d.from || null); if (!d.canRead) setTab('mine'); }).catch((e) => setError(e.message)), []);
   useEffect(() => { load(null); }, [load]);
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
+  // From a warranty claim (WarrantyPage, ?claim=): its repair visit, ready to plan.
+  const claimId = params.get('claim');
+  const [claimTaken, setClaimTaken] = useState(false);
+  useEffect(() => {
+    if (!data || !claimId || claimTaken || !data.canManage) return;
+    setClaimTaken(true);
+    api.get('/warranty/' + claimId).then((c) => setPlan({
+      kind: 'repair', day: addDays(data.today, 1), from: data.settings.windows[0].split('-')[0], to: data.settings.windows[0].split('-')[1], crew: [], vehicle: '', area: '',
+      note: tr('Warranty claim {ref}', { ref: c.ref }) + ': ' + c.problem, claimId: c.id, link: c.ref, name: c.name, phone: c.phone, address: c.address,
+      items: [{ description: c.product ? c.product.name : c.item || tr('The piece to repair'), qty: 1 }]
+    })).catch((e) => setError(e.message));
+  }, [data, claimId, claimTaken]);
   const me = data && data.me;
   const days = useMemo(() => (from ? Array.from({ length: 7 }, (x, i) => addDays(from, i)) : []), [from]);
   if (error) return <div className="vz-page"><div className="error-banner" role="alert">{error}</div></div>;

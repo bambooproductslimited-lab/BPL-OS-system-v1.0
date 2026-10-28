@@ -227,3 +227,13 @@
 .kiosk-remind-body { margin: 6px 0 0; font-size: 16px; line-height: 1.45; color: var(--color-text-muted); }
 @keyframes kiosk-remind-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } }
 @media (prefers-reduced-motion: reduce) { .kiosk-remind { animation: none; } }
+
+/* A staff ID card instead of the PIN (staffCards.service.js). */
+.kiosk-card-btn { margin-top: 14px; padding: 12px 22px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg-subtle, rgba(255, 255, 255, .08)); font: inherit; font-size: 16px; font-weight: 700; color: inherit; cursor: pointer; }
+.kiosk-card-scan { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(420px, 100%); }
+.kiosk-card-scan .qr-scan { width: 100%; }
+.kiosk-card-scan p { margin: 0; text-align: center; opacity: .85; }
+.kiosk-card-scan .qr-scan { position: relative; overflow: hidden; border-radius: 22px; background: #0b1220; aspect-ratio: 4 / 3; }
+.kiosk-card-scan .qr-scan video { display: block; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.kiosk-card-scan .qr-scan-frame { position: absolute; inset: 16% 22%; border-radius: 18px; border: 3px solid rgba(255, 255, 255, .85); box-shadow: 0 0 0 2000px rgba(2, 6, 23, .35); }
+.kiosk-card-scan .qr-scan-error { margin: 0; padding: 30px 16px; color: #e2e8f0; text-align: center; }

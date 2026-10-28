@@ -62,11 +62,16 @@ async function week(companyId, weekOf) {
     "WHERE o.company_id = $1 AND o.status = 'completed' AND o.created_at::date BETWEEN $2 AND $3 GROUP BY 1", [companyId, addDays(from, -7), addDays(to, -7)])).rows;
   var lastWeek = {};
   sales.forEach(function (r) { lastWeek[addDays(dayOf(r.day), 7)] = round2(r.net); });
+  // The company's public holidays this week (Leave types & balances): shown
+  // on the day, since a holiday shift is paid at the holiday multiple.
+  var hols = {};
+  (await pool.query('SELECT date, name, estimated FROM holidays WHERE company_id = $1 AND date BETWEEN $2 AND $3', [companyId, from, to])).rows
+    .forEach(function (h) { hols[dayOf(h.date)] = { name: h.name, estimated: !!h.estimated }; });
   var days = [];
   for (var i = 0; i < 7; i++) {
     var d = addDays(from, i);
     var on = shifts.filter(function (s) { return s.day === d; });
-    days.push({ day: d, people: on.length, hours: round2(on.reduce(function (a, s) { return a + s.hours; }, 0)), salesLastWeek: lastWeek[d] || 0 });
+    days.push({ day: d, people: on.length, hours: round2(on.reduce(function (a, s) { return a + s.hours; }, 0)), salesLastWeek: lastWeek[d] || 0, holiday: hols[d] || null });
   }
   var hours = round2(shifts.reduce(function (a, s) { return a + s.hours; }, 0));
   var salesLast = round2(days.reduce(function (a, d) { return a + d.salesLastWeek; }, 0));

@@ -463,7 +463,7 @@ export default function PayrollPage() {
                     <td className="is-num">{s.daysWorked}</td>
                     <td className="is-num">{money(s.basicPay)}</td>
                     <td className="is-num">{money(s.allowancePay)}</td>
-                    <td className="is-num">{money(s.grossPay)}</td>
+                    <td className="is-num">{money(s.grossPay)}{s.overtimePay > 0 && <span className="dk-muted tl-small prl-co"> {tr('incl. {amount} overtime', { amount: money(s.overtimePay) })}</span>}</td>
                     <td className="is-num">{money(s.ssnitEmployee)}</td>
                     <td className="is-num">{money(s.payeTax)}{s.payeByCompany && <span className="dk-muted tl-small prl-co"> {tr('by the company')}</span>}</td>
                     <td className="is-num"><strong>{money(s.netPay)}</strong>{s.advanceDeduction > 0 && <span className="dk-muted tl-small prl-co"> {tr('after {amount} advance', { amount: money(s.advanceDeduction) })}</span>}</td>
@@ -541,10 +541,11 @@ export default function PayrollPage() {
                         ) : [
                           s.payBasis === 'salary'
                             ? (s.amountsEdited
-                              ? tr('basic {basic} + allowance {allowance} = {gross} gross, set for this run', { basic: money(s.basicPay), allowance: money(s.allowancePay), gross: money(s.grossPay) })
-                              : tr('{d} of {w} days paid · basic {basic} + allowance {allowance} = {gross} gross', { d: s.daysWorked, w: s.workingDays, basic: money(s.basicPay), allowance: money(s.allowancePay), gross: money(s.grossPay) }))
-                            : tr('{d} days × {rate} = {gross} gross', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay) }),
+                              ? tr('basic {basic} + allowance {allowance} = {gross} gross, set for this run', { basic: money(s.basicPay), allowance: money(s.allowancePay), gross: money(s.grossPay - (s.overtimePay || 0)) })
+                              : tr('{d} of {w} days paid · basic {basic} + allowance {allowance} = {gross} gross', { d: s.daysWorked, w: s.workingDays, basic: money(s.basicPay), allowance: money(s.allowancePay), gross: money(s.grossPay - (s.overtimePay || 0)) }))
+                            : (Number(s.daysWorked) === 1 ? tr('1 day × {rate} = {gross} gross', { rate: money(s.dailyRate), gross: money(s.grossPay - (s.overtimePay || 0)) }) : tr('{d} days × {rate} = {gross} gross', { d: s.daysWorked, rate: money(s.dailyRate), gross: money(s.grossPay - (s.overtimePay || 0)) })),
                           ...(s.holidaysPaid ? [s.holidaysPaid === 1 ? tr('incl. 1 public holiday') : tr('incl. {n} public holidays', { n: s.holidaysPaid })] : []),
+                          ...(s.overtimePay > 0 ? ['⏱️ ' + tr('+ overtime {h} h {amount}', { h: s.overtimeHours, amount: money(s.overtimePay) })] : []),
                           s.payeByCompany
                             ? tr('SSNIT {ssnit} · PAYE {paye}, paid by the company', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) })
                             : tr('SSNIT {ssnit} · PAYE {paye}', { paye: money(s.payeTax), ssnit: money(s.ssnitEmployee) }),

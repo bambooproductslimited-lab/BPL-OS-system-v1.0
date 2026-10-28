@@ -25,6 +25,16 @@ router.post('/clock', async function (req, res, next) {
   } catch (e) { next(e); }
 });
 
+// The same with a staff ID card's code instead of a PIN (staffCards.service.js).
+router.post('/card/identify', async function (req, res, next) {
+  try { res.json(await kioskService.identifyCard(req.body.code, req.ip)); } catch (e) { next(e); }
+});
+router.post('/card/clock', async function (req, res, next) {
+  try {
+    res.json(await kioskService.clockCard(req.body.code, req.ip, req.body.occurredAt, req.body.location, req.body.faceDescriptor));
+  } catch (e) { next(e); }
+});
+
 // Face self-enrollment link — also deliberately public, same reasoning as
 // the rest of this router: the employee opening this on their own phone
 // has no logged-in session either. The token itself is the authorization

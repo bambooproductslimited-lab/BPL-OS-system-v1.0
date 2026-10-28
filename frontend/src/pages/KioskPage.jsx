@@ -4,6 +4,8 @@ import { enqueueTap, peekQueue, removeFromQueue, queueLength } from '../kiosk/of
 import { unlockAudio, playClockIn, playClockOut, playWrongPin } from '../kiosk/kioskSounds';
 import { cameraPermissionState, primeCamera } from '../kiosk/cameraReady';
 import FaceCapture from '../components/FaceCapture';
+import QrScanner from '../components/QrScanner';
+import { useBarcodeWedge } from './till/barcodeScan';
 import { tr, trIn, msg, activeIntlLocale, activeLocale, localeMeta, translate } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
@@ -159,6 +161,9 @@ export default function KioskPage() {
   const [result, setResult] = useState(null); // { kind: 'ok'|'error'|'pending', action, employeeName, time, status, minutesLate, message }
   const [pendingCount, setPendingCount] = useState(0);
   const [faceStage, setFaceStage] = useState(null); // { pin, optional } while the camera step is showing
+  const [cardScan, setCardScan] = useState(false); // the camera reading a staff ID card instead of the keypad
+  // A card scanner (USB or Bluetooth) types the card's code: heard any time the keypad is showing.
+  useBarcodeWedge((code) => { if (/^bplid-/i.test(code)) handleCard(code); }, !faceStage && !result);
   const [cameraBlocked, setCameraBlocked] = useState(false); // camera needed here, but this device hasn't granted it
   const [staffLocales, setStaffLocales] = useState(recallStaffLocales);
   const resultTimerRef = useRef(null);
@@ -272,12 +277,16 @@ export default function KioskPage() {
     }
   }
 
-  async function submitPin(fullPin, faceDescriptor, knownLocale) {
+  // A tap by PIN, or by a staff ID card's code (card): a card needs the
+  // connection, since the offline queue keeps PINs only.
+  async function submitPin(fullPin, faceDescriptor, knownLocale, card) {
     let noticeShown = false;
     let reminder = false;
     setSubmitting(true);
     try {
-      const r = await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
+      const r = card
+        ? await api.post('/kiosk/card/clock', { code: card, location: locationRef.current, faceDescriptor: faceDescriptor || null })
+        : await api.post('/kiosk/clock', { pin: fullPin, location: locationRef.current, faceDescriptor: faceDescriptor || null });
       noticeShown = !!(r.autoClosedShifts && r.autoClosedShifts.length);
       reminder = r.action === 'in';
       setResult({ locale: r.locale || knownLocale || null,
@@ -288,8 +297,8 @@ export default function KioskPage() {
       if (r.action === 'in') playClockIn(); else playClockOut();
       flushQueue(); // a live tap just succeeded, so we're online — try any backlog too
     } catch (err) {
-      if (err instanceof ApiError) {
-        setResult({ kind: 'error', message: err.message || tr('Something went wrong.'), ms: RESULT_DISPLAY_MS });
+      if (err instanceof ApiError || card) {
+        setResult({ kind: 'error', card: !!card, message: err instanceof ApiError ? err.message || tr('Something went wrong.') : tr('No connection: use your PIN until it is back.'), ms: RESULT_DISPLAY_MS });
         playWrongPin();
       } else {
         enqueueTap(fullPin, new Date().toISOString(), locationRef.current, faceDescriptor);
@@ -308,9 +317,9 @@ export default function KioskPage() {
     setResult(null);
   }
 
-  function showErrorResult(message) {
+  function showErrorResult(message, card) {
     setPin('');
-    setResult({ kind: 'error', message, ms: RESULT_DISPLAY_MS });
+    setResult({ kind: 'error', card: !!card, message, ms: RESULT_DISPLAY_MS });
     playWrongPin();
     resultTimerRef.current = setTimeout(() => setResult(null), RESULT_DISPLAY_MS);
   }
@@ -345,6 +354,23 @@ export default function KioskPage() {
     }
   }
 
+  // A staff ID card shown to the camera or read by a scanner.
+  async function handleCard(code) {
+    if (submitting || result || faceStage) return;
+    unlockAudio();
+    setCardScan(false);
+    setSubmitting(true);
+    try {
+      const r = await api.post('/kiosk/card/identify', { code });
+      setSubmitting(false);
+      if (r.requiresFace) setFaceStage({ pin: null, card: code, optional: false, locale: r.locale || null });
+      else submitPin(null, null, r.locale || null, code);
+    } catch (err) {
+      setSubmitting(false);
+      showErrorResult(err instanceof ApiError ? err.message || tr('Something went wrong.') : tr('No connection: use your PIN until it is back.'), true);
+    }
+  }
+
   function tapDigit(d) {
     if (submitting || result || faceStage) return;
     unlockAudio();
@@ -364,12 +390,15 @@ export default function KioskPage() {
   function tapClear() { if (!submitting) setPin(''); }
   function tapBackspace() { if (!submitting) setPin(pin.slice(0, -1)); }
   // A kiosk with a keyboard can type the PIN as well as tap it; Enter or
-  // Escape clears a result early.
+  // Escape clears a result early. A card scanner types like a keyboard too:
+  // the digits inside a card code (it starts with letters) are not a PIN.
+  const scanKeyAt = useRef(0);
   useEffect(() => {
     function onKey(e) {
       if (result && (e.key === 'Enter' || e.key === 'Escape')) { dismissResult(); return; }
       if (faceStage) return;
-      if (/^[0-9]$/.test(e.key)) tapDigit(e.key);
+      if (e.key.length === 1 && !/^[0-9]$/.test(e.key)) { scanKeyAt.current = performance.now(); return; }
+      if (/^[0-9]$/.test(e.key)) { if (performance.now() - scanKeyAt.current > 300) tapDigit(e.key); }
       else if (e.key === 'Backspace') tapBackspace();
       else if (e.key === 'Escape') tapClear();
     }
@@ -489,7 +518,7 @@ export default function KioskPage() {
             <>
               <p className="kiosk-result-kicker">{tr('Not clocked')}<Also locales={staffLocales} k="Not clocked" /></p>
               <h1 className="kiosk-result-title">{result.message}{result.message === 'Incorrect PIN.' && <Also locales={staffLocales} k="Incorrect PIN." />}</h1>
-              <p className="kiosk-result-name">{tr('Check your PIN and try again. If it keeps happening, ask your supervisor.')}<Also locales={staffLocales} k="Check your PIN and try again. If it keeps happening, ask your supervisor." /></p>
+              {!result.card && <p className="kiosk-result-name">{tr('Check your PIN and try again. If it keeps happening, ask your supervisor.')}<Also locales={staffLocales} k="Check your PIN and try again. If it keeps happening, ask your supervisor." /></p>}
             </>
           )}
           <button type="button" className="kiosk-done" onClick={dismissResult} autoFocus>{result.kind === 'ok' ? (result.autoClosedShifts && result.autoClosedShifts.length ? trIn(rl, 'OK, got it') : trIn(rl, 'Done')) : tr('Done')}</button>
@@ -531,9 +560,9 @@ export default function KioskPage() {
                   subtitle={trIn(faceStage.locale, 'Hold still and look at the camera to finish clocking in or out.')}
                   timeoutMs={faceStage.optional ? FACE_TIMEOUT_OFFLINE_MS : FACE_TIMEOUT_REQUIRED_MS}
                   onCapture={(descriptor) => {
-                    const p = faceStage.pin, loc = faceStage.locale;
+                    const p = faceStage.pin, loc = faceStage.locale, card = faceStage.card;
                     setFaceStage(null);
-                    submitPin(p, descriptor, loc);
+                    submitPin(p, descriptor, loc, card);
                   }}
                   onCancel={() => { setFaceStage(null); setPin(''); }}
                   onTimeout={() => {
@@ -557,14 +586,23 @@ export default function KioskPage() {
                   {Array.from({ length: PIN_LENGTH }).map((_, i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
                 </div>
                 <p className="kiosk-pin-note" role="status">{submitting ? tr('Checking…') : pin.length ? tr('{n} of 4', { n: pin.length }) : <>{tr('Enter your PIN')}<Also locales={staffLocales} k="Enter your PIN" /></>}</p>
-                <div className="kiosk-keypad">
-                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
-                    <button key={d} type="button" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
-                  ))}
-                  <button type="button" className="is-muted" disabled={submitting} onClick={tapClear}>{tr('Clear')}</button>
-                  <button type="button" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
-                  <button type="button" className="is-muted" disabled={submitting} onClick={tapBackspace} aria-label={tr('Backspace')}><Icon name="backspace" /></button>
-                </div>
+                {cardScan ? (
+                  <div className="kiosk-card-scan">
+                    <QrScanner onCode={(code) => { if (/^bplid-/i.test(code)) handleCard(code); }} facing="user" />
+                    <p>{tr('Hold your ID card up to the camera, the QR code facing it.')}</p>
+                    <button type="button" className="kiosk-card-btn" onClick={() => setCardScan(false)}>{tr('Use my PIN instead')}</button>
+                  </div>
+                ) : <>
+                  <div className="kiosk-keypad">
+                    {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
+                      <button key={d} type="button" disabled={submitting} onClick={() => tapDigit(d)}>{d}</button>
+                    ))}
+                    <button type="button" className="is-muted" disabled={submitting} onClick={tapClear}>{tr('Clear')}</button>
+                    <button type="button" disabled={submitting} onClick={() => tapDigit('0')}>0</button>
+                    <button type="button" className="is-muted" disabled={submitting} onClick={tapBackspace} aria-label={tr('Backspace')}><Icon name="backspace" /></button>
+                  </div>
+                  <button type="button" className="kiosk-card-btn" disabled={submitting} onClick={() => { unlockAudio(); setCardScan(true); }}>🪪 {tr('Scan my ID card')}</button>
+                </>}
               </>
             )}
           </div>

@@ -117,11 +117,23 @@ async function topupFacts(entry, id) {
   };
 }
 
+// Overtime: the day, the hours, the day's multiple, what it will cost and
+// what the clock said (overtime.service.js).
+async function overtimeFacts(entry, id) {
+  var f = await require('./overtime.service').facts(id);
+  if (!f) return;
+  entry.reason = f.reason;
+  entry.facts = f;
+  entry.amount = f.amount;
+  entry.currency = 'GHS';
+}
+
 async function withFacts(entry, e, a) {
   if (a.subject_type === 'leave_request') await leaveFacts(entry, e, a.subject_id);
   else if (a.subject_type === 'procurement_request') await procurementFacts(entry, a.subject_id);
   else if (a.subject_type === 'expense') await expenseFacts(entry, a.subject_id);
   else if (a.subject_type === 'expense_topup') await topupFacts(entry, a.subject_id);
+  else if (a.subject_type === 'overtime') await overtimeFacts(entry, a.subject_id);
   return entry;
 }
 

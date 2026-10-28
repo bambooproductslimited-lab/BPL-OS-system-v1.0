@@ -13,6 +13,7 @@
 .ap-item.is-leave_request { --k: #2a78d6; }
 .ap-item.is-procurement_request { --k: #b07d12; }
 .ap-item.is-expense { --k: #7d3f9c; }
+.ap-item.is-overtime { --k: #0f766e; }
 .ap-item.st-late { background: color-mix(in srgb, var(--color-danger) 4%, var(--color-bg)); }
 .ap-open { grid-area: open; display: flex; gap: 12px; align-items: flex-start; text-align: left; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; min-width: 0; }
 .ap-open:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }

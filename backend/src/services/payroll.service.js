@@ -6,6 +6,7 @@ var { nextDocNumber } = require('../utils/documents');
 var { computePaye } = require('../utils/payroll');
 var { restWeekdays } = require('../utils/workWeek');
 var advances = require('./advances.service');
+var overtime = require('./overtime.service');
 
 // Payroll: employees are paid a daily rate (employees.daily_rate) on one of
 // three cycles (employees.pay_cycle — 'monthly', paid on the 5th per Company
@@ -66,6 +67,7 @@ function rowToPayslip(r, extra) {
     monthlyBasic: r.monthly_basic == null ? null : Number(r.monthly_basic), monthlyAllowance: r.monthly_allowance == null ? null : Number(r.monthly_allowance),
     workingDays: r.working_days == null ? null : r.working_days, amountsEdited: !!r.amounts_edited,
     holidaysPaid: Number(r.holidays_paid || 0), advanceDeduction: Number(r.advance_deduction || 0),
+    overtimeHours: Number(r.overtime_hours || 0), overtimePay: Number(r.overtime_pay || 0),
     ssnitSalary: r.ssnit_salary == null ? null : Number(r.ssnit_salary)
   }, extra || {});
 }
@@ -78,14 +80,17 @@ function rowToPayslip(r, extra) {
 // taxed), with its bands scaled to the period.
 // ssnitOn: what SSNIT is worked out on for this run (the share of the
 // salary for SSNIT), or null for the basic earned.
+// pay.overtime (overtime.service.js) is taxed with the basic, and is not
+// counted for SSNIT.
 async function computeSlipFields(db, pay, periodScale, companyPaysPaye, ssnitOn) {
   var payroll = await getPayrollSettings(db);
   var basic = Math.round(pay.basic * 100) / 100, allowance = Math.round((pay.allowance || 0) * 100) / 100;
-  var grossPay = Math.round((basic + allowance) * 100) / 100;
+  var extra = Math.round((pay.overtime || 0) * 100) / 100;
+  var grossPay = Math.round((basic + allowance + extra) * 100) / 100;
   var onSsnit = ssnitOn == null ? basic : ssnitOn;
   var ssnitEmployee = Math.round(onSsnit * (payroll.ssnitEmployeeRate / 100) * 100) / 100;
   var ssnitEmployer = Math.round(onSsnit * (payroll.ssnitEmployerRate / 100) * 100) / 100;
-  var taxableIncome = Math.max(0, Math.round((basic - ssnitEmployee) * 100) / 100);
+  var taxableIncome = Math.max(0, Math.round((basic + extra - ssnitEmployee) * 100) / 100);
   var payeTax = computePaye(taxableIncome, payroll.payeBands, periodScale);
   var netPay = Math.round((grossPay - ssnitEmployee - (companyPaysPaye ? 0 : payeTax)) * 100) / 100;
   return { basicPay: basic, allowancePay: allowance, grossPay: grossPay, ssnitEmployee: ssnitEmployee, ssnitEmployer: ssnitEmployer, taxableIncome: taxableIncome, payeTax: payeTax, payeByCompany: !!companyPaysPaye, netPay: netPay };
@@ -324,12 +329,12 @@ async function create(ctx, p) {
 
   var employeesRes = companyId
     ? await pool.query(
-        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.ssnit_salary, e.work_days, to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
+        "SELECT e.id, e.daily_rate, e.hourly_rate, e.basic_salary, e.allowance, e.ssnit_salary, e.work_days, to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, c.id AS company_id, c.pays_staff_paye FROM employees e JOIN departments d ON d.id = e.department_id JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1 AND d.company_id = $2",
         [cycle, companyId]
       )
     : await pool.query(
-        "SELECT e.id, e.daily_rate, e.basic_salary, e.allowance, e.ssnit_salary, e.work_days, to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
+        "SELECT e.id, e.daily_rate, e.hourly_rate, e.basic_salary, e.allowance, e.ssnit_salary, e.work_days, to_char(e.hire_date, 'YYYY-MM-DD') AS hire_date, c.id AS company_id, coalesce(c.pays_staff_paye, false) AS pays_staff_paye FROM employees e " +
         "LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id " +
         "WHERE e.status = 'active' AND e.pay_cycle = $1", [cycle]);
   if (!employeesRes.rows.length) {
@@ -379,16 +384,19 @@ async function create(ctx, p) {
         };
       }
       var ssnitMonthly = emp.ssnit_salary != null ? Number(emp.ssnit_salary) : salaried ? Number(emp.basic_salary) : null;
+      // Approved overtime not paid yet, up to the end of the period.
+      var ot = await overtime.forSlip(client, emp, run.id, periodEnd);
+      pay.overtime = ot.pay;
       var slip = await computeSlipFields(client, pay, periodScale, emp.pays_staff_paye, ssnitOnFor(ssnitMonthly, daysWorked, periodStart, periodEnd));
       // A salary advance being repaid comes off the take-home pay (advances.service.js).
       var advance = await advances.forSlip(client, emp.id, slip.netPay);
 
       await client.query(
         'INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, paye_by_company, ' +
-        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days, holidays_paid, ssnit_salary, advance_deduction) ' +
-        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)',
+        'pay_basis, basic_pay, allowance_pay, monthly_basic, monthly_allowance, working_days, month_working_days, holidays_paid, ssnit_salary, advance_deduction, overtime_hours, overtime_pay) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)',
         [run.id, emp.id, daysWorked, salaried ? 0 : dailyRate, slip.grossPay, slip.ssnitEmployee, slip.ssnitEmployer, slip.taxableIncome, slip.payeTax, Math.round((slip.netPay - advance) * 100) / 100, slip.payeByCompany,
-          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays, holPaid.length, ssnitMonthly, advance]
+          basis.basis, slip.basicPay, slip.allowancePay, basis.monthlyBasic, basis.monthlyAllowance, basis.workingDays, basis.monthWorkingDays, holPaid.length, ssnitMonthly, advance, ot.hours, ot.pay]
       );
     }
 
@@ -446,6 +454,7 @@ async function editSlip(ctx, payRunId, employeeId, daysWorked, amounts) {
     pay = { basic: Number(slip.daily_rate) * days, allowance: 0 };
   }
 
+  pay.overtime = Number(slip.overtime_pay || 0);
   var periodScale = periodScaleFor(run.period_start, run.period_end);
   var earned = days > 0 || pay.basic > 0 ? 1 : 0;
   var computed = await computeSlipFields(pool, pay, periodScale, slip.paye_by_company, ssnitOnFor(slip.ssnit_salary, earned, run.period_start, run.period_end));
@@ -482,6 +491,8 @@ async function markPaid(ctx, id) {
   if (run.status !== 'approved') fail('invalid', 'Only an approved pay run can be marked paid.');
   var repaid = await withTransaction(async function (client) {
     await client.query("UPDATE pay_runs SET status = 'paid' WHERE id = $1", [id]);
+    // Its overtime is paid.
+    await overtime.onRunPaid(client, id);
     // What the payslips took for salary advances is now repaid.
     return advances.onRunPaid(client, id);
   });
@@ -497,6 +508,8 @@ async function remove(ctx, id) {
   if (!run) fail('notfound', 'Pay run not found.');
   if (run.status !== 'draft') fail('invalid', 'Only a draft pay run can be deleted.');
   await withTransaction(async function (client) {
+    // Its overtime waits for the next run.
+    await overtime.releaseRun(client, id);
     await client.query('DELETE FROM payslips WHERE pay_run_id = $1', [id]);
     await client.query('DELETE FROM pay_runs WHERE id = $1', [id]);
     await audit(client, ctx, 'payroll.delete', 'pay_run', id, 'Deleted draft pay run ' + run.run_no + '.');

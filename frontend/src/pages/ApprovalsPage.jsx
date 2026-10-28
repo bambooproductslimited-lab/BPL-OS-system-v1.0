@@ -29,9 +29,11 @@ const KINDS = {
   leave_request: { label: msg('Leave'), page: '/leave', pageLabel: msg('Open Leave'), path: (id) => '/leave/' + id + '/decision' },
   procurement_request: { label: msg('Purchase request'), page: '/procurement', pageLabel: msg('Open Procurement'), path: (id) => '/procurement/' + id + '/decision' },
   expense: { label: msg('Expense claim'), page: '/expenses', pageLabel: msg('Open Expenses'), path: (id) => '/expenses/' + id + '/decision' },
-  expense_topup: { label: msg('Float top-up'), page: '/expensesheets', pageLabel: msg('Open the expense sheet'), path: (id) => '/expense-sheets/topups/' + id + '/decision' }
+  expense_topup: { label: msg('Float top-up'), page: '/expensesheets', pageLabel: msg('Open the expense sheet'), path: (id) => '/expense-sheets/topups/' + id + '/decision' },
+  overtime: { label: msg('Overtime'), page: '/overtime', pageLabel: msg('Open Overtime'), path: (id) => '/overtime/' + id + '/decision' }
 };
-function pageOf(a) { return a.subjectType === 'expense_topup' && a.facts && a.facts.sheetId ? '/expensesheets?sheet=' + a.facts.sheetId : KINDS[a.subjectType].page; }
+const OT_KIND = { weekday: msg('a weekday'), rest_day: msg('a rest day'), holiday: msg('a public holiday') };
+function pageOf(a) { return a.subjectType === 'expense_topup' && a.facts && a.facts.sheetId ? '/expensesheets?sheet=' + a.facts.sheetId : a.subjectType === 'overtime' ? '/overtime?o=' + a.subjectId : KINDS[a.subjectType].page; }
 const LONG_WAIT_DAYS = 3;
 const SOON_DAYS = 7;
 
@@ -61,6 +63,7 @@ function factLine(a) {
   if (!f) return a.title;
   if (a.subjectType === 'leave_request') return (f.days === 1 ? tr('1 day of {type}', { type: f.leaveType }) : tr('{n} days of {type}', { n: f.days, type: f.leaveType })) + ' · ' + (f.startDate === f.endDate ? fmtDate(f.startDate) : fmtDate(f.startDate) + ' → ' + fmtDate(f.endDate));
   if (a.subjectType === 'procurement_request') return tr('{qty} × {item} · about {amount}', { qty: f.quantity, item: f.item, amount: money(f.estimatedPrice, 'GHS') });
+  if (a.subjectType === 'overtime') return tr('{h} h on {date}, {kind} (×{m}) · {amount}', { h: f.hours, date: fmtDate(f.day), kind: tr(OT_KIND[f.kind]), m: f.multiple, amount: money(f.amount, 'GHS') });
   if (a.subjectType === 'expense_topup') return f.floatLimit ? tr('{amount} asked · {balance} in hand of a {float} float', { amount: money(f.amount, 'GHS'), balance: money(f.balance, 'GHS'), float: money(f.floatLimit, 'GHS') }) : tr('{amount} asked · {balance} in hand', { amount: money(f.amount, 'GHS'), balance: money(f.balance, 'GHS') });
   return tr('{category} · {amount} · spent {date}', { category: f.category, amount: money(f.amount, 'GHS'), date: fmtDate(f.date) });
 }
@@ -88,6 +91,8 @@ function flagsOf(a) {
     if (!f.checkedUntil) out.push({ tone: 'warn', text: tr('Sheet never checked') });
     else if (todayNum() - dayNum(f.checkedUntil) > 30) out.push({ tone: 'warn', text: tr('Not checked for {n} days', { n: todayNum() - dayNum(f.checkedUntil) }) });
   }
+  if (a.subjectType === 'overtime' && f.clock && f.clock.past != null && f.clock.past + 0.25 < f.hours) out.push({ tone: 'warn', text: tr('The clock shows {h} h past the shift', { h: f.clock.past }) });
+  if (a.subjectType === 'overtime' && !f.clock) out.push({ tone: 'warn', text: tr('No clock-in that day') });
   if (a.subjectType === 'procurement_request') {
     if (f.priority === 'high') out.push({ tone: 'bad', text: tr('High priority') });
     if (f.requiredDate && dayNum(f.requiredDate) - todayNum() <= SOON_DAYS) out.push({ tone: dayNum(f.requiredDate) < todayNum() ? 'bad' : 'warn', text: tr('Needed by {date}', { date: fmtDate(f.requiredDate) }) });
@@ -186,6 +191,7 @@ export default function ApprovalsPage() {
   const topups = approvals.filter((a) => a.subjectType === 'expense_topup');
   const purchases = approvals.filter((a) => a.subjectType === 'procurement_request');
   const leaves = approvals.filter((a) => a.subjectType === 'leave_request');
+  const overtimes = approvals.filter((a) => a.subjectType === 'overtime');
   const overBalance = leaves.filter((a) => overBy(a.facts) > 0);
   const clashes = leaves.filter((a) => a.facts && a.facts.awayThen && a.facts.awayThen.length);
   const noReceipt = claims.filter((a) => a.facts && !a.facts.receipt);
@@ -219,13 +225,13 @@ export default function ApprovalsPage() {
 
   const chipTest = {
     all: () => true, leave_request: (a) => a.subjectType === 'leave_request', procurement_request: (a) => a.subjectType === 'procurement_request',
-    expense: (a) => a.subjectType === 'expense', expense_topup: (a) => a.subjectType === 'expense_topup', long: (a) => daysWaiting(a) > LONG_WAIT_DAYS, look: needsLook, money: (a) => !!a.amount
+    expense: (a) => a.subjectType === 'expense', expense_topup: (a) => a.subjectType === 'expense_topup', overtime: (a) => a.subjectType === 'overtime', long: (a) => daysWaiting(a) > LONG_WAIT_DAYS, look: needsLook, money: (a) => !!a.amount
   };
   const visible = byAge.filter(chipTest[chip] || chipTest.all)
     .filter((a) => matchesQuery(search, a.title, a.requesterName, a.requesterRole, a.department, a.company, factLine(a), a.reason));
   const chips = [
     ['all', tr('All'), approvals.length], ['look', tr('Worth a closer look'), approvals.filter(needsLook).length], ['long', tr('Waiting long'), longWait.length],
-    ['leave_request', tr('Leave'), leaves.length], ['procurement_request', tr('Purchases'), purchases.length], ['expense_topup', tr('Float top-ups'), topups.length], ['expense', tr('Expense claims'), claims.length]
+    ['leave_request', tr('Leave'), leaves.length], ['procurement_request', tr('Purchases'), purchases.length], ['expense_topup', tr('Float top-ups'), topups.length], ['expense', tr('Expense claims'), claims.length], ['overtime', tr('Overtime'), overtimes.length]
   ].filter(([k, , c]) => c > 0 || k === 'all' || k === chip);
 
   const histTest = { all: () => true, mine: (h) => h.byMe, approved: (h) => h.status === 'approved', rejected: (h) => h.status === 'rejected' };
@@ -243,7 +249,7 @@ export default function ApprovalsPage() {
       <Hero
         eyebrow={tr('Governance')}
         title={tr('Approval centre')}
-        sub={tr('Leave, purchases, float top-ups and expense claims waiting for your decision, with what you need to decide each one. The person is told as soon as you decide. Press a number to show only those.')}
+        sub={tr('Leave, overtime, purchases, float top-ups and expense claims waiting for your decision, with what you need to decide each one. The person is told as soon as you decide. Press a number to show only those.')}
         stats={stats} />
 
       <Insights items={insights.slice(0, 5)} />
@@ -375,6 +381,11 @@ export default function ApprovalsPage() {
                 <div><dt>{tr('Cash in hand')}</dt><dd className={cf.balance < 0 ? 'pk-owe' : ''}>{money(cf.balance, 'GHS')}</dd></div>
                 <div><dt>{tr('Usual float')}</dt><dd>{cf.floatLimit ? money(cf.floatLimit, 'GHS') : '—'}</dd></div>
                 <div><dt>{tr('Last check')}</dt><dd>{cf.checkedUntil ? tr('up to {date}', { date: fmtDate(cf.checkedUntil) }) : tr('never')}</dd></div>
+              </>}
+              {cur.subjectType === 'overtime' && <>
+                <div><dt>{tr('The day')}</dt><dd>{fmtDate(cf.day)} · {tr(OT_KIND[cf.kind])}</dd></div>
+                <div><dt>{tr('What the clock said')}</dt><dd>{cf.clock ? (cf.clock.out ? cf.clock.in + ' → ' + cf.clock.out : cf.clock.in) + (cf.clock.past != null ? ' · ' + tr('{h} h past the shift', { h: cf.clock.past }) : '') : tr('No clock-in that day')}</dd></div>
+                <div><dt>{tr('Pay')}</dt><dd>{tr('{h} h × {rate} × {m}', { h: cf.hours, rate: money(cf.rate, 'GHS'), m: cf.multiple })} = {money(cf.amount, 'GHS')}</dd></div>
               </>}
               {cur.subjectType === 'expense' && <div><dt>{tr('Receipt')}</dt><dd>{cf.receipt ? <button type="button" className="ap-link" onClick={() => openReceipt(cur)}>{tr('Open the receipt')}</button> : tr('None attached')}</dd></div>}
             </dl>
