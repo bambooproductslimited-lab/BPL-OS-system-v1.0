@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { API_URL } from '../api/client';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
-import DeviceLanguage from '../components/DeviceLanguage';
 import './ShopPage.css';
 import './BookPage.css';
+import { StoreFoot, StoreTop } from './StoreChrome';
 
 // Booking a consultation with Bamboo Products at /book (backend
 // bookings.service.js): public, outside the OS's frame. What to book (a
@@ -51,8 +51,9 @@ function icsFor(b) {
 function Shell({ children }) {
   return (
     <div className="shp bkp">
-      <header className="bkp-top"><img src="/logo.png" alt="" className="shp-logo" /><div><b>Bamboo Products Limited</b><small>{tr('Book a consultation')}</small></div><DeviceLanguage className="bkp-lang" /></header>
+      <StoreTop active="book" />
       {children}
+      <StoreFoot />
     </div>
   );
 }

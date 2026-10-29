@@ -95,6 +95,17 @@ async function summary(itemIds) {
   rows.forEach(function (r) { out[r.item_id] = { average: round1(r.average), count: r.n }; });
   return out;
 }
+// The shop's front page: the latest good reviews with words (4 stars and
+// up, shown), one an item, of the items on the shop.
+async function highlights(itemIds) {
+  if (!itemIds.length) return [];
+  var rows = (await pool.query(
+    "SELECT DISTINCT ON (r.item_id) r.*, i.name AS item_name FROM shop_reviews r JOIN catalog_items i ON i.id = r.item_id " +
+    "WHERE r.status = 'shown' AND r.rating >= 4 AND length(trim(r.words)) >= 8 AND r.item_id = ANY($1::uuid[]) ORDER BY r.item_id, r.created_at DESC", [itemIds])).rows;
+  rows.sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+  return rows.slice(0, 6).map(function (r) { return Object.assign(reviewOut(r), { itemName: r.item_name }); });
+}
+
 // GET /api/shop/items/:id/reviews — an item's latest reviews on the shop.
 async function ofItem(itemId) {
   if (!/^[0-9a-f-]{36}$/i.test(String(itemId || ''))) fail('notfound', 'Item not found.');
@@ -133,4 +144,4 @@ async function decide(ctx, id, p) {
   return (await list(ctx, {})).reviews.find(function (x) { return x.id === id; });
 }
 
-module.exports = { forOrder: forOrder, rate: rate, summary: summary, ofItem: ofItem, list: list, decide: decide, shortName: shortName };
+module.exports = { forOrder: forOrder, rate: rate, summary: summary, ofItem: ofItem, highlights: highlights, list: list, decide: decide, shortName: shortName };

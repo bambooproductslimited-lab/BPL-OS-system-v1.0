@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { loadToken, portalCall as call, saveToken } from '../lib/portal';
-import DeviceLanguage from '../components/DeviceLanguage';
 import MakeAccount from '../components/MakeAccount';
 import './ShopPage.css';
 import './PortalPage.css';
+import { StoreFoot, StoreTop } from './StoreChrome';
 
 // "My account" on Bamboo Products' website, at /account (backend
 // portal.service.js): the email or phone the customer gave us, a six-digit
@@ -89,11 +89,7 @@ export default function PortalPage() {
 
   return (
     <div className="shp ptl">
-      <header className="ptl-head">
-        <a href="/"><img src="/logo.png" alt="Bamboo Products" className="shp-logo" /></a>
-        <nav className="ptl-nav"><a href="/">🛍️ {tr('Shop')}</a><a href="/book">📅 {tr('Book a visit')}</a></nav>
-        <DeviceLanguage className="shp-lang ptl-lang" />
-      </header>
+      <StoreTop active="account" me={d} />
       {!token ? <SignIn onIn={signIn} /> : !d ? (
         <div className="shp-mid ptl-wait">{error ? <p>{error}</p> : <><span className="shp-spin" aria-hidden="true">🎋</span><p>{tr('Loading…')}</p></>}</div>
       ) : (
@@ -160,7 +156,7 @@ export default function PortalPage() {
           </div>
         </>
       )}
-      <footer className="shp-foot">Bamboo Products Limited · {tr('Made in Ghana from bamboo')} 🎋</footer>
+      <StoreFoot />
     </div>
   );
 }

@@ -108,6 +108,19 @@ async function visibleItems(s) {
   return rows.filter(function (r) { return r.variations.length; });
 }
 
+// How many of each item the shop sold over the last six months (paid
+// orders: not waiting to be paid, not cancelled), for "Popular".
+async function soldOf(itemIds) {
+  if (!itemIds.length) return {};
+  var rows = (await pool.query(
+    "SELECT v.item_id, sum((l->>'qty')::numeric)::int AS n FROM shop_orders o, jsonb_array_elements(o.lines) l " +
+    "JOIN catalog_item_variations v ON v.id::text = l->>'variationId' " +
+    "WHERE o.status NOT IN ('unpaid', 'cancelled') AND o.created_at > now() - interval '180 days' AND v.item_id = ANY($1::uuid[]) GROUP BY v.item_id", [itemIds])).rows;
+  var out = {};
+  rows.forEach(function (r) { out[r.item_id] = r.n; });
+  return out;
+}
+
 // GET /api/shop — the shop's page: its words, the categories, the items.
 async function view() {
   var s = await settingsOf();
@@ -117,13 +130,17 @@ async function view() {
   var cats = [];
   items.forEach(function (r) { var n = r.category_name || 'More'; if (cats.indexOf(n) < 0) cats.push(n); });
   var stars = s.reviews.on ? await require('./shopReviews.service').summary(items.map(function (r) { return r.id; })) : {};
+  var sold = await soldOf(items.map(function (r) { return r.id; }));
   return {
     shop: { title: s.title, intro: s.intro, delivery: s.delivery, pickup: s.pickup, pickupAddress: s.pickupAddress, deliveryNote: s.deliveryNote, currency: 'GHS',
       payOnline: require('./invoicePay.service').configured(), codes: s.codes.some(function (c) { return c.on; }), areas: s.delivery ? s.areas : [], reviews: s.reviews.on, quotes: true },
     categories: cats,
+    // A few things customers said, for the shop's front page.
+    highlights: s.reviews.on ? await require('./shopReviews.service').highlights(items.map(function (r) { return r.id; })) : [],
     items: items.map(function (r) {
       return {
         id: r.id, name: r.name, description: r.description || '', category: r.category_name || 'More', options: r.options, makeDays: makeDaysOf(r), stars: stars[r.id] || null, soldOut: r.soldOut,
+        sold: sold[r.id] || 0,
         photos: r.photos.map(function (p) { return { id: p.id, variationId: p.variationId || null }; }),
         variations: r.variations.map(function (v) { return { id: v.id, name: v.name === 'Regular' ? '' : v.name, unit: v.unit || 'each', price: round2(v.price), options: v.options || {}, soldOut: v.soldOut }; })
       };

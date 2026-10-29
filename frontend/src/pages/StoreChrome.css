@@ -1,0 +1,68 @@
+/* The customer website's frame (StoreChrome.jsx): a glassy bar stuck to
+   the top and a deep-green footer. Inside .shp, so it takes the shop's
+   colours (ShopPage.css). */
+
+.stc-top { position: sticky; top: 8px; z-index: 30; display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 8px 8px 8px 10px; border-radius: 20px;
+  background: color-mix(in srgb, #ffffff 78%, transparent); border: 1px solid rgba(31, 42, 28, .08); box-shadow: 0 12px 30px -22px rgba(31, 42, 28, .55);
+  -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); }
+.stc-brand { display: flex; align-items: center; gap: 10px; min-width: 0; margin-right: auto; color: var(--shp-ink, #1f2a1c); text-decoration: none; }
+.stc-brand img { width: 40px; height: 40px; object-fit: contain; border-radius: 12px; background: #fff; box-shadow: 0 4px 12px -6px rgba(35, 77, 33, .6); }
+.stc-brand span { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.stc-brand b { font-size: 15.5px; letter-spacing: -.01em; white-space: nowrap; }
+.stc-brand small { font-size: 11.5px; font-weight: 700; color: var(--shp-g, #3f7d3b); white-space: nowrap; }
+.stc-links { display: flex; align-items: center; gap: 4px; }
+.stc-links a { display: inline-flex; align-items: center; gap: 6px; padding: 9px 13px; font-size: 14px; font-weight: 800; color: var(--shp-ink, #1f2a1c); text-decoration: none; border-radius: 14px; transition: background .15s, color .15s; }
+.stc-links a em { font-style: normal; }
+.stc-links a:hover { background: rgba(63, 125, 59, .1); }
+.stc-links a.is-on { color: #fff; background: linear-gradient(135deg, var(--shp-g, #3f7d3b), var(--shp-gd, #234d21)); box-shadow: 0 8px 18px -12px var(--shp-gd, #234d21); }
+.stc-lang select { height: 40px; padding: 0 10px; font: inherit; font-size: 13px; font-weight: 700; color: var(--shp-ink, #1f2a1c); border-radius: 14px; border: 1px solid rgba(31, 42, 28, .12); background: #fff; }
+.stc-cart { position: relative; display: grid; place-items: center; width: 46px; height: 46px; flex: none; padding: 0; font-size: 22px; border: 0; border-radius: 15px; cursor: pointer;
+  background: #f1f5ec; transition: transform .15s; }
+.stc-cart.has-items { background: linear-gradient(135deg, #fef3c7, #fde68a); animation: stc-bump .5s cubic-bezier(.2, 1.6, .4, 1); }
+.stc-cart:hover { transform: translateY(-1px); }
+.stc-cart b { position: absolute; top: -5px; right: -5px; display: grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; font-size: 12px; color: #fff; border-radius: 999px;
+  background: linear-gradient(135deg, #ef6c00, #d9480f); box-shadow: 0 0 0 3px #fff; }
+@keyframes stc-bump { 30% { transform: scale(1.2) rotate(-8deg); } 60% { transform: scale(.95) rotate(4deg); } }
+
+/* A deep-green card at the end of the page (the page leaves room under it
+   for a basket bar on a phone). */
+.stc-foot { margin: 48px 0 0; padding: 40px 28px 26px; color: #e8f3e4; border-radius: 34px;
+  background: radial-gradient(60% 80% at 100% 0%, rgba(132, 204, 22, .25), transparent 60%), radial-gradient(50% 60% at 0% 100%, rgba(245, 159, 0, .16), transparent 60%), linear-gradient(160deg, #234d21, #16301a); }
+.stc-foot-in { display: grid; grid-template-columns: 1.4fr 1fr 1.2fr 1fr; gap: 26px; max-width: 1200px; margin: 0 auto; }
+.stc-foot-in.is-short { grid-template-columns: 1.4fr 1.2fr 1fr; }
+.stc-foot-brand { display: flex; flex-direction: column; gap: 8px; }
+.stc-foot-brand img { width: 52px; height: 52px; object-fit: contain; border-radius: 14px; background: #fff; padding: 4px; }
+.stc-foot-brand strong { font-size: 17px; color: #fff; }
+.stc-foot-brand p { margin: 0; font-size: 13.5px; line-height: 1.55; color: rgba(232, 243, 228, .78); }
+.stc-pay { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.stc-pay i { padding: 5px 10px; font-size: 12px; font-weight: 800; font-style: normal; border-radius: 999px; background: rgba(255, 255, 255, .1); border: 1px solid rgba(255, 255, 255, .16); }
+.stc-foot-col { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; font-size: 13.5px; }
+.stc-foot-col h4 { margin: 0 0 2px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #bef264; }
+.stc-foot-col a, .stc-foot-col button { padding: 0; font: inherit; text-align: left; color: rgba(232, 243, 228, .88); text-decoration: none; background: none; border: 0; cursor: pointer; }
+.stc-foot-col a:hover, .stc-foot-col button:hover { color: #fff; text-decoration: underline; }
+.stc-foot-col span { color: rgba(232, 243, 228, .78); line-height: 1.45; }
+.stc-foot-line { max-width: 1200px; margin: 28px auto 0; padding-top: 16px; font-size: 12.5px; text-align: center; color: rgba(232, 243, 228, .6); border-top: 1px solid rgba(255, 255, 255, .12); }
+
+/* Rounded fields with a ring when in use, on every page of the website. */
+.shp .input { min-height: 46px; padding: 10px 14px; font-size: 15px; color: var(--shp-ink, #1f2a1c); border-radius: 14px; border: 1px solid rgba(31, 42, 28, .16); background: #fff; transition: border-color .15s, box-shadow .15s; }
+.shp .input:focus { outline: none; border-color: var(--shp-g, #3f7d3b); box-shadow: 0 0 0 4px rgba(132, 204, 22, .25); }
+
+@media (max-width: 900px) {
+  .stc-foot-in, .stc-foot-in.is-short { grid-template-columns: 1fr 1fr; }
+  .stc-foot-brand { grid-column: 1 / -1; }
+}
+@media (max-width: 760px) {
+  .stc-links a em { display: none; }
+  .stc-links a { padding: 9px 10px; font-size: 17px; }
+  .stc-brand small { display: none; }
+}
+@media (max-width: 460px) {
+  .stc-top { gap: 6px; padding: 6px; }
+  .stc-brand img { width: 36px; height: 36px; }
+  .stc-brand span { display: none; }
+  .stc-lang select { width: 54px; padding: 0 4px; }
+  .stc-links { gap: 0; }
+  .stc-links a { padding: 8px 7px; }
+  .stc-foot-in, .stc-foot-in.is-short { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { .stc-cart.has-items { animation: none; } }

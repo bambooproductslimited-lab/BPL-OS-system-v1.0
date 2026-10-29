@@ -1,9 +1,5 @@
 /* Booking a consultation (BookPage.jsx), in the shop's warm bamboo look (ShopPage.css). bkp- */
 .bkp { max-width: 760px; }
-.bkp-top { display: flex; align-items: center; gap: 12px; padding: 4px 0 14px; }
-.bkp-top > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.bkp-top small { font-size: 12.5px; color: var(--shp-muted); }
-.bkp-lang select { padding: 6px 10px; font: inherit; font-size: 13px; border-radius: 999px; border: 1px solid var(--shp-line); background: #fff; }
 .bkp-mid { min-height: 60vh; }
 .bkp-big { font-size: 54px; }
 .bkp-hero { position: relative; overflow: hidden; padding: 22px 22px 24px; border-radius: 26px; color: #fff;

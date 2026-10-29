@@ -820,3 +820,51 @@ test('tell me when it\'s back: an item sold out by hand, or its stock run out, t
   var placed = await shop.place({ name: 'Zqh Ama', phone: '0244000123', fulfilment: 'pickup', lines: [{ variationId: varM, qty: 1 }] }, '10.7.9.2');
   assert.ok(placed.orderNo, 'back on sale: bought again');
 });
+
+test('the shop\'s front: how many of each were bought (paid orders, the last six months), and a few good words customers said', async function () {
+  shop._placedBy.clear();
+  config.paystackBpl.secretKey = '';
+  var s = (await shop.getSettings(boss)).settings;
+  await shop.saveSettings(boss, Object.assign({}, s, { on: true, categories: [catA], codes: [], areas: [], reviews: { on: true, autoShow: false } }));
+  var lamp = (await pool.query("INSERT INTO catalog_items (name, category_id, tax_rate_id, active) VALUES ('Zqh pendant lamp', $1, 'tx_zero', true) RETURNING id", [catA])).rows[0].id;
+  var vLamp = (await pool.query("INSERT INTO catalog_item_variations (item_id, name, code, unit, unit_price, active) VALUES ($1, 'Regular', 'ZQH-P', 'each', 150, true) RETURNING id", [lamp])).rows[0].id;
+  var front = async function () {
+    var p = await http('GET', '/api/shop');
+    return { lamp: p.body.items.find(function (i) { return i.id === lamp; }), highlights: p.body.highlights };
+  };
+  var buy = function (qty, n, who) {
+    return shop.place({ name: 'Zqh ' + who, phone: '024 400 09' + (10 + n), email: 'zqh.' + who.toLowerCase() + '@example.com', fulfilment: 'pickup', lines: [{ variationId: vLamp, qty: qty }] }, '10.7.12.' + n);
+  };
+  assert.equal((await front()).lamp.sold, 0);
+  var a = await buy(3, 1, 'Front');
+  assert.equal((await front()).lamp.sold, 0, 'not paid: not counted');
+  await payFor(a.invoiceNo);
+  assert.equal((await front()).lamp.sold, 3);
+  var b = await buy(2, 2, 'Second');
+  await payFor(b.invoiceNo);
+  var old = await buy(5, 3, 'Old');
+  await payFor(old.invoiceNo);
+  await pool.query("UPDATE shop_orders SET created_at = now() - interval '200 days' WHERE order_no = $1", [old.orderNo]);
+  assert.equal((await front()).lamp.sold, 5, 'paid, in the last six months');
+
+  // Good words: shown, four stars and up, more than a word or two.
+  var done = async function (o) {
+    var id = (await pool.query('SELECT id FROM shop_orders WHERE order_no = $1', [o.orderNo])).rows[0].id;
+    await shop.setStatus(boss, id, { status: 'ready' });
+    await shop.setStatus(boss, id, { status: 'done' });
+  };
+  await done(a); await done(b);
+  await http('POST', '/api/shop/orders/' + a.orderToken + '/reviews', { reviews: [{ itemId: lamp, rating: 5, words: 'Zqh: warm light over our table' }] });
+  await http('POST', '/api/shop/orders/' + b.orderToken + '/reviews', { reviews: [{ itemId: lamp, rating: 3, words: 'Zqh: fine, but the cord is short' }] });
+  var ofLamp = function (h) { return h.filter(function (x) { return x.itemId === lamp; }); };
+  assert.deepEqual(ofLamp((await front()).highlights), [], 'not before staff approve');
+  var waiting = (await reviews.list(boss, { status: 'pending' })).reviews.filter(function (x) { return x.itemId === lamp; });
+  assert.equal(waiting.length, 2);
+  for (var w of waiting) await reviews.decide(boss, w.id, { status: 'shown' });
+  assert.deepEqual(ofLamp((await front()).highlights).map(function (x) { return [x.rating, x.words, x.itemName, x.name]; }),
+    [[5, 'Zqh: warm light over our table', 'Zqh pendant lamp', 'Zqh F.']], 'three stars is not one to show off');
+  // Reviews off: none on the front.
+  await shop.saveSettings(boss, Object.assign({}, (await shop.getSettings(boss)).settings, { reviews: { on: false, autoShow: false } }));
+  assert.deepEqual((await front()).highlights, []);
+  await shop.saveSettings(boss, Object.assign({}, (await shop.getSettings(boss)).settings, { reviews: { on: true, autoShow: false } }));
+});
