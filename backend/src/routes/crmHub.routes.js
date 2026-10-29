@@ -24,6 +24,10 @@ router.put('/profiles/:id', wrap(function (req) { return profiles.updateProfile(
 router.post('/profiles/:id/identities', wrap(function (req) { return profiles.addIdentity(req.ctx, req.params.id, req.body || {}); }));
 router.delete('/profiles/:id/identities/:identityId', wrap(function (req) { return profiles.removeIdentity(req.ctx, req.params.id, req.params.identityId); }));
 router.put('/profiles/:id/follow-up', wrap(function (req) { return profiles.setFollowUp(req.ctx, req.params.id, req.body || {}); }));
+// Just a contact, not a lead or customer ({on, reason, note}); not to be
+// followed up any more ({on, reason, note}).
+router.put('/profiles/:id/contact', wrap(function (req) { return profiles.setContact(req.ctx, req.params.id, req.body || {}); }));
+router.put('/profiles/:id/no-follow-up', wrap(function (req) { return profiles.setNoFollowUp(req.ctx, req.params.id, req.body || {}); }));
 router.post('/profiles/:id/log', wrap(function (req) { return inbox.logInteraction(req.ctx, req.params.id, req.body || {}); }));
 router.get('/reps', wrap(function (req) { return profiles.reps(req.ctx); }));
 router.post('/assign', wrap(function (req) { return profiles.assignRep(req.ctx, req.body || {}); }));

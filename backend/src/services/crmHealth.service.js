@@ -263,9 +263,9 @@ async function decide(ctx, suggestionId, status) {
 // Customers who should have a rep: they wrote, have an open lead, or were
 // quoted, ordered or invoiced in the last year, or were added in the last 90 days.
 var NEEDS_REP =
-  "c.status = 'active' AND c.account_manager_id IS NULL AND " + SCOPE + " AND (" +
+  "c.status = 'active' AND c.category <> 'contact' AND c.account_manager_id IS NULL AND " + SCOPE + " AND (" +
   "EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id) OR " +
-  "EXISTS (SELECT 1 FROM crm_leads l WHERE l.customer_id = c.id AND l.stage NOT IN ('won', 'lost')) OR " +
+  "EXISTS (SELECT 1 FROM crm_leads l WHERE l.customer_id = c.id AND l.stage NOT IN ('won', 'lost', 'not_lead')) OR " +
   "EXISTS (SELECT 1 FROM quotations x WHERE x.customer_id = c.id AND x.created_at > now() - interval '365 days') OR " +
   "EXISTS (SELECT 1 FROM sales_orders x WHERE x.customer_id = c.id AND x.created_at > now() - interval '365 days') OR " +
   "EXISTS (SELECT 1 FROM invoices x WHERE x.customer_id = c.id AND x.issued_at > now() - interval '365 days') OR " +

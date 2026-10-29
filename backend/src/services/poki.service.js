@@ -172,7 +172,7 @@ var UNIT_SELECT =
   'SELECT u.*, p.name AS property_name, l.id AS booking_id, l.start_date AS booking_start, l.end_date AS booking_end, l.rent_total AS booking_rent, ' +
   '       l.monthly_rate AS booking_monthly, l.booking_no, l.tenant_id AS tenant_id, ' +
   '       c.name AS tenant_name, c.phone AS tenant_phone, c.email AS tenant_email, ' +
-  "       (SELECT MAX(COALESCE(b.terminated_on, b.end_date)) FROM poki_bookings b WHERE b.unit_id = u.id AND b.status IN ('terminated', 'expired', 'renewed')) AS last_let_end, " +
+  "       (SELECT MAX(COALESCE(b.terminated_on, b.end_date)) FROM poki_bookings b WHERE b.unit_id = u.id AND b.status IN ('terminated', 'expired', 'renewed', 'moved')) AS last_let_end, " +
   "       (SELECT MIN(b.start_date) FROM poki_bookings b WHERE b.unit_id = u.id AND b.status IN ('draft', 'active') AND b.start_date > CURRENT_DATE) AS next_start, " +
   "       (SELECT COUNT(*) FROM poki_maintenance_requests m WHERE m.unit_id = u.id AND m.status IN ('open', 'in_progress')) AS open_requests " +
   'FROM poki_units u ' +
@@ -604,6 +604,9 @@ function rowToBooking(r) {
     status: r.status, signedOn: r.signed_on, terminatedOn: r.terminated_on, terminationReason: r.termination_reason,
     agreementBody: r.agreement_body, agreementGeneratedAt: r.agreement_generated_at,
     renewedFromId: r.renewed_from_id, notes: r.notes, createdAt: r.created_at,
+    // A move to another unit (moveBooking): where they came from, where they went.
+    movedFromId: r.moved_from_id || null, movedFromNo: r.moved_from_no || null, movedFromUnit: r.moved_from_unit || null,
+    movedToId: r.moved_to_id || null, movedToNo: r.moved_to_no || null, movedToUnit: r.moved_to_unit || null,
     invoicedTotal: r.invoiced_total != null ? Number(r.invoiced_total) : undefined,
     // What the booking's own invoice asks for (rent and deposit), apart from
     // utility and other bills — to spot a booking edited before its invoice
@@ -624,7 +627,12 @@ var BOOKING_SELECT =
   "       COALESCE(SUM(i.grand_total) FILTER (WHERE i.status <> 'void'), 0) AS invoiced_total, " +
   "       COALESCE(SUM(i.grand_total) FILTER (WHERE i.status <> 'void' AND i.doc_kind = 'rent'), 0) AS rent_invoiced_total, " +
   "       COALESCE(SUM(i.amount_paid) FILTER (WHERE i.status <> 'void'), 0) AS paid_total, " +
-  "       COALESCE(SUM(i.balance_due) FILTER (WHERE i.status <> 'void'), 0) AS balance_total " +
+  "       COALESCE(SUM(i.balance_due) FILTER (WHERE i.status <> 'void'), 0) AS balance_total, " +
+  '       (SELECT f.booking_no FROM poki_bookings f WHERE f.id = l.moved_from_id) AS moved_from_no, ' +
+  '       (SELECT fu.code FROM poki_bookings f JOIN poki_units fu ON fu.id = f.unit_id WHERE f.id = l.moved_from_id) AS moved_from_unit, ' +
+  '       (SELECT t2.id FROM poki_bookings t2 WHERE t2.moved_from_id = l.id ORDER BY t2.created_at DESC LIMIT 1) AS moved_to_id, ' +
+  '       (SELECT t2.booking_no FROM poki_bookings t2 WHERE t2.moved_from_id = l.id ORDER BY t2.created_at DESC LIMIT 1) AS moved_to_no, ' +
+  '       (SELECT tu.code FROM poki_bookings t2 JOIN poki_units tu ON tu.id = t2.unit_id WHERE t2.moved_from_id = l.id ORDER BY t2.created_at DESC LIMIT 1) AS moved_to_unit ' +
   'FROM poki_bookings l ' +
   'JOIN poki_units u ON u.id = l.unit_id ' +
   'JOIN poki_properties p ON p.id = u.property_id ' +
@@ -877,8 +885,15 @@ async function updateBooking(ctx, id, p) {
   var existing = await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id]);
   if (!existing.rows[0]) fail('notfound', 'Booking not found.');
   var cur = existing.rows[0];
-  if (cur.status === 'terminated' || cur.status === 'expired') {
+  if (cur.status === 'terminated' || cur.status === 'expired' || cur.status === 'moved') {
     fail('conflict', 'This booking has ended and can no longer be edited. Create a new one instead.');
+  }
+  // A booking that carries on after a move: its rent was paid on the booking
+  // it came from, so its dates and money stay as the move set them (an
+  // invoice brought "up to date" would charge the whole rent again).
+  if (cur.moved_from_id && movedTermsChange(cur, p)) {
+    fail('conflict', 'This booking carries on ' + ((await pool.query('SELECT booking_no FROM poki_bookings WHERE id = $1', [cur.moved_from_id])).rows[0] || { booking_no: 'the booking before it' }).booking_no +
+      ' after a move, and its rent is charged there, so its dates and rent can\'t be changed here. Only its notes and renewal increase can. To change the unit again, move them; when it runs out, renew it.');
   }
 
   var startDate = p.startDate !== undefined ? V.date(p.startDate, 'Start date') : String(cur.start_date).slice(0, 10);
@@ -912,7 +927,7 @@ async function updateBooking(ctx, id, p) {
     var unit = (await client.query(
       'SELECT u.*, p.company_id, p.name AS property_name FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
       [cur.unit_id])).rows[0];
-    change = await syncBookingInvoice(client, cur, updated.rows[0], unit, false);
+    change = cur.moved_from_id ? { action: 'none' } : await syncBookingInvoice(client, cur, updated.rows[0], unit, false);
     if (change.action === 'overpaid') {
       // Cut below what the tenant already paid: only with the refund of the
       // difference said how (p.refund), recorded as a credit note.
@@ -929,7 +944,7 @@ async function updateBooking(ctx, id, p) {
       });
       change.refunded = owed;
       change.creditNo = refunded.creditNo;
-    } else {
+    } else if (!cur.moved_from_id) {
       change = await syncBookingInvoice(client, cur, updated.rows[0], unit, true);
     }
     return updated;
@@ -971,7 +986,7 @@ async function quoteBooking(ctx, p) {
   var invoice = null;
   if (p.exceptId) {
     var cur = (await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [p.exceptId])).rows[0];
-    if (cur && cur.unit_id === p.unitId) {
+    if (cur && cur.unit_id === p.unitId && !cur.moved_from_id) {
       var unitFull = (await pool.query(
         'SELECT u.*, p.company_id, p.name AS property_name FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1',
         [cur.unit_id])).rows[0];
@@ -1030,7 +1045,7 @@ async function endBooking(ctx, id, p) {
   canManage(ctx);
   var booking = await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id]);
   if (!booking.rows[0]) fail('notfound', 'Booking not found.');
-  if (booking.rows[0].status === 'terminated' || booking.rows[0].status === 'expired') {
+  if (booking.rows[0].status === 'terminated' || booking.rows[0].status === 'expired' || booking.rows[0].status === 'moved') {
     fail('conflict', 'This booking has already ended.');
   }
   var newStatus = V.oneOf((p && p.status) || 'terminated', ['terminated', 'expired'], 'Status');
@@ -1095,6 +1110,7 @@ async function renewBooking(ctx, id, p) {
   var old = await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id]);
   if (!old.rows[0]) fail('notfound', 'Booking not found.');
   var prev = old.rows[0];
+  if (prev.status === 'moved') fail('conflict', 'The tenant moved to another unit; renew the booking there instead.');
   var prevEnd = String(prev.end_date).slice(0, 10);
 
   // The new block starts the day AFTER the old one ends. Both dates are
@@ -1164,12 +1180,245 @@ async function renewBooking(ctx, id, p) {
   return getBooking(ctx, newId);
 }
 
+// ── moving to another unit ─────────────────────────────────────────────
+// A tenant moves from their room to another unit before their booking runs
+// out. The booking on the old unit ends as 'moved' on the moving day (the
+// unit is free from then), and a new booking carries on in the new unit
+// for the time that is left, to the same end date. Their rent was paid up
+// front on the old booking, so only the difference is settled: the time
+// left priced at the new unit's rent against the old, charged on an
+// invoice of its own when the new unit costs more (or let go), and when it
+// costs less given back as a credit note on the old invoice (a refund if it
+// was paid) or kept. The deposit held goes with them, and only a raise of
+// it is charged; CAM and the other running charges move to the new booking.
+
+// The months and days from `start` to `end` (both kept), the way a
+// booking counts them: bookingEndDate(start, months, days) === end.
+function durationBetween(start, end) {
+  var months = 0;
+  var dayAfter = addDays(end, 1);
+  while (addMonths(start, months + 1) <= dayAfter) months++;
+  var from = addMonths(start, months);
+  var days = Math.round((Date.parse(dayAfter + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
+  return { months: months, days: days };
+}
+
+// Whether an edit would touch a moved-in booking's dates or money.
+function movedTermsChange(cur, p) {
+  function differs(v, was) { return v !== undefined && v !== null && v !== '' && Math.abs(Number(v) - Number(was)) > 0.005; }
+  return (p.startDate !== undefined && String(p.startDate).slice(0, 10) !== dateOnly(cur.start_date)) ||
+    (p.durationMonths !== undefined && Number(p.durationMonths) !== Number(cur.duration_months)) ||
+    (p.durationDays !== undefined && Number(p.durationDays) !== Number(cur.duration_days)) ||
+    differs(p.monthlyRate, cur.monthly_rate) || differs(p.dailyRate, cur.daily_rate) || differs(p.depositAmount, cur.deposit_amount) ||
+    (p.currency !== undefined && p.currency && String(p.currency).toUpperCase() !== cur.currency);
+}
+
+var UNIT_FULL = 'SELECT u.*, p.company_id, p.name AS property_name FROM poki_units u JOIN poki_properties p ON p.id = u.property_id WHERE u.id = $1';
+
+// What a move would do, worked out the same way for the screen (quoteMove)
+// and for the move itself.
+async function planMove(db, b, p) {
+  if (b.status !== 'active' && b.status !== 'draft') fail('conflict', 'Only a booking that is running or about to start can be moved.');
+  var from = (await db.query(UNIT_FULL, [b.unit_id])).rows[0];
+  var to = p.unitId ? (await db.query(UNIT_FULL, [p.unitId])).rows[0] : null;
+  if (!to) fail('invalid', 'Choose the unit they are moving to.');
+  if (to.id === b.unit_id) fail('invalid', 'They are in ' + to.code + ' already. Choose another unit.');
+  if (!to.active) fail('invalid', to.code + ' is not in use any more.');
+  if (to.company_id !== from.company_id) fail('invalid', 'Choose a unit of Poki Properties.');
+
+  var start = dateOnly(b.start_date), end = dateOnly(b.end_date);
+  // A booking not started yet moves whole; a running one from the moving day.
+  var moveDate = b.status === 'draft' ? start : (p.moveDate ? V.date(p.moveDate, 'Moving day') : todayISO());
+  if (moveDate < start) fail('invalid', 'The moving day is before the booking starts (' + start + ').');
+  if (moveDate > end) fail('invalid', 'The booking ends on ' + end + ', before that moving day. Make a new booking for the new unit instead.');
+  var left = durationBetween(moveDate, end);
+
+  // The rent in the new unit: as typed, or kept as it was, or the new unit's own.
+  var keep = !!p.keepRate;
+  var monthly, daily;
+  if (p.monthlyRate !== undefined && p.monthlyRate !== null && p.monthlyRate !== '') {
+    monthly = money(num(p.monthlyRate));
+    daily = dayRate(monthly, p.dailyRate !== undefined && p.dailyRate !== '' ? num(p.dailyRate) : dailyRateFor(monthly, keep ? b.daily_rate : to.daily_rate));
+  } else if (keep || !(Number(to.base_rent) > 0)) {
+    monthly = money(b.monthly_rate);
+    daily = money(b.daily_rate);
+    keep = true;
+  } else {
+    if ((to.currency || 'GHS').toUpperCase() !== b.currency) {
+      fail('invalid', to.code + '\'s rent is in ' + (to.currency || 'GHS') + ' and this booking is in ' + b.currency + ': type the new rent in ' + b.currency + ', or keep the rent as it is.');
+    }
+    monthly = money(to.base_rent);
+    daily = dailyRateFor(monthly, to.daily_rate);
+  }
+  if (monthly < 0) fail('invalid', 'The rent can\'t be less than nothing.');
+
+  var wasLeft = priceBooking(b.monthly_rate, b.daily_rate, left.months, left.days).rentTotal;
+  var nowLeft = priceBooking(monthly, daily, left.months, left.days).rentTotal;
+  var difference = money(nowLeft - wasLeft);
+
+  // The deposit: what is held goes with them; only a raise is charged (the
+  // old booking's invoice already asked for the deposit it had).
+  var depositAmount = p.depositAmount !== undefined && p.depositAmount !== '' && p.depositAmount !== null ? money(num(p.depositAmount)) : money(b.deposit_amount);
+  if (depositAmount < 0) fail('invalid', 'The deposit can\'t be less than nothing.');
+  var depositHeld = Math.max(0, money(Number(b.deposit_held) - Number(b.deposit_refunded)));
+  var depositOwing = Math.max(0, money(depositAmount - Number(b.deposit_amount)));
+
+  // Is the new unit free from the moving day to the end?
+  var clash = (await db.query(
+    "SELECT booking_no, start_date, end_date FROM poki_bookings WHERE unit_id = $1 AND status IN ('draft','active') AND id <> $4 " +
+    "AND daterange(start_date, end_date, '[]') && daterange($2::date, $3::date, '[]') ORDER BY start_date LIMIT 1",
+    [to.id, moveDate, end, b.id])).rows[0];
+
+  // Cheaper: what giving the difference back would mean on the old invoice.
+  var main = (await db.query(
+    "SELECT * FROM invoices WHERE poki_booking_id = $1 AND doc_kind = 'rent' AND status <> 'void' ORDER BY issued_at, invoice_no LIMIT 1", [b.id])).rows[0];
+  var giveBack = null;
+  if (difference < -0.005) {
+    if (main) {
+      var room = require('./creditNotes.service').roomOn(main);
+      var credit = Math.min(-difference, room.creditable);
+      var overpaidAfter = Math.max(0, money(room.paid - (room.creditable - credit)));
+      giveBack = { invoiceId: main.id, invoiceNo: main.invoice_no, credit: money(credit), refund: money(Math.min(-difference, overpaidAfter)) };
+    } else giveBack = { invoiceId: null, invoiceNo: null, credit: 0, refund: 0 };
+  }
+
+  var unbilled = (await db.query(
+    'SELECT count(*)::int AS n FROM poki_meter_readings r JOIN poki_meters m ON m.id = r.meter_id WHERE m.unit_id = $1 AND r.invoice_id IS NULL', [b.unit_id])).rows[0].n;
+  var charges = (await db.query("SELECT count(*)::int AS n FROM poki_recurring_charges WHERE booking_id = $1 AND status IN ('active', 'paused')", [b.id])).rows[0].n;
+
+  return {
+    from: from, to: to, moveDate: moveDate, endDate: end, left: left, keep: keep,
+    monthly: monthly, daily: daily, wasLeft: wasLeft, nowLeft: nowLeft, difference: difference,
+    depositAmount: depositAmount, depositHeld: depositHeld, depositOwing: depositOwing,
+    clash: clash || null, giveBack: giveBack, unbilledReadings: unbilled, charges: charges
+  };
+}
+
+function planOut(b, m) {
+  return {
+    bookingNo: b.booking_no, currency: b.currency, moveDate: m.moveDate, endDate: m.endDate,
+    left: { months: m.left.months, days: m.left.days, label: describeDuration(m.left.months, m.left.days) },
+    from: { unitId: m.from.id, unitCode: m.from.code, propertyName: m.from.property_name, monthlyRate: Number(b.monthly_rate), dailyRate: Number(b.daily_rate), forTheRest: m.wasLeft },
+    to: { unitId: m.to.id, unitCode: m.to.code, propertyName: m.to.property_name, monthlyRate: m.monthly, dailyRate: m.daily, forTheRest: m.nowLeft, unitRent: Number(m.to.base_rent), unitCurrency: m.to.currency || 'GHS' },
+    keptRate: m.keep, difference: m.difference,
+    deposit: { amount: m.depositAmount, held: m.depositHeld, owing: m.depositOwing },
+    available: !m.clash,
+    clashesWith: m.clash ? { bookingNo: m.clash.booking_no, startDate: dateOnly(m.clash.start_date), endDate: dateOnly(m.clash.end_date) } : null,
+    giveBack: m.giveBack ? { invoiceNo: m.giveBack.invoiceNo, credit: m.giveBack.credit, refund: m.giveBack.refund } : null,
+    unbilledReadings: m.unbilledReadings, charges: m.charges
+  };
+}
+
+async function quoteMove(ctx, id, p) {
+  canRead(ctx);
+  var b = (await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id])).rows[0];
+  if (!b) fail('notfound', 'Booking not found.');
+  return planOut(b, await planMove(pool, b, p || {}));
+}
+
+async function moveBooking(ctx, id, p) {
+  canManage(ctx);
+  p = p || {};
+  var reason = String(p.reason || '').trim().slice(0, 300);
+  var newId, said;
+  try {
+    newId = await withTransaction(async function (client) {
+      var b = (await client.query('SELECT * FROM poki_bookings WHERE id = $1 FOR UPDATE', [id])).rows[0];
+      if (!b) fail('notfound', 'Booking not found.');
+      var m = await planMove(client, b, p);
+      if (m.clash) fail('conflict', m.to.code + ' is booked ' + dateOnly(m.clash.start_date) + ' to ' + dateOnly(m.clash.end_date) + ' under ' + m.clash.booking_no + ', so they can\'t move in on ' + m.moveDate + '.');
+      var dearer = m.difference > 0.005, cheaper = m.difference < -0.005;
+      var settle = dearer ? V.oneOf(p.difference || 'charge', ['charge', 'waive'], 'Rent difference')
+        : cheaper ? V.oneOf(p.difference || 'keep', ['keep', 'return'], 'Rent difference') : 'none';
+      if (settle === 'return' && !m.giveBack.invoiceId) fail('conflict', 'This booking has no rent invoice to give the difference back on. Keep it, or settle it by hand.');
+      if (settle === 'return' && !(m.giveBack.credit > 0) && !(m.giveBack.refund > 0)) fail('conflict', 'Nothing is left on invoice ' + m.giveBack.invoiceNo + ' to give back. Keep it, or settle it by hand.');
+      if (settle === 'return' && m.giveBack.refund > 0 && !(p.refund && p.refund.method)) {
+        fail('invalid', 'They have paid, so giving the difference back is a refund of ' + b.currency + ' ' + m.giveBack.refund.toFixed(2) + ': say how it is paid back.');
+      }
+
+      // The old booking ends on the moving day; its unit is free from then.
+      await client.query(
+        "UPDATE poki_bookings SET status = 'moved', terminated_on = $2, termination_reason = $3, updated_at = now() WHERE id = $1",
+        [id, m.moveDate, ('Moved to ' + m.to.code + (reason ? ': ' + reason : '')).slice(0, 300)]);
+      if (b.status === 'active') await client.query("UPDATE poki_units SET status = 'vacant', updated_at = now() WHERE id = $1", [b.unit_id]);
+
+      // The new booking, to the same end date.
+      var bookingNo = await nextDocNumber(client, 'booking');
+      var created = (await client.query(
+        'INSERT INTO poki_bookings (booking_no, unit_id, tenant_id, start_date, end_date, duration_months, duration_days, monthly_rate, daily_rate, rent_total, currency, ' +
+        'deposit_amount, deposit_held, escalation_percent, status, notes, moved_from_id, created_by) ' +
+        'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *',
+        [bookingNo, m.to.id, b.tenant_id, m.moveDate, m.endDate, m.left.months, m.left.days, m.monthly, m.daily, m.nowLeft, b.currency,
+          m.depositAmount, m.depositHeld, b.escalation_percent, b.status,
+          ('Moved from ' + m.from.code + ' (' + b.booking_no + ')' + (reason ? ': ' + reason : '') + '.').slice(0, 2000), id,
+          ctx.employee ? ctx.employee.id : null])).rows[0];
+      if (b.status === 'active') await client.query("UPDATE poki_units SET status = 'occupied', updated_at = now() WHERE id = $1", [m.to.id]);
+
+      // The running charges (CAM, service, …) go with them.
+      var moved = (await client.query(
+        "UPDATE poki_recurring_charges SET booking_id = $2, updated_at = now() WHERE booking_id = $1 AND status IN ('active', 'paused')", [id, created.id])).rowCount;
+
+      // Settling the difference.
+      var items = [];
+      var label = m.to.property_name + ' · ' + m.to.code;
+      if (settle === 'charge') {
+        items.push({
+          description: 'Rent difference — moved from ' + m.from.code + ' to ' + m.to.code, qty: 1, unit: 'each', unitPrice: m.difference,
+          notes: describeDuration(m.left.months, m.left.days) + ' from ' + m.moveDate + ': ' + b.currency + ' ' + m.nowLeft.toFixed(2) + ' in ' + m.to.code +
+            ' against ' + b.currency + ' ' + m.wasLeft.toFixed(2) + ' already paid for in ' + m.from.code + '.'
+        });
+      }
+      if (m.depositOwing > 0) {
+        items.push({ description: 'Security deposit — ' + label, qty: 1, unit: 'each', unitPrice: m.depositOwing, notes: 'The rise in the deposit for the new unit; the rest carried over from ' + b.booking_no + '.' });
+      }
+      var inv = null;
+      if (items.length) {
+        var billing = require('./pokiBilling.service');
+        var cust = (await client.query('SELECT customer_id FROM poki_tenants WHERE id = $1', [b.tenant_id])).rows[0].customer_id;
+        inv = await billing.insertPokiInvoice(client, {
+          customerId: cust, companyId: m.to.company_id, docKind: 'rent', bookingId: created.id,
+          periodStart: m.moveDate, periodEnd: m.endDate, items: buildLineItems(items),
+          dueDate: m.moveDate < todayISO() ? todayISO() : m.moveDate, currency: b.currency,
+          instructions: await billing.pokiPaymentInstructions(),
+          notes: 'Booking ' + bookingNo + ' — moved from ' + m.from.code + ' to ' + m.to.code + ' on ' + m.moveDate + '.'
+        });
+      }
+      var back = null;
+      if (settle === 'return') {
+        back = await require('./creditNotes.service').applyCredit(client, ctx, m.giveBack.invoiceId, {
+          amount: m.giveBack.credit, refundAmount: m.giveBack.refund, refundMethod: p.refund && p.refund.method, refundReference: p.refund && p.refund.reference,
+          reason: 'Moved from ' + m.from.code + ' to ' + m.to.code + ' on ' + m.moveDate + ': the new unit costs less for the ' + describeDuration(m.left.months, m.left.days) + ' left.'
+        });
+      }
+
+      var money2 = function (n) { return b.currency + ' ' + Math.abs(n).toFixed(2); };
+      said = 'Moved ' + b.booking_no + ' from ' + m.from.code + ' to ' + m.to.code + ' on ' + m.moveDate + ', carrying on as ' + bookingNo +
+        ' for the ' + describeDuration(m.left.months, m.left.days) + ' left' +
+        (settle === 'charge' ? '; the rent difference of ' + money2(m.difference) + ' charged' : settle === 'waive' ? '; the rent difference of ' + money2(m.difference) + ' let go' :
+          settle === 'return' ? '; ' + money2(m.difference) + ' less rent given back (' + back.creditNo + (m.giveBack.refund > 0 ? ', refunded ' + money2(m.giveBack.refund) : '') + ')' :
+            settle === 'keep' ? '; the ' + money2(m.difference) + ' the new unit costs less kept' : '; same rent') +
+        (m.depositOwing > 0 ? '; deposit raised by ' + money2(m.depositOwing) : '') +
+        (inv ? ', invoiced as ' + inv.invoice_no : '') + (moved ? '; ' + moved + ' running charge' + (moved === 1 ? '' : 's') + ' moved with them' : '') + '.';
+      await audit(client, ctx, 'poki.booking.move', 'poki_booking', created.id, said);
+      return created.id;
+    });
+  } catch (e) {
+    // Another booking for the new unit slipped in meanwhile (the no-overlap rule).
+    if (e.code === '23P01') fail('conflict', 'The new unit has just been booked for some of the same days. Choose another unit.');
+    throw e;
+  }
+  var out = await getBooking(ctx, newId);
+  out.moveSummary = said;
+  return out;
+}
+
 // ── deposits ────────────────────────────────────────────────────────────
 
 async function recordDeposit(ctx, id, p) {
   canManage(ctx);
   var booking = await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id]);
   if (!booking.rows[0]) fail('notfound', 'Booking not found.');
+  if (booking.rows[0].status === 'moved') fail('conflict', 'The deposit moved with the tenant to their new unit: record it on that booking.');
   var amount = num(p && p.amount);
   if (amount <= 0) fail('invalid', 'Enter a deposit amount greater than zero.');
   var held = Math.round((Number(booking.rows[0].deposit_held) + amount) * 100) / 100;
@@ -1185,6 +1434,7 @@ async function refundDeposit(ctx, id, p) {
   var booking = await pool.query('SELECT * FROM poki_bookings WHERE id = $1', [id]);
   if (!booking.rows[0]) fail('notfound', 'Booking not found.');
   var cur = booking.rows[0];
+  if (cur.status === 'moved') fail('conflict', 'The deposit moved with the tenant to their new unit: refund it from that booking when they leave.');
   var refund = num(p && p.amount);
   var deductions = num(p && p.deductions);
   var available = Math.round((Number(cur.deposit_held) - Number(cur.deposit_refunded)) * 100) / 100;
@@ -1287,8 +1537,8 @@ async function overview(ctx) {
   // was ended early), or when the unit was added if it has never been let.
   var vacant = await pool.query(
     'SELECT u.id, u.code, u.name, u.base_rent, u.currency, u.unit_type, p.name AS property_name, ' +
-    '       COALESCE(MAX(COALESCE(l.terminated_on, l.end_date)) FILTER (WHERE l.status IN (\'terminated\', \'expired\', \'renewed\', \'active\')), u.created_at::date) AS vacant_since, ' +
-    '       COUNT(l.id) FILTER (WHERE l.status IN (\'terminated\', \'expired\', \'renewed\', \'active\')) AS times_let ' +
+    '       COALESCE(MAX(COALESCE(l.terminated_on, l.end_date)) FILTER (WHERE l.status IN (\'terminated\', \'expired\', \'renewed\', \'moved\', \'active\')), u.created_at::date) AS vacant_since, ' +
+    '       COUNT(l.id) FILTER (WHERE l.status IN (\'terminated\', \'expired\', \'renewed\', \'moved\', \'active\')) AS times_let ' +
     'FROM poki_units u JOIN poki_properties p ON p.id = u.property_id ' +
     'LEFT JOIN poki_bookings l ON l.unit_id = u.id ' +
     "WHERE p.company_id = $1 AND u.active AND u.status = 'vacant' GROUP BY u.id, p.id ORDER BY vacant_since",
@@ -1387,6 +1637,7 @@ async function autoExpireBookings() {
 }
 
 module.exports = {
+  quoteMove: quoteMove, moveBooking: moveBooking, durationBetween: durationBetween,
   pokiCompanyId: pokiCompanyId, canRead: canRead, canManage: canManage, addMonths: addMonths, addDays: addDays,
   bookingEndDate: bookingEndDate, priceBooking: priceBooking, dailyRateFor: dailyRateFor, describeDuration: describeDuration,
   listProperties: listProperties, createProperty: createProperty, updateProperty: updateProperty, removeProperty: removeProperty,

@@ -106,6 +106,14 @@ router.post('/bookings/:id/end', async function (req, res, next) {
 router.post('/bookings/:id/reopen', async function (req, res, next) {
   try { res.json(await poki.reopenBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });
+// A tenant moving to another unit (poki.service.js moveBooking): what it
+// would do, then doing it.
+router.post('/bookings/:id/move/quote', async function (req, res, next) {
+  try { res.json(await poki.quoteMove(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
+router.post('/bookings/:id/move', async function (req, res, next) {
+  try { res.status(201).json(await poki.moveBooking(req.ctx, req.params.id, req.body || {})); } catch (e) { next(e); }
+});
 router.post('/bookings/:id/renew', async function (req, res, next) {
   try { res.status(201).json(await poki.renewBooking(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
 });

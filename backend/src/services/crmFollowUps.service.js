@@ -32,7 +32,7 @@ function money(n, cur) { return (cur || 'GHS') + ' ' + Number(n || 0).toLocaleSt
 async function reasonsWhere(where, args) {
   var cust = (await pool.query(
     "SELECT c.*, e.first_name AS rep_first, e.last_name AS rep_last FROM customers c LEFT JOIN employees e ON e.id = c.account_manager_id " +
-    "WHERE c.status = 'active' AND " + bplScopeClause('c') + ' AND ' + where, args)).rows;
+    "WHERE c.status = 'active' AND c.category <> 'contact' AND c.no_follow_up_at IS NULL AND " + bplScopeClause('c') + ' AND ' + where, args)).rows;
   if (!cust.length) return [];
   var ids = cust.map(function (c) { return c.id; });
   var q = await Promise.all([
@@ -46,7 +46,7 @@ async function reasonsWhere(where, args) {
       "SELECT customer_id, quote_no, id, grand_total, currency, sent_at, valid_until FROM quotations WHERE customer_id = ANY($1) AND status IN ('sent', 'viewed') " +
       "AND (valid_until IS NULL OR valid_until >= CURRENT_DATE) AND (COALESCE(sent_at, created_at) <= now() - make_interval(days => $2) OR valid_until <= CURRENT_DATE + 3) ORDER BY sent_at", [ids, QUOTE_DAYS]),
     pool.query(
-      "SELECT customer_id, ref, id, item, next_follow_up FROM crm_leads WHERE customer_id = ANY($1) AND stage NOT IN ('won', 'lost') AND next_follow_up <= CURRENT_DATE ORDER BY next_follow_up", [ids]),
+      "SELECT customer_id, ref, id, item, next_follow_up FROM crm_leads WHERE customer_id = ANY($1) AND stage NOT IN ('won', 'lost', 'not_lead') AND no_follow_up_at IS NULL AND next_follow_up <= CURRENT_DATE ORDER BY next_follow_up", [ids]),
     pool.query("SELECT customer_id, max(issued_at) AS at FROM invoices WHERE customer_id = ANY($1) AND status <> 'void' GROUP BY customer_id", [ids]),
     pool.query(
       "SELECT DISTINCT ON (cv.customer_id) cv.customer_id, cv.channel, cv.id, cv.last_message_at, cv.last_direction, cv.last_preview FROM crm_conversations cv " +
@@ -127,7 +127,7 @@ function nextStep(r, c) {
 async function looseLeads(repId) {
   var rows = (await pool.query(
     "SELECT id, ref, name, company, phone, email, item, stage, next_follow_up, location, comments FROM crm_leads " +
-    "WHERE rep_id = $1 AND customer_id IS NULL AND stage NOT IN ('won', 'lost') AND next_follow_up <= CURRENT_DATE ORDER BY next_follow_up", [repId])).rows;
+    "WHERE rep_id = $1 AND customer_id IS NULL AND stage NOT IN ('won', 'lost', 'not_lead') AND no_follow_up_at IS NULL AND next_follow_up <= CURRENT_DATE ORDER BY next_follow_up", [repId])).rows;
   return rows.map(function (l) {
     return {
       customer: null,

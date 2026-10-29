@@ -78,7 +78,8 @@ async function scope(ctx, q) {
 // ── leads and prospects (crm_leads) ───────────────────────────────────
 async function leadCards(sc) {
   var args = [];
-  var where = "(l.stage IN ('new', 'contacted', 'follow_up', 'qualified', 'quote_sent', 'negotiation') OR (l.stage = 'won' AND NOT " + crm.PAID_SQL + '))';
+  // Nobody on the board who is not to be followed up (crm.FOLLOWED_SQL).
+  var where = "(l.stage IN ('new', 'contacted', 'follow_up', 'qualified', 'quote_sent', 'negotiation') OR (l.stage = 'won' AND NOT " + crm.PAID_SQL + ')) AND ' + crm.FOLLOWED_SQL;
   if (!sc.all) { args.push(sc.repId); where += ' AND l.rep_id = $' + args.length; }
   var rows = (await pool.query(
     'SELECT l.*, e.first_name AS rep_first, e.last_name AS rep_last, c.category AS customer_category, ' +
@@ -150,7 +151,7 @@ function customerScope(co, args) {
 async function customerCards(sc) {
   var args = [];
   var co = await crm._salesCompany(await crm._settingsRow());
-  var where = "c.status = 'active' AND " + customerScope(co, args) + " AND (c.category IN ('active', 'vip') OR (c.category IN ('lead', 'prospect') AND NOT EXISTS (" +
+  var where = "c.status = 'active' AND c.no_follow_up_at IS NULL AND " + customerScope(co, args) + " AND (c.category IN ('active', 'vip') OR (c.category IN ('lead', 'prospect') AND NOT EXISTS (" +
     "SELECT 1 FROM crm_leads l WHERE l.customer_id = c.id AND (l.stage IN ('new', 'contacted', 'follow_up', 'qualified', 'quote_sent', 'negotiation') OR (l.stage = 'won' AND NOT " + crm.PAID_SQL + ')))))';
   if (!sc.all) { args.push(sc.repId); where += ' AND c.account_manager_id = $' + args.length; }
   var cust = (await pool.query(

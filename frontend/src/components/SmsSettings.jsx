@@ -82,6 +82,44 @@ const SENDER_STATES = {
   unknown: ['❔', () => tr('Not known'), () => tr('mNotify didn\'t say. Try the check again in a minute.'), 'is-warn']
 };
 
+// Staff who never get texts from the OS (employees.sms_opt_out): the CEO,
+// say. Matched on their number, so no alert, reminder or notice reaches them;
+// only a sign-in code they ask for, or a test sent to that number on purpose.
+function QuietStaff({ staff, busy, run }) {
+  const [q, setQ] = useState('');
+  const quiet = staff.filter((s) => s.quiet);
+  const needle = q.trim().toLowerCase();
+  const found = needle ? staff.filter((s) => !s.quiet && s.name.toLowerCase().includes(needle)).slice(0, 6) : [];
+  const set = (s, on) => run(() => api.put('/sms/quiet-staff', { employeeId: s.id, quiet: on }),
+    on ? tr('{name} won\'t get texts from the OS.', { name: s.name }) : tr('{name} gets texts from the OS again.', { name: s.name })).then((ok) => ok && setQ(''));
+  return (
+    <section className="ms-group ms-quiet">
+      <div className="ms-group-head">
+        <h3 className="ms-group-title">🔕 {tr('Staff who never get texts')}</h3>
+        <p className="ms-muted">{tr('Nothing the OS sends reaches their phone: alerts, reminders, a request\'s team, notices. Only a sign-in code they ask for themselves, or a test sent to their number. Skipped texts show in the list below.')}</p>
+      </div>
+      <div className="ms-quiet-chips">
+        {quiet.length ? quiet.map((s) => (
+          <span key={s.id} className="ms-quiet-chip">
+            <span className="ms-quiet-av" aria-hidden="true">{s.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()}</span>
+            {s.name}
+            <button type="button" disabled={busy} onClick={() => set(s, false)} aria-label={tr('Text {name} again', { name: s.name })} title={tr('Text {name} again', { name: s.name })}>✕</button>
+          </span>
+        )) : <span className="ms-muted">{tr('Nobody: every member of staff with a phone can get texts.')}</span>}
+      </div>
+      <div className="ms-quiet-add">
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tr('Add someone: type a name')} aria-label={tr('Add someone: type a name')} />
+        {needle && (
+          <ul className="ms-quiet-found">
+            {found.length ? found.map((s) => <li key={s.id}><button type="button" disabled={busy} onClick={() => set(s, true)}><span>{s.name}</span><span className="ms-muted">🔕 {tr('No texts')}</span></button></li>)
+              : <li className="ms-muted">{tr('Nobody with a phone on their staff record matches.')}</li>}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // The sender ID: the name texts come from, its standing with mNotify, and
 // the three things to do about it — check, ask for approval, change it.
 function SenderCard({ data, busy, run, startOpen }) {
@@ -187,6 +225,12 @@ export function SetupSteps({ steps, footnote }) {
       {footnote && <p className="ms-muted ms-setup-foot">{footnote}</p>}
     </div>
   );
+}
+
+// "Not sent: Ama Mensah doesn't get texts from the OS (…)." in the reader's language.
+function skippedText(error) {
+  const m = /^Not sent: (.+) doesn't get texts from the OS/.exec(error || '');
+  return m ? tr('Not sent: {name} doesn\'t get texts from the OS.', { name: m[1] }) : tr('Not sent');
 }
 
 export default function SmsSettings() {
@@ -339,6 +383,8 @@ export default function SmsSettings() {
         </>
       )}
 
+      {data.staff && <QuietStaff staff={data.staff} busy={busy} run={run} />}
+
       {/* ---- recent texts ---- */}
       {data.recent.length > 0 && (
         <section className="ms-group">
@@ -348,13 +394,14 @@ export default function SmsSettings() {
           <ul className="ms-list ms-log">
             {data.recent.map((m) => (
               <li key={m.id} className="ms-log-row" title={m.message}>
-                <span className={'ms-dot ' + (m.status === 'sent' ? 'is-ok' : 'is-bad')} aria-hidden="true" />
+                <span className={'ms-dot ' + (m.status === 'sent' ? 'is-ok' : m.status === 'skipped' ? 'is-skip' : 'is-bad')} aria-hidden="true" />
                 <div className="ms-log-main">
                   <div className="ms-log-line">
                     <span className="ms-log-what">{(PURPOSES[m.purpose] || (() => m.purpose))()}</span>
                     <span className="ms-muted">{tr('To')} {m.to}{m.by ? ' · ' + m.by : ''}</span>
                   </div>
-                  {m.status !== 'sent' && <div className="ms-bad ms-log-error">{tr('Failed')}{m.error ? ' — ' + m.error : ''}</div>}
+                  {m.status === 'skipped' ? <div className="ms-muted ms-log-error">🔕 {skippedText(m.error)}</div>
+                    : m.status !== 'sent' && <div className="ms-bad ms-log-error">{tr('Failed')}{m.error ? ' — ' + m.error : ''}</div>}
                 </div>
                 <span className="ms-log-when">{when(m.at)}</span>
               </li>

@@ -7,6 +7,8 @@ import { Icon } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
 import { StageTag } from './crmShared';
 import { CategoryTag, ChannelDot, CustMark, REASONS, ReasonTag, ago, ghsOr, nextStepText, reasonText } from './crmHubShared';
+import { ReasonPicker } from './crmStop';
+import { NOT_LEAD_REASONS, NO_FOLLOW_UP_REASONS } from './crmStopReasons';
 import './CrmHub.css';
 
 // One customer who needs a follow-up (GET /api/crm/follow-ups/mine): why,
@@ -18,6 +20,7 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
   const { can } = useAuth();
   const [busy, setBusy] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [stopping, setStopping] = useState(null);
   const c = item.customer;
   const l = item.lead;
   const top = item.reasons[0];
@@ -45,6 +48,15 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
       const d = new Date(); d.setUTCDate(d.getUTCDate() + days);
       await api.put('/crm/profiles/' + c.id + '/follow-up', { on: d.toISOString().slice(0, 10), note: c.followUpNote || '' });
       away(tr('Next follow-up with {name} set.', { name }), 'snooze');
+    } catch (err) { if (onAfter) onAfter(err.message); } finally { setBusy(false); }
+  }
+  // Not for us: stop following them up, or take them out of the lists (crmStop.jsx).
+  async function stop(what, reason, note) {
+    setBusy(true);
+    try {
+      const path = c ? '/crm/profiles/' + c.id + (what === 'out' ? '/contact' : '/no-follow-up') : '/crm/leads/' + l.id + (what === 'out' ? '/not-lead' : '/no-follow-up');
+      await api.put(path, { on: true, reason, note });
+      away(what === 'out' ? tr('{name} is out of the lists: not a lead or customer.', { name }) : tr('Nobody will be reminded to follow up {name}.', { name }), 'done');
     } catch (err) { if (onAfter) onAfter(err.message); } finally { setBusy(false); }
   }
   async function done() {
@@ -88,6 +100,12 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
           {c && c.identities.length > 0 && <div className="crm-chips">{c.identities.slice(0, 5).map((i) => <span key={i.kind + i.value} className="hub-ident-chip">{i.label || i.value}</span>)}</div>}
         </div>
       )}
+      {stopping && (
+        <ReasonPicker reasons={stopping === 'out' ? NOT_LEAD_REASONS : NO_FOLLOW_UP_REASONS} needNote={stopping === 'out'} busy={busy} onCancel={() => setStopping(null)}
+          onConfirm={(r, n) => stop(stopping, r, n)} notePlaceholder={tr('A note (optional)')}
+          title={stopping === 'out' ? tr('Who are they, if not a lead or customer?') : tr('Why stop following them up?')}
+          confirm={stopping === 'out' ? (c ? tr('Make just a contact') : tr('Take out of the leads')) : tr('Stop following up')} />
+      )}
       <footer className="hub-fu-acts">
         {primary && <button type="button" className="btn btn-primary" onClick={primary.run}>{primary.label}</button>}
         <ContactButtons name={name} phone={phone} email={email} />
@@ -99,6 +117,12 @@ export function FollowUpCard({ item, compact, onOpenProfile, onAfter }) {
             <button type="button" disabled={busy} onClick={() => snooze(1)}>{tr('tomorrow')}</button>
             <button type="button" disabled={busy} onClick={() => snooze(3)}>{tr('in 3 days')}</button>
             <button type="button" disabled={busy} onClick={() => snooze(7)}>{tr('in a week')}</button>
+          </span>
+        )}
+        {!compact && can('crm.manage') && !stopping && (
+          <span className="hub-fu-stop" role="group" aria-label={tr('Not for us?')}>
+            <button type="button" disabled={busy} onClick={() => setStopping('stop')} title={tr('They stay where they are, but nobody is reminded to chase them.')}>🔕 {tr('Stop following up')}</button>
+            {(!c || c.category !== 'contact') && (!l || !l.dealCount) && <button type="button" disabled={busy} onClick={() => setStopping('out')} title={tr('A supplier, staff, a job seeker, a wrong number… Out of the leads, prospects and customers.')}>🗂️ {c ? tr('Just a contact') : tr('Not a lead')}</button>}
           </span>
         )}
       </footer>

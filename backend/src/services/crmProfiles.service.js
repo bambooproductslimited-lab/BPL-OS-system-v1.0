@@ -16,7 +16,11 @@ var { notify } = require('../utils/notify');
 var { bplScopeClause } = require('../utils/documents');
 var inbox = require('./crmInbox.service');
 
-var CATEGORIES = ['lead', 'prospect', 'active', 'vip'];
+var CATEGORIES = ['lead', 'prospect', 'active', 'vip', 'contact'];
+// Who a contact is, when they are not a lead, a prospect or a customer
+// (category contact, migration 0208). The same reasons as a lead's.
+var CONTACT_REASONS = ['supplier', 'staff_family', 'job_seeker', 'spam', 'other_business', 'other'];
+var NO_FOLLOW_UP_REASONS = ['not_interested', 'asked_to_stop', 'bought_elsewhere', 'unreachable', 'cannot_serve', 'other'];
 
 function need(ctx, perm) { if (!ctx.can(perm)) fail('forbidden', 'Your role does not allow this action (' + perm + ').'); }
 function me(ctx) { return ctx && ctx.employee ? ctx.employee.id : null; }
@@ -34,8 +38,9 @@ var LIST_SQL =
   'SELECT c.*, e.first_name AS rep_first, e.last_name AS rep_last, e.photo_key AS rep_photo_key, e.photo_updated_at AS rep_photo_at, ' +
   '  cv.channels, cv.conversations, cv.waiting_since, ' +
   '  inv.invoices, inv.lifetime, inv.outstanding, inv.overdue, q.open_quotes, ' +
-  '  (SELECT count(*)::int FROM crm_duplicate_suggestions d WHERE d.status = \'open\' AND (d.a_id = c.id OR d.b_id = c.id)) AS duplicates ' +
-  'FROM customers c LEFT JOIN employees e ON e.id = c.account_manager_id ' +
+  '  (SELECT count(*)::int FROM crm_duplicate_suggestions d WHERE d.status = \'open\' AND (d.a_id = c.id OR d.b_id = c.id)) AS duplicates, ' +
+  '  nf.first_name AS nfu_first, nf.last_name AS nfu_last ' +
+  'FROM customers c LEFT JOIN employees e ON e.id = c.account_manager_id LEFT JOIN employees nf ON nf.id = c.no_follow_up_by ' +
   'LEFT JOIN LATERAL (SELECT array_agg(DISTINCT channel) AS channels, count(*)::int AS conversations, ' +
   "   min(last_message_at) FILTER (WHERE last_direction = 'in' AND status = 'open') AS waiting_since FROM crm_conversations WHERE customer_id = c.id) cv ON true " +
   "LEFT JOIN LATERAL (SELECT count(*)::int AS invoices, COALESCE(sum(grand_total), 0) AS lifetime, COALESCE(sum(balance_due), 0) AS outstanding, " +
@@ -54,7 +59,9 @@ function rowToProfile(r) {
     marketingOptOut: !!r.marketing_opt_out, createdAt: r.created_at,
     channels: (r.channels || []).filter(Boolean), conversations: r.conversations || 0,
     invoices: r.invoices || 0, lifetime: Number(r.lifetime || 0), outstanding: Number(r.outstanding || 0), overdue: Number(r.overdue || 0),
-    openQuotes: r.open_quotes || 0, duplicates: r.duplicates || 0
+    openQuotes: r.open_quotes || 0, duplicates: r.duplicates || 0,
+    contactReason: r.category === 'contact' ? r.contact_reason || '' : null,
+    noFollowUp: r.no_follow_up_at ? { at: r.no_follow_up_at, reason: r.no_follow_up_reason || '', by: r.nfu_first ? (r.nfu_first + ' ' + (r.nfu_last || '')).trim() : null } : null
   };
 }
 
@@ -72,7 +79,11 @@ async function listProfiles(ctx, q) {
   if (q.category === 'paying') where.push("c.category IN ('active', 'vip')");
   else if (q.category === 'notyet') where.push("c.category IN ('lead', 'prospect')");
   else if (CATEGORIES.indexOf(q.category) >= 0) where.push('c.category = ' + arg(q.category));
-  if (q.followUp === 'due') where.push('c.follow_up_on <= CURRENT_DATE');
+  // Contacts (a supplier, staff, a wrong number…) are not customers: only
+  // when asked for, or with everyone (category=any, to find someone).
+  else if (q.category !== 'any') where.push("c.category <> 'contact'");
+  if (q.followUp === 'due') where.push('c.follow_up_on <= CURRENT_DATE AND c.no_follow_up_at IS NULL');
+  if (q.noFollowUp === '1') where.push('c.no_follow_up_at IS NOT NULL');
   if (q.waiting === '1') where.push("EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.status = 'open' AND w.last_direction = 'in')");
   if (q.channel && inbox.CHANNELS.indexOf(q.channel) >= 0) where.push('EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.channel = ' + arg(q.channel) + ')');
   if (q.search) {
@@ -87,9 +98,11 @@ async function listProfiles(ctx, q) {
   var limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
   var rows = (await pool.query(LIST_SQL + 'WHERE ' + where.join(' AND ') + ' ORDER BY ' + order + ' LIMIT ' + limit, args)).rows;
   var sum = (await pool.query(
-    "SELECT count(*)::int AS total, count(*) FILTER (WHERE c.account_manager_id = $1)::int AS mine, count(*) FILTER (WHERE c.account_manager_id IS NULL)::int AS unassigned, " +
-    "count(*) FILTER (WHERE c.follow_up_on <= CURRENT_DATE)::int AS follow_up_due, " +
-    "count(*) FILTER (WHERE EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.status = 'open' AND w.last_direction = 'in'))::int AS waiting, " +
+    "SELECT count(*) FILTER (WHERE c.category <> 'contact')::int AS total, count(*) FILTER (WHERE c.account_manager_id = $1 AND c.category <> 'contact')::int AS mine, " +
+    "count(*) FILTER (WHERE c.account_manager_id IS NULL AND c.category <> 'contact')::int AS unassigned, " +
+    "count(*) FILTER (WHERE c.follow_up_on <= CURRENT_DATE AND c.no_follow_up_at IS NULL)::int AS follow_up_due, " +
+    "count(*) FILTER (WHERE c.category = 'contact')::int AS contacts, count(*) FILTER (WHERE c.no_follow_up_at IS NOT NULL AND c.category <> 'contact')::int AS no_follow_up, " +
+    "count(*) FILTER (WHERE c.category <> 'contact' AND EXISTS (SELECT 1 FROM crm_conversations w WHERE w.customer_id = c.id AND w.status = 'open' AND w.last_direction = 'in'))::int AS waiting, " +
     "count(*) FILTER (WHERE c.source = 'crm')::int AS from_conversations, " +
     "count(*) FILTER (WHERE c.category IN ('active', 'vip'))::int AS paying, count(*) FILTER (WHERE c.category = 'prospect')::int AS prospects, count(*) FILTER (WHERE c.category = 'lead')::int AS leads, " +
     "(SELECT count(*)::int FROM crm_duplicate_suggestions WHERE status = 'open') AS duplicates " +
@@ -210,11 +223,78 @@ async function setFollowUp(ctx, id, p) {
   var cur = await loadProfile(id);
   var on = p && p.on ? V.date(p.on, 'Follow-up date') : null;
   var note = str(p && p.note, 500);
+  if (on && cur.no_follow_up_at) fail('conflict', cur.name + ' is set not to be followed up. Turn follow-ups back on first.');
   await pool.query('UPDATE customers SET follow_up_on = $2, follow_up_note = $3 WHERE id = $1', [id, on, on ? note : '']);
   await audit(pool, ctx, 'crm.follow_up', 'customer', id, on ? 'Follow up with ' + cur.name + ' on ' + on + (note ? ': ' + note : '') + '.' : 'Follow-up with ' + cur.name + ' done.');
   if (on && cur.account_manager_id && cur.account_manager_id !== me(ctx)) {
     await notify(pool, cur.account_manager_id, 'Follow up with ' + cur.name + ' on ' + on, note || 'Set by ' + (ctx.employee ? ctx.employee.first_name : 'a colleague') + '.', '/crmcustomers?id=' + id);
   }
+  return getProfile(ctx, id);
+}
+
+// ── not a customer: just a contact ───────────────────────────────────
+// Not everyone who writes to us is a lead, a prospect or a customer: a
+// supplier, a job seeker, staff or family, a wrong number. "Just a
+// contact" takes them out of the customers, prospects and leads, their
+// counts and the follow-ups, and closes their open leads as "not a lead"
+// with the same reason. The profile and its messages stay. {on: false}
+// puts them back: a customer if they have paid for a sale, else a lead.
+async function setContact(ctx, id, p) {
+  need(ctx, 'crm.manage');
+  p = p || {};
+  var cur = await loadProfile(id);
+  if (p.on === false) {
+    if (cur.category !== 'contact') return getProfile(ctx, id);
+    var paid = (await pool.query("SELECT 1 FROM payments pp JOIN invoices i ON i.id = pp.invoice_id WHERE pp.customer_id = $1 AND pp.amount > 0 AND i.doc_kind = 'sale' LIMIT 1", [id])).rows[0];
+    var back = paid ? 'active' : 'lead';
+    await withTransaction(async function (db) {
+      await db.query("UPDATE customers SET category = $2, contact_reason = '' WHERE id = $1", [id, back]);
+      await audit(db, ctx, 'crm.profile.contact', 'customer', id, 'Put ' + cur.name + ' back as a ' + (paid ? 'customer' : 'lead') + '.');
+    });
+    return getProfile(ctx, id);
+  }
+  var reason = V.oneOf(p.reason || 'other', CONTACT_REASONS, 'Reason');
+  var said = str(p.note, 300);
+  if (reason === 'other' && !said) fail('invalid', 'Say who they are, in a few words.');
+  var why = reason + (said ? ': ' + said : '');
+  await withTransaction(async function (db) {
+    await db.query("UPDATE customers SET category = 'contact', contact_reason = $2, follow_up_on = NULL, follow_up_note = '' WHERE id = $1", [id, why]);
+    var open = (await db.query(
+      "UPDATE crm_leads l SET stage = 'not_lead', lost_reason = $2, next_follow_up = NULL, stage_changed_at = now(), updated_at = now() " +
+      "WHERE l.customer_id = $1 AND l.stage IN ('new', 'contacted', 'follow_up', 'qualified', 'quote_sent', 'negotiation') " +
+      'AND NOT EXISTS (SELECT 1 FROM crm_deals d WHERE d.lead_id = l.id) RETURNING l.id, l.ref', [id, why])).rows;
+    for (var i = 0; i < open.length; i++) {
+      await db.query("INSERT INTO crm_lead_notes (lead_id, kind, body, to_stage, by_employee) VALUES ($1, 'stage', $2, 'not_lead', $3)", [open[i].id, 'Their profile is just a contact.', me(ctx)]);
+    }
+    await audit(db, ctx, 'crm.profile.contact', 'customer', id, 'Took ' + cur.name + ' out of the customers and leads: just a contact (' + why + ')' +
+      (open.length ? '; closed ' + open.map(function (l) { return l.ref; }).join(', ') + ' as not a lead' : '') + '.');
+  });
+  return getProfile(ctx, id);
+}
+
+// ── don't follow up ──────────────────────────────────────────────────
+// The person is not to be chased any more: out of the follow-ups and the
+// reminders (their follow-up date and their leads' are cleared), out of
+// marketing sends, and at the bottom of the priorities. Payment reminders
+// for money they owe still go. {on: false} turns follow-ups back on.
+async function setNoFollowUp(ctx, id, p) {
+  need(ctx, 'crm.manage');
+  p = p || {};
+  var cur = await loadProfile(id);
+  if (p.on === false) {
+    if (!cur.no_follow_up_at) return getProfile(ctx, id);
+    await pool.query("UPDATE customers SET no_follow_up_at = NULL, no_follow_up_by = NULL, no_follow_up_reason = '' WHERE id = $1", [id]);
+    await audit(pool, ctx, 'crm.profile.follow_up_on', 'customer', id, 'Turned follow-ups back on for ' + cur.name + '.');
+    return getProfile(ctx, id);
+  }
+  var reason = V.oneOf(p.reason || 'other', NO_FOLLOW_UP_REASONS, 'Reason');
+  var said = str(p.note, 300);
+  var why = reason + (said ? ': ' + said : '');
+  await withTransaction(async function (db) {
+    await db.query("UPDATE customers SET no_follow_up_at = now(), no_follow_up_by = $2, no_follow_up_reason = $3, follow_up_on = NULL, follow_up_note = '' WHERE id = $1", [id, me(ctx), why]);
+    await db.query('UPDATE crm_leads SET next_follow_up = NULL, updated_at = now() WHERE customer_id = $1 AND next_follow_up IS NOT NULL', [id]);
+    await audit(db, ctx, 'crm.profile.no_follow_up', 'customer', id, 'Stopped following up ' + cur.name + ': ' + why + '.');
+  });
   return getProfile(ctx, id);
 }
 
@@ -274,5 +354,6 @@ async function assignRep(ctx, p) {
 module.exports = {
   CATEGORIES: CATEGORIES, SCOPE: SCOPE,
   listProfiles: listProfiles, getProfile: getProfile, updateProfile: updateProfile, addIdentity: addIdentity, removeIdentity: removeIdentity,
-  setFollowUp: setFollowUp, reps: reps, assignRep: assignRep
+  setFollowUp: setFollowUp, reps: reps, assignRep: assignRep, setContact: setContact, setNoFollowUp: setNoFollowUp,
+  CONTACT_REASONS: CONTACT_REASONS, NO_FOLLOW_UP_REASONS: NO_FOLLOW_UP_REASONS
 };

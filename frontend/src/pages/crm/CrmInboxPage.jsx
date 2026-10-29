@@ -10,6 +10,8 @@ import CustomerProfile from './CustomerProfile';
 import { CHANNELS, CategoryTag, ChannelDot, CustMark, ago, channelLabel, ghsOr, ourAuthor, timeOf, useReps } from './crmHubShared';
 import { Confetti, Ring, WaitPill, spanText, weekdayShort } from './crmFun';
 import { Toast } from './crmShared';
+import { ReasonPicker } from './crmStop';
+import { NOT_LEAD_REASONS, reasonText } from './crmStopReasons';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -475,7 +477,15 @@ function ConversationView({ id, canManage, reps, onChanged, onProfile, onToast, 
 // what they owe, their rep and what is planned — no need to open the profile.
 function CustomerSide({ conv, canManage, reps, onProfile, onLink }) {
   const [p, setP] = useState(null);
+  const [out, setOut] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
   const cid = conv.customer ? conv.customer.id : null;
+  // Not everyone who writes is a lead: a supplier, staff, a wrong number (crmStop.jsx).
+  async function setContact(on, reason, note) {
+    setBusy(true); setError(null);
+    try { setP(await api.put('/crm/profiles/' + cid + '/contact', { on, reason, note })); setOut(false); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
   useEffect(() => {
     let alive = true;
     setP(null);
@@ -502,6 +512,18 @@ function CustomerSide({ conv, canManage, reps, onProfile, onLink }) {
         <span className="dk-muted tl-small">{[p.contactPerson, p.location].filter(Boolean).join(' · ') || '—'}</span>
         <CategoryTag value={p.category} />
       </div>
+      {error && <div className="error-banner" role="alert">{error}</div>}
+      {p.category === 'contact' && (
+        <div className="ib-side-contact">
+          <span>{p.contactReason ? reasonText(p.contactReason, NOT_LEAD_REASONS) : tr('Just a contact')}</span>
+          <small className="dk-muted">{tr('Not a lead or customer: kept out of the lists and counts. Their messages still come here.')}</small>
+          {canManage && <button type="button" className="ib-btn is-soft" disabled={busy} onClick={() => setContact(false)}>{tr('Put back')}</button>}
+        </div>
+      )}
+      {canManage && p.category !== 'contact' && (out
+        ? <ReasonPicker reasons={NOT_LEAD_REASONS} needNote busy={busy} onCancel={() => setOut(false)} onConfirm={(r, n) => setContact(true, r, n)}
+          title={tr('Who are they, if not a lead or customer?')} notePlaceholder={tr('A few words, e.g. sells us bamboo poles')} confirm={tr('Make just a contact')} />
+        : (p.category === 'lead' || p.category === 'prospect') && <button type="button" className="ib-btn ib-side-out" onClick={() => setOut(true)} title={tr('A supplier, staff, a job seeker, a wrong number… Out of the leads, prospects and customers.')}>🗂️ {tr('Not a lead — just a contact')}</button>)}
       <dl className="ib-side-facts">
         <div><dt>{tr('Bought')}</dt><dd>{ghsOr(p.lifetime)}</dd></div>
         <div className={p.outstanding > 0 ? 'is-bad' : ''}><dt>{tr('Owes')}</dt><dd>{ghsOr(p.outstanding)}</dd></div>
@@ -538,7 +560,7 @@ function LinkDialog({ conv, onClose, onDone }) {
   const [error, setError] = useState(null);
   useEffect(() => {
     if (q.trim().length < 2) { setFound([]); return undefined; }
-    const t = setTimeout(() => api.get('/crm/profiles?limit=12&search=' + encodeURIComponent(q.trim())).then((x) => setFound(x.profiles)).catch(() => {}), 250);
+    const t = setTimeout(() => api.get('/crm/profiles?limit=12&category=any&search=' + encodeURIComponent(q.trim())).then((x) => setFound(x.profiles)).catch(() => {}), 250);
     return () => clearTimeout(t);
   }, [q]);
   async function link(body) {

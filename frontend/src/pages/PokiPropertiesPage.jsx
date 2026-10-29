@@ -249,6 +249,7 @@ export default function PokiPropertiesPage() {
       { label: tr('Open'), onClick: () => setDetail(u.id) },
       canManage && { label: tr('Edit'), onClick: () => openUnit(u) },
       canManage && u.status === 'vacant' && { label: tr('Hold back (maintenance)'), onClick: () => act(() => api.patch('/poki/units/' + u.id, { status: 'maintenance' }), tr('{code} held back.', { code: u.code })) },
+      canManage && u.status === 'occupied' && u.bookingId && { label: tr('Move the tenant to another unit'), onClick: () => navigate('/pokibookings?move=' + u.bookingId) },
       canManage && isHeld(u) && { label: tr('Make available to let'), onClick: () => act(() => api.patch('/poki/units/' + u.id, { status: 'vacant' }), tr('{code} is available to let.', { code: u.code })) },
       canManage && !u.bookingId && { label: tr('Delete'), onClick: () => removeUnit(u), danger: true }
     ].filter(Boolean);
@@ -465,6 +466,7 @@ export default function PokiPropertiesPage() {
             <div className="dialog-actions tl-actions">
               {canManage && !cur.bookingId && <button type="button" className="btn btn-secondary" onClick={() => removeUnit(cur)}>{tr('Delete')}</button>}
               {canManage && <button type="button" className="btn btn-secondary" onClick={() => openUnit(cur)}>{tr('Edit')}</button>}
+              {canManage && cur.status === 'occupied' && cur.bookingId && <Link className="btn btn-secondary" to={'/pokibookings?move=' + cur.bookingId}>{tr('Move the tenant to another unit')}</Link>}
               {canManage && cur.status === 'vacant' && <Link className="btn btn-primary" to={'/pokibookings?unit=' + cur.id}>{tr('Book it')}</Link>}
               {(!canManage || cur.status !== 'vacant') && <button type="button" className="btn btn-primary" onClick={() => setDetail(null)}>{tr('Close')}</button>}
             </div>

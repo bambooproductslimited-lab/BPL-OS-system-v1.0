@@ -228,7 +228,7 @@ async function audience(ctx, q) {
     "JOIN (SELECT id, customer_id, 'invoice' AS t, invoice_no AS ref, issued_at AS at FROM invoices WHERE status <> 'void' " +
     "      UNION ALL SELECT id, customer_id, 'quotation', quote_no, created_at FROM quotations WHERE status <> 'cancelled') x ON x.id = li.document_id AND x.t = li.document_type " +
     "WHERE li.description ILIKE ANY($1) ORDER BY x.at DESC", [pats])).rows;
-  var leads = (await pool.query("SELECT customer_id, ref, item, received_on FROM crm_leads WHERE customer_id IS NOT NULL AND stage <> 'lost' AND item ILIKE ANY($1)", [pats])).rows;
+  var leads = (await pool.query("SELECT customer_id, ref, item, received_on FROM crm_leads WHERE customer_id IS NOT NULL AND stage NOT IN ('lost', 'not_lead') AND item ILIKE ANY($1)", [pats])).rows;
   var sameKind = [];
   if (product && product.category) {
     var kin = (await productList()).filter(function (p) { return p.category === product.category && p.id !== product.id; });
@@ -259,7 +259,7 @@ async function audience(ctx, q) {
     "SELECT c.id, c.name, c.phone, c.email, c.category, c.marketing_opt_out, c.last_contact_at, c.account_manager_id, e.first_name || ' ' || e.last_name AS rep_name, " +
     "(SELECT array_agg(kind) FROM customer_identities i WHERE i.customer_id = c.id) AS kinds, " +
     "(SELECT array_agg(DISTINCT channel) FROM crm_conversations w WHERE w.customer_id = c.id) AS channels " +
-    "FROM customers c LEFT JOIN employees e ON e.id = c.account_manager_id WHERE c.id = ANY($1) AND c.status = 'active' AND " + SCOPE, [ids])).rows;
+    "FROM customers c LEFT JOIN employees e ON e.id = c.account_manager_id WHERE c.id = ANY($1) AND c.status = 'active' AND c.category <> 'contact' AND c.no_follow_up_at IS NULL AND " + SCOPE, [ids])).rows;
   var optedOut = 0, unreachable = 0, people = [];
   cust.forEach(function (c) {
     if (c.marketing_opt_out) { optedOut++; return; }
@@ -299,7 +299,7 @@ async function handToReps(ctx, p) {
   var on = p.on && /^\d{4}-\d{2}-\d{2}$/.test(p.on) ? p.on : new Date().toISOString().slice(0, 10);
   var note = 'Tell them about ' + what + (p.message ? ': ' + String(p.message).slice(0, 300) : '');
   var rows = (await pool.query(
-    'UPDATE customers c SET follow_up_on = LEAST(COALESCE(c.follow_up_on, $2::date), $2::date), follow_up_note = $3 WHERE c.id = ANY($1) AND ' + SCOPE + ' AND NOT c.marketing_opt_out RETURNING c.id, c.account_manager_id',
+    'UPDATE customers c SET follow_up_on = LEAST(COALESCE(c.follow_up_on, $2::date), $2::date), follow_up_note = $3 WHERE c.id = ANY($1) AND ' + SCOPE + " AND NOT c.marketing_opt_out AND c.category <> 'contact' AND c.no_follow_up_at IS NULL RETURNING c.id, c.account_manager_id",
     [ids, on, note])).rows;
   var byRep = {};
   rows.forEach(function (r) { var k = r.account_manager_id || me(ctx); (byRep[k] = byRep[k] || []).push(r.id); });

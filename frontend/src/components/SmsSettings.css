@@ -222,3 +222,21 @@
   .ms-sender-now { grid-column: 1 / -1; flex-direction: row; align-items: center; text-align: left; gap: 8px; }
   .ms-sender-back { margin-left: 0; }
 }
+
+/* ---- staff who never get texts ---- */
+.ms-dot.is-skip { background: #4a6fa5; box-shadow: 0 0 0 3px color-mix(in srgb, #4a6fa5 22%, transparent); }
+.ms-quiet { padding: 16px; border-radius: 18px; border: 1px solid color-mix(in srgb, #4a6fa5 28%, var(--color-border));
+  background: linear-gradient(135deg, color-mix(in srgb, #4a6fa5 9%, var(--color-bg)), var(--color-bg) 65%); }
+.ms-quiet-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ms-quiet-chip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: var(--color-bg); border: 1px solid color-mix(in srgb, #4a6fa5 35%, var(--color-border)); box-shadow: 0 4px 12px -8px color-mix(in srgb, #4a6fa5 60%, transparent); }
+.ms-quiet-av { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; font-size: 11px; font-weight: 800; color: #fff; background: linear-gradient(135deg, #4a6fa5, #7c5cc4); }
+.ms-quiet-chip button { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 0; font-size: 11px; cursor: pointer; color: var(--color-text-muted); background: var(--color-bg-subtle); }
+.ms-quiet-chip button:hover:not(:disabled) { color: var(--color-danger); background: var(--color-danger-100); }
+.ms-quiet-add { position: relative; max-width: 420px; }
+.ms-quiet-add .input { width: 100%; border-radius: 12px; }
+.ms-quiet-found { list-style: none; margin: 6px 0 0; padding: 4px; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-bg); box-shadow: 0 12px 28px -18px rgba(0, 0, 0, .45); }
+.ms-quiet-found li.ms-muted { padding: 8px 10px; font-size: 13px; }
+.ms-quiet-found button { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; color: var(--color-text); background: transparent; }
+.ms-quiet-found button:hover:not(:disabled) { background: color-mix(in srgb, #4a6fa5 12%, var(--color-bg)); }
+:root[data-theme='dark'] .ms-quiet-av { background: linear-gradient(135deg, #5a82bd, #8f73d6); }

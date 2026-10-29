@@ -65,7 +65,9 @@ export const CATEGORIES = [
   { key: 'lead', label: msg('Lead'), tone: 'info', help: msg('Has asked about something, hasn\'t bought yet.') },
   { key: 'prospect', label: msg('Prospect'), tone: 'warn', help: msg('A real chance: talking prices, quoted or close to ordering.') },
   { key: 'active', label: msg('Customer'), tone: 'good', help: msg('Has paid us. The first payment on a sale makes them a customer by itself.') },
-  { key: 'vip', label: msg('VIP'), tone: 'good', help: msg('Buys often or buys big. Looked after first.') }
+  { key: 'vip', label: msg('VIP'), tone: 'good', help: msg('Buys often or buys big. Looked after first.') },
+  // Set with the Just a contact button (crmStop.jsx), which also closes their open leads.
+  { key: 'contact', label: msg('Just a contact'), tone: 'muted', help: msg('Not a lead, prospect or customer: a supplier, staff, family, a wrong number… Kept out of every list and count.') }
 ];
 export function CategoryTag({ value }) {
   const c = CATEGORIES.find((x) => x.key === value) || CATEGORIES[0];

@@ -6,6 +6,8 @@ import { Empty, Glossary, Hero, Icon, Section, fmtDate, jump } from '../../compo
 import SearchInput, { matchesQuery } from '../../components/SearchInput';
 import { tr } from '../../lib/i18n.jsx';
 import { LEAD_STAGES, OPEN_STAGES, PHASES, PROSPECT_STAGES, ImportDialog, LeadDialog, NewLeadDialog, PhaseTag, StageTag, Toast, VisitDialog, WhoIsThisDialog, useUnmatchedNames, addDays, daysUntil, followUpClass, followUpText, ghs, stage, todayISO, useCrmBasics, usePerms } from './crmShared';
+import { StopPill } from './crmStop';
+import { NOT_LEAD_REASONS, reasonText } from './crmStopReasons';
 import { SalesReviewButton } from './SalesPresent';
 import { PRIORITY_GLOSSARY, PriorityKey, PriorityRing, ReasonChips, TIERS, TierTag, estimate } from './leadPriority';
 import '../EmployeesPage.css';
@@ -86,7 +88,8 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
         if (followF === 'overdue' && !(d !== null && d < 0 && OPEN_STAGES.includes(l.stage))) return false;
         if (followF === 'today' && d !== 0) return false;
         if (followF === 'week' && !(d !== null && d >= 0 && d <= 7)) return false;
-        if (followF === 'none' && (l.nextFollowUp || !OPEN_STAGES.includes(l.stage))) return false;
+        if (followF === 'none' && (l.nextFollowUp || l.noFollowUp || !OPEN_STAGES.includes(l.stage))) return false;
+        if (followF === 'stopped' && !l.noFollowUp) return false;
       }
       if (!repMatch(l)) return false;
       if (sourceF && (l.source || '-') !== sourceF) return false;
@@ -165,7 +168,9 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           <span className="dk-muted tl-small crm-card-want">{l.item || tr('What they want isn\'t written down yet.')}{p && p.value ? <span className="lp-card-value"> · {tr('about {amount}', { amount: estimate(p.value.amount) })}</span> : null}</span>
           <span className="dk-muted tl-small">{[l.source, l.repName, l.location].filter(Boolean).join(' · ') || '—'}</span>
           {p && <ReasonChips priority={p} max={compact ? 1 : 2} />}
-          {OPEN_STAGES.includes(l.stage) && <span className={'tl-small crm-card-follow ' + followUpClass(l.nextFollowUp)}><Icon name="calendar" /> {followUpText(l.nextFollowUp)}</span>}
+          {l.stage === 'not_lead' ? <span className="dk-muted tl-small crm-card-why">{reasonText(l.lostReason, NOT_LEAD_REASONS)}</span>
+            : l.noFollowUp ? <StopPill noFollowUp={l.noFollowUp} />
+            : OPEN_STAGES.includes(l.stage) && <span className={'tl-small crm-card-follow ' + followUpClass(l.nextFollowUp)}><Icon name="calendar" /> {followUpText(l.nextFollowUp)}</span>}
           {l.stage === 'won' && l.dealValue > 0 && <span className="tl-small crm-card-won"><Icon name="cash" /> {ghs(l.dealValue)}</span>}
           {!compact && l.lastNote && <span className="dk-muted tl-small crm-card-note">“{l.lastNote.body}”</span>}
         </button>
@@ -187,7 +192,7 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
 
   const chips = isP
     ? [['open', tr('Open'), open.length], ...PROSPECT_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['won', tr('Won, waiting for payment'), waitingPay.length], ['customer', tr('Became customers'), countPhase('customer')]]
-    : [['open', tr('Open'), open.length], ...LEAD_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['lost', tr('Lost'), count('lost')]];
+    : [['open', tr('Open'), open.length], ...LEAD_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['lost', tr('Lost'), count('lost')], ['not_lead', tr('Not leads'), count('not_lead')]];
   const columns = isP ? [...PROSPECT_STAGES, 'won'] : LEAD_STAGES;
   const phaseInfo = PHASES.find((p) => p.key === phase);
 
@@ -315,7 +320,7 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           ))}
         </div>
         <div className="ppl-chips" role="radiogroup" aria-label={tr('Follow-up')}>
-          {[['', tr('Any follow-up')], ['overdue', tr('Overdue')], ['today', tr('Due today')], ['week', tr('This week')], ['none', tr('No date set')]].map(([k, label]) => (
+          {[['', tr('Any follow-up')], ['overdue', tr('Overdue')], ['today', tr('Due today')], ['week', tr('This week')], ['none', tr('No date set')], ['stopped', tr('Not to be followed up')]].map(([k, label]) => (
             <button key={k || 'any'} type="button" role="radio" aria-checked={followF === k} className={'ppl-chip' + (followF === k ? ' is-on' : '')} onClick={() => setParam('followUp', k)}>{label}</button>
           ))}
         </div>

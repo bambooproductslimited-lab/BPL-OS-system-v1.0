@@ -49,7 +49,7 @@ async function leadsIn(from, to) {
   var rows = (await pool.query(
     'SELECT l.id, l.ref, l.received_on, l.created_at, l.name, l.company, l.location, l.source, l.item, l.stage, l.next_follow_up, l.rep_id, l.rep_name, l.customer_id, ' +
     '  e.first_name AS rep_first, e.last_name AS rep_last, ' + CONTACTED_SQL + ' AS contacted, ' + crm.PAID_SQL + ' AS paid ' +
-    'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id WHERE l.received_on BETWEEN $1 AND $2 ORDER BY l.received_on, l.created_at', [from, to])).rows;
+    'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id WHERE l.received_on BETWEEN $1 AND $2 AND l.stage <> \'not_lead\' ORDER BY l.received_on, l.created_at', [from, to])).rows;
   return rows.map(function (r) {
     return {
       id: r.id, ref: r.ref, receivedOn: dateOnly(r.received_on), name: r.name, company: r.company, location: r.location,
@@ -68,7 +68,7 @@ async function inboxFirsts(from, to) {
     '  SELECT c.id, c.name, c.origin_channel, c.category, c.account_manager_id, min(m.sent_at) AS first_in ' +
     '  FROM customers c JOIN crm_conversations v ON v.customer_id = c.id AND v.status <> \'spam\' ' +
     "  JOIN crm_messages m ON m.conversation_id = v.id AND m.direction = 'in' " +
-    "  WHERE c.source = 'crm' AND c.origin_channel <> '' AND NOT EXISTS (SELECT 1 FROM crm_leads l WHERE l.customer_id = c.id) " +
+    "  WHERE c.source = 'crm' AND c.origin_channel <> '' AND c.category <> 'contact' AND NOT EXISTS (SELECT 1 FROM crm_leads l WHERE l.customer_id = c.id) " +
     '  GROUP BY c.id) ' +
     'SELECT f.*, e.first_name AS rep_first, e.last_name AS rep_last, ' +
     "  EXISTS (SELECT 1 FROM crm_conversations v2 JOIN crm_messages o ON o.conversation_id = v2.id AND o.direction = 'out' WHERE v2.customer_id = f.id) AS answered " +
@@ -122,7 +122,7 @@ async function week(ctx, query) {
   var list = await leadsIn(from, to);
   var inbox = await inboxFirsts(from, to);
   var trendFrom = addDays(from, -7 * (TREND_WEEKS - 1));
-  var past = (await pool.query('SELECT received_on FROM crm_leads WHERE received_on BETWEEN $1 AND $2', [trendFrom, to])).rows.map(function (r) { return dateOnly(r.received_on); });
+  var past = (await pool.query("SELECT received_on FROM crm_leads WHERE received_on BETWEEN $1 AND $2 AND stage <> 'not_lead'", [trendFrom, to])).rows.map(function (r) { return dateOnly(r.received_on); });
   var pastInbox = (await inboxFirsts(trendFrom, to)).map(function (x) { return x.receivedOn; });
   var weeks = [];
   for (var w = 0; w < TREND_WEEKS; w++) {

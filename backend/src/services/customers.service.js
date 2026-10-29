@@ -120,7 +120,7 @@ async function create(ctx, p) {
 // kernel.js: handlers['customers.setCategory']
 async function setCategory(ctx, id, category) {
   if (!ctx.can('customer.manage')) fail('forbidden', 'Your role does not allow this action (customer.manage).');
-  category = V.oneOf(category, ['lead', 'prospect', 'active', 'inactive', 'vip'], 'Category');
+  category = V.oneOf(category, ['lead', 'prospect', 'active', 'inactive', 'vip', 'contact'], 'Category');
   var res = await pool.query('UPDATE customers SET category = $1 WHERE id = $2 RETURNING *', [category, id]);
   if (!res.rows[0]) fail('notfound', 'Customer not found.');
   var c = res.rows[0];
@@ -136,7 +136,7 @@ async function update(ctx, id, p) {
 
   var name = V.text(p.name, 'Customer name', 100);
   var address = (p.address || '').trim();
-  var category = V.oneOf(p.category || existing.rows[0].category, ['lead', 'prospect', 'active', 'inactive', 'vip'], 'Category');
+  var category = V.oneOf(p.category || existing.rows[0].category, ['lead', 'prospect', 'active', 'inactive', 'vip', 'contact'], 'Category');
   var preferredCurrency = p.preferredCurrency !== undefined ? await validateCurrency(p.preferredCurrency) : existing.rows[0].preferred_currency;
   var res = await pool.query(
     'UPDATE customers SET name = $1, contact_person = $2, email = $3, phone = $4, address = $5, billing_address = $6, category = $7, account_manager_id = $8, notes = $9, preferred_currency = $10, ' +

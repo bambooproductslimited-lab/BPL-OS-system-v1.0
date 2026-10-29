@@ -15,6 +15,7 @@ import './RestaurantsPage.css';
 import './PokiPages.css';
 import './PokiRentals.css';
 import { LeaseBar, PkBanner } from './PokiFun';
+import PokiMoveDialog from './PokiMoveDialog';
 
 // Bookings — who occupies which unit, for how long, on what terms. A booking
 // is a block of time bought up front (so many months plus so many days) and
@@ -37,7 +38,7 @@ const EMPTY = {
   monthlyRate: '', dailyRate: '', currency: 'GHS',
   depositAmount: '', depositMonths: 1, escalationPercent: '', status: 'draft', notes: ''
 };
-const PAST = ['expired', 'terminated', 'renewed'];
+const PAST = ['expired', 'terminated', 'renewed', 'moved'];
 
 function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
 function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
@@ -51,7 +52,8 @@ function daysUntil(s) {
 function isRunning(b) { return b.status === 'active'; }
 function isUpcoming(b) { return b.status === 'draft' && daysUntil(b.startDate) >= 0; }
 function isLateDraft(b) { return b.status === 'draft' && daysUntil(b.startDate) < 0; }
-function depositToReturn(b) { return PAST.includes(b.status) && b.status !== 'renewed' && b.depositHeld > b.depositRefunded; }
+// A renewal or a move carries the deposit on to the next booking.
+function depositToReturn(b) { return PAST.includes(b.status) && b.status !== 'renewed' && b.status !== 'moved' && b.depositHeld > b.depositRefunded; }
 function stateOf(b) {
   if (b.status === 'active') {
     const d = daysUntil(b.endDate);
@@ -62,6 +64,7 @@ function stateOf(b) {
     if (d < 0) return { tone: 'bad', text: tr('Start date passed — not activated') };
     return { tone: 'info', text: d === 0 ? tr('Starts today') : d === 1 ? tr('Starts tomorrow') : tr('Starts in {n} days', { n: d }) };
   }
+  if (b.status === 'moved') return { tone: 'muted', text: b.movedToUnit ? tr('Moved to {unit}', { unit: b.movedToUnit }) : tr('Moved to another unit') };
   return { tone: 'muted', text: codeLabel(b.status) };
 }
 
@@ -123,7 +126,7 @@ function Timeline({ units, bookings, onOpen }) {
               <span className="pk-tl-today" style={{ left: pos(today) + '%' }} />
               {bs.map((b) => {
                 const a = pos(day0(b.startDate));
-                const z = pos(new Date(day0(b.endDate).getTime() + 86400000));
+                const z = b.status === 'moved' && b.terminatedOn ? pos(day0(b.terminatedOn)) : pos(new Date(day0(b.endDate).getTime() + 86400000));
                 return (
                   <button key={b.id} type="button" className={'pk-tl-bar is-' + (PAST.includes(b.status) ? 'past' : b.status) + (b.balanceTotal > 0 ? ' is-owing' : '')}
                     style={{ left: a + '%', width: Math.max(1.2, z - a) + '%' }} onClick={() => onOpen(b.id)}
@@ -181,7 +184,7 @@ export default function PokiBookingsPage() {
       setBookings(l);
       setUnits(u);
       setTenants(t);
-      return { units: u, tenants: t };
+      return { units: u, tenants: t, bookings: l };
     } catch (err) {
       setError(err.message);
       return null;
@@ -194,6 +197,14 @@ export default function PokiBookingsPage() {
       // ?unit= / ?tenant= from the Properties or Tenants screen
       const unitId = params.get('unit');
       const tenantId = params.get('tenant');
+      // ?move= from the Tenants or Properties screen: that booking's move.
+      const moveId = params.get('move');
+      if (d && canManage && moveId) {
+        const mb = d.bookings.find((x) => x.id === moveId);
+        if (mb && (mb.status === 'active' || mb.status === 'draft')) { setTarget(mb); setDialog('move'); }
+        setParams({}, { replace: true });
+        return;
+      }
       if (d && canManage && (unitId || tenantId)) {
         openBooking(null, { unitId: unitId || '', tenantId: tenantId || '' }, d.units);
         setParams({}, { replace: true });
@@ -308,6 +319,11 @@ export default function PokiBookingsPage() {
     } finally {
       setBusy(false);
     }
+  }
+  function openMove(booking) {
+    setTarget(booking);
+    setDetail(null);
+    setDialog('move');
   }
   function openSimple(kind, booking) {
     setDialogError(null);
@@ -474,6 +490,7 @@ export default function PokiBookingsPage() {
       canManage && (l.status === 'draft' || l.status === 'active') && { label: tr('Edit'), onClick: () => openBooking(l) },
       canManage && l.status === 'active' && l.depositHeld < l.depositAmount && { label: tr('Record deposit'), onClick: () => openSimple('deposit', l) },
       canManage && l.status === 'active' && { label: tr('Renew'), onClick: () => openSimple('renew', l) },
+      canManage && (l.status === 'active' || l.status === 'draft') && { label: tr('Move to another unit'), onClick: () => openMove(l) },
       canManage && l.status === 'active' && { label: tr('End'), onClick: () => openSimple('end', l), danger: true },
       canReopen(l) && { label: tr('Undo ending'), onClick: () => openSimple('reopen', l) },
       canManage && depositToReturn(l) && { label: tr('Refund deposit'), onClick: () => openSimple('refund', l) }
@@ -482,6 +499,8 @@ export default function PokiBookingsPage() {
 
   const cur = detail ? bookings.find((b) => b.id === detail) : null;
   const curTenant = cur ? tenants.find((t) => t.id === cur.tenantId) : null;
+  // A booking that carries on after a move keeps the dates and rent the move gave it.
+  const movedIn = editId ? !!(bookings.find((x) => x.id === editId) || {}).movedFromId : false;
   const bookableUnits = units.filter((u) => u.active !== false || (editId && form.unitId === u.id));
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -583,6 +602,7 @@ export default function PokiBookingsPage() {
         [tr('Booking'), tr('A block of time bought up front — so many months plus so many days. The whole of it is invoiced once, when it is made.')],
         [tr('Draft'), tr('Drawn up but not started. Activating it puts the tenant in the unit.')],
         [tr('Renew'), tr('Books the same unit again from the day after this booking ends, at the same or an increased rate.')],
+        [tr('Move to another unit'), tr('A tenant changing rooms before their booking ends: the booking on the old unit ends on the moving day and a new one carries on in the new unit to the same end date. Only the rent difference is settled; the deposit and running charges go with them.')],
         [tr('Deposit'), tr('Paid with the booking and held until the end, then returned less any deductions.')],
         [tr('Agreement'), tr('The tenancy agreement, drawn up from the template with the booking\'s details, then edited and printed.')]
       ]} />
@@ -624,7 +644,9 @@ export default function PokiBookingsPage() {
             {cur.freeDays && (
               <p className="pk-fix">{tr('The {n} extra days are priced at nothing: this booking was made before extra days were always charged. Press Edit, then Save, to charge them at {rate} a day.', { n: cur.durationDays, rate: money(Math.round((cur.monthlyRate / 30) * 100) / 100, cur.currency) })}</p>
             )}
-            {cur.rentInvoiced !== undefined && (cur.status === 'draft' || cur.status === 'active') && (cur.rentInvoiced < cur.rentTotal - 0.01 || cur.rentInvoiced > cur.rentTotal + cur.depositAmount + 0.01) && (
+            {cur.movedFromNo && <p className="pmv-link">🏠 {tr('Moved here from {unit} ({bookingNo}) on {date}; their rent is charged on that booking.', { unit: cur.movedFromUnit, bookingNo: cur.movedFromNo, date: fmtDate(cur.startDate) })} <button type="button" onClick={() => setDetail(cur.movedFromId)}>{tr('Open')}</button></p>}
+            {cur.movedToNo && <p className="pmv-link">🏠 {tr('Moved to {unit} on {date}: carries on as {bookingNo}.', { unit: cur.movedToUnit, date: fmtDate(cur.terminatedOn), bookingNo: cur.movedToNo })} <button type="button" onClick={() => setDetail(cur.movedToId)}>{tr('Open')}</button></p>}
+            {cur.rentInvoiced !== undefined && !cur.movedFromId && (cur.status === 'draft' || cur.status === 'active') && (cur.rentInvoiced < cur.rentTotal - 0.01 || cur.rentInvoiced > cur.rentTotal + cur.depositAmount + 0.01) && (
               <p className="pk-fix">{tr('Its invoice asks for {invoiced}, but the booking\'s rent is {rent}: the booking was changed before invoices followed changes. Press Edit, then Save, to bring the invoice up to date.', { invoiced: money(cur.rentInvoiced, cur.currency), rent: money(cur.rentTotal, cur.currency) })}</p>
             )}
             {cur.notes && <p className="tl-notes">{cur.notes}</p>}
@@ -633,6 +655,7 @@ export default function PokiBookingsPage() {
               {cur.balanceTotal > 0 && <Link className="btn btn-secondary" to="/pokibilling">{tr('Record a payment')}</Link>}
               {canManage && (cur.status === 'draft' || cur.status === 'active') && <button type="button" className="btn btn-secondary" onClick={() => openBooking(cur)}>{tr('Edit')}</button>}
               {canManage && cur.status === 'active' && <button type="button" className="btn btn-secondary" onClick={() => openSimple('end', cur)}>{tr('End')}</button>}
+              {canManage && (cur.status === 'active' || cur.status === 'draft') && <button type="button" className="btn btn-secondary" onClick={() => openMove(cur)}>{tr('Move to another unit')}</button>}
               {canReopen(cur) && <button type="button" className="btn btn-secondary" onClick={() => openSimple('reopen', cur)}>{tr('Undo ending')}</button>}
               {canManage && depositToReturn(cur) && <button type="button" className="btn btn-primary" onClick={() => openSimple('refund', cur)}>{tr('Refund deposit')}</button>}
               {canManage && cur.status === 'active' && <button type="button" className="btn btn-primary" onClick={() => openSimple('renew', cur)}>{tr('Renew')}</button>}
@@ -643,10 +666,21 @@ export default function PokiBookingsPage() {
       )}
 
       {/* ── new / edit ── */}
+      {dialog === 'move' && target && (
+        <PokiMoveDialog booking={target} units={units} onClose={() => setDialog(null)}
+          onMoved={async (out) => {
+            setDialog(null);
+            setToast(tr('{tenant} moved to {unit}: {bookingNo} carries on there.', { tenant: out.tenantName, unit: out.unitCode, bookingNo: out.bookingNo }));
+            await load();
+            setDetail(out.id);
+          }} />
+      )}
+
       {dialog === 'booking' && (
         <div className="dialog-backdrop" onClick={() => !saving && setDialog(null)}>
           <form className="dialog tl-dialog" onClick={(e) => e.stopPropagation()} onSubmit={submitBooking}>
             <h2>{editId ? tr('Edit booking') : tr('New booking')}</h2>
+            {movedIn && <p className="pmv-link">🏠 {tr('This booking carries on after a move, and its rent is charged on the booking before it: its dates and rent stay as the move set them.')}</p>}
             <div className="tl-form">
               <div className="field">
                 <label htmlFor="pl-unit">{tr('Unit')}</label>
@@ -664,19 +698,19 @@ export default function PokiBookingsPage() {
               </div>
               <div className="field">
                 <label htmlFor="pl-start">{tr('Start date')}</label>
-                <input id="pl-start" className="input" type="date" value={form.startDate} onChange={set('startDate')} required />
+                <input id="pl-start" disabled={movedIn} className="input" type="date" value={form.startDate} onChange={set('startDate')} required />
               </div>
               <div className="field">
                 <span className="tl-label">{tr('How long')}</span>
                 <div className="pk-duration">
-                  <input id="pl-months" className="input" type="number" min="0" step="1" aria-label={tr('For how many months')} value={form.durationMonths} onChange={set('durationMonths')} />
+                  <input id="pl-months" disabled={movedIn} className="input" type="number" min="0" step="1" aria-label={tr('For how many months')} value={form.durationMonths} onChange={set('durationMonths')} />
                   <span>{tr('months +')}</span>
-                  <input id="pl-days" className="input" type="number" min="0" step="1" aria-label={tr('…plus how many days')} value={form.durationDays} onChange={set('durationDays')} />
+                  <input id="pl-days" disabled={movedIn} className="input" type="number" min="0" step="1" aria-label={tr('…plus how many days')} value={form.durationDays} onChange={set('durationDays')} />
                   <span>{tr('days')}</span>
                 </div>
                 <div className="tl-due">
                   {[[6, 0], [12, 0], [24, 0], [0, 7]].map(([m, d]) => (
-                    <button key={m + '-' + d} type="button" className={'tl-seg-btn' + (Number(form.durationMonths) === m && Number(form.durationDays) === d ? ' is-on' : '')} onClick={() => setForm({ ...form, durationMonths: m, durationDays: d })}>
+                    <button key={m + '-' + d} type="button" disabled={movedIn} className={'tl-seg-btn' + (Number(form.durationMonths) === m && Number(form.durationDays) === d ? ' is-on' : '')} onClick={() => setForm({ ...form, durationMonths: m, durationDays: d })}>
                       {m ? tr('{n} months', { n: m }) : tr('{n} days', { n: d })}
                     </button>
                   ))}
@@ -684,22 +718,22 @@ export default function PokiBookingsPage() {
               </div>
               <div className="field">
                 <label htmlFor="pl-rate">{tr('Rent per month')}</label>
-                <input id="pl-rate" className="input" type="number" min="0" step="0.01" value={form.monthlyRate} required
+                <input id="pl-rate" disabled={movedIn} className="input" type="number" min="0" step="0.01" value={form.monthlyRate} required
                   onChange={(e) => { const v = e.target.value; setForm((f) => ({ ...f, monthlyRate: v, depositAmount: f.depositMonths ? depositFor(v, f.depositMonths) : f.depositAmount })); }} />
               </div>
               <div className="field">
                 <label htmlFor="pl-daily">{tr('Rent per day')}</label>
-                <input id="pl-daily" className="input" type="number" min="0" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder={tr('from the unit')} />
+                <input id="pl-daily" disabled={movedIn} className="input" type="number" min="0" step="0.01" value={form.dailyRate} onChange={set('dailyRate')} placeholder={tr('from the unit')} />
                 <span className="dk-muted tl-small">{tr('Blank or 0 uses a thirtieth of the monthly rate, so extra days are never free.')}</span>
               </div>
               <div className="field">
                 <label htmlFor="pl-dep-months">{tr('Deposit (months of rent)')}</label>
-                <input id="pl-dep-months" className="input" type="number" min="0" step="0.5" value={form.depositMonths}
+                <input id="pl-dep-months" disabled={movedIn} className="input" type="number" min="0" step="0.5" value={form.depositMonths}
                   onChange={(e) => { const v = e.target.value; setForm((f) => ({ ...f, depositMonths: v, depositAmount: depositFor(f.monthlyRate, v) })); }} />
               </div>
               <div className="field">
                 <label htmlFor="pl-dep">{tr('Deposit due')}</label>
-                <input id="pl-dep" className="input" type="number" min="0" step="0.01" value={form.depositAmount} onChange={set('depositAmount')} />
+                <input id="pl-dep" disabled={movedIn} className="input" type="number" min="0" step="0.01" value={form.depositAmount} onChange={set('depositAmount')} />
               </div>
               <div className="field">
                 <label htmlFor="pl-esc">{tr('Renewal increase (%)')}</label>

@@ -28,7 +28,7 @@ import './CustomersPage.css';
 
 const CATEGORIES = [
   { key: 'lead', label: msg('Lead') }, { key: 'prospect', label: msg('Prospect') }, { key: 'active', label: msg('Active') },
-  { key: 'vip', label: msg('VIP') }, { key: 'inactive', label: msg('Inactive') }
+  { key: 'vip', label: msg('VIP') }, { key: 'inactive', label: msg('Inactive') }, { key: 'contact', label: msg('Just a contact') }
 ];
 const EMPTY_FORM = { name: '', contactPerson: '', email: '', phone: '', address: '', category: 'lead', accountManagerId: '', notes: '', preferredCurrency: 'GHS', taxId: '', paymentTerms: 'Net 30' };
 const QUIET_DAYS = 120;

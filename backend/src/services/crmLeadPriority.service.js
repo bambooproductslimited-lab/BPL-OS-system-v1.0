@@ -216,7 +216,7 @@ async function context() {
     // Leads old enough to have had a chance (two weeks), over a year.
     pool.query(
       "SELECT lower(source) AS source, count(*)::int AS total, count(*) FILTER (WHERE stage IN ('qualified', 'quote_sent', 'negotiation', 'won'))::int AS moved " +
-      "FROM crm_leads WHERE received_on BETWEEN CURRENT_DATE - 365 AND CURRENT_DATE - 14 AND source <> '' GROUP BY lower(source)")
+      "FROM crm_leads WHERE received_on BETWEEN CURRENT_DATE - 365 AND CURRENT_DATE - 14 AND source <> '' AND stage <> 'not_lead' GROUP BY lower(source)")
   ]);
   var typical = null;
   if (deals.rows[0].n >= 8) typical = Number(deals.rows[0].mid);
@@ -274,7 +274,7 @@ async function signals(ids) {
 // lead: as crm.service's rowToLead gives it. sig: its row from signals().
 // cx: context(). now: a time in ms.
 function score(lead, sig, cx, now) {
-  if (OPEN.indexOf(lead.stage) < 0 || lead.phase === 'customer') return null;
+  if (OPEN.indexOf(lead.stage) < 0 || lead.phase === 'customer' || lead.noFollowUp) return null;
   sig = sig || {};
   var r = [];
   function add(k, p, extra) { r.push(Object.assign({ k: k, p: p }, extra || {})); }

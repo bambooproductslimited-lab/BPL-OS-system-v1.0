@@ -27,5 +27,9 @@ router.post('/sender/check', async function (req, res, next) {
 router.post('/sender/register', async function (req, res, next) {
   try { res.json(await smsService.registerSender(req.ctx, req.body || {})); } catch (e) { next(e); }
 });
+// Staff who never get texts ({ employeeId, quiet }).
+router.put('/quiet-staff', async function (req, res, next) {
+  try { res.json(await smsService.setQuietStaff(req.ctx, req.body || {})); } catch (e) { next(e); }
+});
 
 module.exports = router;

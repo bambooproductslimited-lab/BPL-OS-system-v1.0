@@ -24,7 +24,7 @@ const LABELS = {
   converted: msg('Converted'), replied: msg('Replied'),
   // Records
   active: msg('Active'), inactive: msg('Inactive'), archived: msg('Archived'), disabled: msg('Disabled'),
-  terminated: msg('Terminated'), expired: msg('Expired'), renewed: msg('Renewed'), retired: msg('Retired'),
+  terminated: msg('Terminated'), expired: msg('Expired'), renewed: msg('Renewed'), moved: msg('Moved to another unit'), retired: msg('Retired'),
   lost: msg('Lost'), prospect: msg('Prospect'), lead: msg('Lead'), vip: msg('VIP'), former: msg('Former'), blacklisted: msg('Blacklisted'),
   // Decisions and documents
   approved: msg('Approved'), rejected: msg('Rejected'), sent: msg('Sent'), viewed: msg('Viewed'),

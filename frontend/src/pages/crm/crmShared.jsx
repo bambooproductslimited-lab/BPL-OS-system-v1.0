@@ -8,6 +8,8 @@ import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import { PriorityPanel } from './leadPriority';
 import { SendProductsButton } from './SendProducts';
+import { StopBanners, StopTiles } from './crmStop';
+import { NO_FOLLOW_UP_REASONS, reasonText } from './crmStopReasons';
 
 // What the CRM pages share (pages/crm/*): the stages a lead goes through,
 // the lead window, the new-lead form, the spreadsheet import and the site
@@ -24,6 +26,8 @@ export const STAGES = [
   { key: 'lost', label: msg('Lost'), tone: 'bad', help: msg('They went elsewhere or stopped answering.') }
 ];
 export const OPEN_STAGES = STAGES.slice(0, 6).map((s) => s.key);
+// Taken out of the leads: not a lead at all (crmStop.jsx). Not a step on the way.
+const NOT_LEAD_STAGE = { key: 'not_lead', label: msg('Not a lead'), tone: 'muted', help: msg('Not a lead: a supplier, staff, a job seeker, a wrong number… Out of Leads and Prospects, and not counted.') };
 // Lead → Prospect → Customer (backend migration 0132): the first three
 // stages are a lead's, the next three a prospect's, and a won lead becomes a
 // customer when they pay (lead.phase: lead, prospect, won, customer, lost).
@@ -34,11 +38,11 @@ export const PHASES = [
   { key: 'prospect', label: msg('Prospect'), help: msg('A lead being worked on for real: qualified, quoted, or agreeing terms.') },
   { key: 'customer', label: msg('Customer'), help: msg('Has paid. A won prospect becomes a customer with the first payment.') }
 ];
-const PHASE_TAG = { lead: ['info', msg('Lead')], prospect: ['warn', msg('Prospect')], won: ['warn', msg('Won, waiting for payment')], customer: ['good', msg('Customer')], lost: ['bad', msg('Lost')] };
+const PHASE_TAG = { lead: ['info', msg('Lead')], prospect: ['warn', msg('Prospect')], won: ['warn', msg('Won, waiting for payment')], customer: ['good', msg('Customer')], lost: ['bad', msg('Lost')], notlead: ['muted', msg('Not a lead')] };
 export function PhaseTag({ phase }) { const t = PHASE_TAG[phase] || PHASE_TAG.lead; return <Status tone={t[0]}>{tr(t[1])}</Status>; }
 // Where a lead is on the way: Lead → Prospect → Customer.
 export function PhaseTrack({ phase }) {
-  const at = phase === 'customer' ? 2 : phase === 'prospect' || phase === 'won' ? 1 : phase === 'lost' ? -1 : 0;
+  const at = phase === 'customer' ? 2 : phase === 'prospect' || phase === 'won' ? 1 : phase === 'lost' || phase === 'notlead' ? -1 : 0;
   return (
     <ol className="crm-phases" aria-label={tr('Lead → Prospect → Customer')}>
       {PHASES.map((p, i) => (
@@ -50,7 +54,7 @@ export function PhaseTrack({ phase }) {
     </ol>
   );
 }
-export function stage(key) { return STAGES.find((s) => s.key === key) || STAGES[0]; }
+export function stage(key) { return key === 'not_lead' ? NOT_LEAD_STAGE : STAGES.find((s) => s.key === key) || STAGES[0]; }
 export function StageTag({ value }) { const s = stage(value); return <Status tone={s.tone}>{tr(s.label)}</Status>; }
 export const ghs = (n) => money(n, 'GHS');
 
@@ -187,6 +191,11 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
   }
   const moveTo = (st, extra) => act(() => api.post('/crm/leads/' + leadId + '/stage', { stage: st, ...extra }));
   const setFollowUp = (iso) => act(() => api.put('/crm/leads/' + leadId, { nextFollowUp: iso }));
+  const setNotLead = (on, reason, note) => act(() => api.put('/crm/leads/' + leadId + '/not-lead', { on, reason, note }));
+  // Set on the person's profile, it is turned back on there: it holds for all their leads.
+  const setNoFollowUp = (on, reason, note) => act(() => (!on && lead.noFollowUp && lead.noFollowUp.onProfile && lead.customerId
+    ? api.put('/crm/profiles/' + lead.customerId + '/no-follow-up', { on: false })
+    : api.put('/crm/leads/' + leadId + '/no-follow-up', { on, reason, note })));
 
   async function openLinking() {
     setLinking({ q: '', list: null, kind: 'commission', repId: lead.repId || '' });
@@ -237,7 +246,8 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
             );
           })}
         </ol>
-        <p className="dk-muted tl-small crm-step-help"><StageTag value={lead.stage} /> {lead.phase === 'customer' ? '' : tr(st.help)}{lead.stage === 'lost' && lead.lostReason ? ' ' + tr('Reason: {reason}', { reason: lead.lostReason }) : ''}</p>
+        {lead.stage !== 'not_lead' && <p className="dk-muted tl-small crm-step-help"><StageTag value={lead.stage} /> {lead.phase === 'customer' ? '' : tr(st.help)}{lead.stage === 'lost' && lead.lostReason ? ' ' + tr('Reason: {reason}', { reason: lead.lostReason }) : ''}</p>}
+        <StopBanners kind="lead" notLead={lead.stage === 'not_lead'} notLeadWhy={lead.lostReason} noFollowUp={lead.noFollowUp} canManage={canManage} busy={busy} onNotLead={setNotLead} onFollowUp={setNoFollowUp} />
         {losing !== null && (
           <div className="crm-inline">
             <input className="input" autoFocus placeholder={tr('Why was it lost? e.g. price, went elsewhere, no reply')} value={losing} onChange={(e) => setLosing(e.target.value)} />
@@ -292,7 +302,7 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
             </section>
 
             {/* when to get back to them */}
-            {isOpen && (
+            {isOpen && !lead.noFollowUp && (
               <section className="crm-box">
                 <h3 className="dk-h3">{tr('Next follow-up')}</h3>
                 <p className={'crm-follow ' + followUpClass(lead.nextFollowUp)}>
@@ -429,6 +439,8 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                 ))}
               </ol>
             </section>
+            <StopTiles kind="lead" notLead={lead.stage === 'not_lead'} noFollowUp={lead.noFollowUp} canManage={canManage && lead.phase !== 'customer'} followable={isOpen} busy={busy}
+              notLeadBlocked={lead.dealCount > 0 ? tr('It has a sale linked, so it is a real lead.') : null} onNotLead={setNotLead} onFollowUp={setNoFollowUp} />
             {canManage && (
               <div className="crm-danger">
                 {!confirmDelete ? <button type="button" className="dk-link" disabled={lead.dealCount > 0} title={lead.dealCount > 0 ? tr('A lead with a sale linked is kept.') : undefined} onClick={() => setConfirmDelete(true)}>{tr('Delete this lead')}</button> : (
@@ -457,6 +469,10 @@ function historyText(body) {
   if ((m = /^Paid (.+) — now a customer\.$/.exec(body))) return tr('Paid {no}: now a customer.', { no: m[1] });
   if (body === 'Linked to the existing customer with the same contact details.') return tr('Linked to the existing customer with the same contact details.');
   if (body === 'Site visit cancelled.') return tr('Site visit cancelled.');
+  if (body === 'Put back as a lead.') return tr('Put back as a lead.');
+  if (body === 'Follow-ups back on.') return tr('Follow-ups back on.');
+  if (body === 'Their profile is just a contact.') return tr('Their profile is just a contact.');
+  if ((m = /^Not to be followed up any more \((.+)\)\.$/.exec(body))) return tr('Not to be followed up any more: {why}.', { why: reasonText(m[1], NO_FOLLOW_UP_REASONS) });
   if ((m = /^Sale linked: invoice (.+)\.$/.exec(body))) return tr('Sale linked: invoice {no}.', { no: m[1] });
   if ((m = /^Sale unlinked: invoice (.+)\.$/.exec(body))) return tr('Sale unlinked: invoice {no}.', { no: m[1] });
   if ((m = /^Site visit booked for (\d{4}-\d{2}-\d{2})\.$/.exec(body))) return tr('Site visit booked for {date}.', { date: fmtDate(m[1]) });

@@ -1,0 +1,64 @@
+/* "Not a lead / Just a contact" and "Stop following up" (crmStop.jsx): two
+   tiles, a reason picker, and a banner for what is set. Grey-violet for out
+   of the lists, slate-blue for no follow-up; the words always say which. */
+
+.cst-box, .cst-banners, .cst-pill { --cst-out: #7c5cc4; --cst-quiet: #4a6fa5; }
+.cst-banners { display: grid; gap: 8px; }
+:root[data-theme='dark'] .cst-box, :root[data-theme='dark'] .cst-banners, :root[data-theme='dark'] .cst-pill { --cst-out: #b9a2f2; --cst-quiet: #8fb3e8; }
+
+.cst-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.cst-tile { --c: var(--cst-out); display: flex; align-items: flex-start; gap: 12px; text-align: left; font: inherit; color: var(--color-text); cursor: pointer;
+  padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--c) 28%, var(--color-border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--c) 10%, var(--color-bg)), var(--color-bg) 70%);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.cst-tile.cst-quiet { --c: var(--cst-quiet); }
+.cst-tile:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--c); box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--c) 70%, transparent); }
+.cst-tile:focus-visible { outline: 2px solid var(--c); outline-offset: 2px; }
+.cst-tile:disabled { opacity: .6; cursor: not-allowed; }
+.cst-tile-ic { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; font-size: 19px;
+  background: color-mix(in srgb, var(--c) 16%, var(--color-bg)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+.cst-tile-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cst-tile-main strong { font-size: 14px; }
+.cst-tile-main small { font-size: 12px; line-height: 1.4; color: var(--color-text-muted); }
+
+.cst-pick { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; border: 1px dashed var(--color-border); background: var(--color-bg-subtle); }
+.cst-pick-title { font-size: 14px; }
+.cst-reasons { display: flex; flex-wrap: wrap; gap: 6px; }
+.cst-reason { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; color: var(--color-text);
+  padding: 6px 12px 6px 8px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg); transition: background .15s, border-color .15s, transform .15s; }
+.cst-reason:hover { border-color: var(--color-text-muted); transform: translateY(-1px); }
+.cst-reason.is-on { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
+.cst-reason-ic { font-size: 15px; line-height: 1; }
+.cst-pick-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+.cst-banner { --c: var(--cst-out); display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 10px 12px; border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--c) 35%, var(--color-border)); border-left: 4px solid var(--c);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--c) 13%, var(--color-bg)), color-mix(in srgb, var(--c) 4%, var(--color-bg))); }
+.cst-banner.cst-quiet { --c: var(--cst-quiet); }
+.cst-banner-ic { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; font-size: 18px; background: color-mix(in srgb, var(--c) 18%, var(--color-bg)); }
+.cst-banner-main { flex: 1 1 220px; display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 13px; }
+.cst-banner-main strong { color: var(--c); font-size: 13.5px; }
+.cst-banner-main small { font-size: 12px; color: var(--color-text-muted); }
+.cst-banner .btn { flex: none; }
+
+.cst-pill { --c: var(--cst-out); display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap;
+  color: var(--c); background: color-mix(in srgb, var(--c) 12%, var(--color-bg)); border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); }
+.cst-pill.cst-quiet { --c: var(--cst-quiet); }
+@media (prefers-reduced-motion: reduce) { .cst-tile, .cst-reason { transition: none; } .cst-tile:hover:not(:disabled), .cst-reason:hover { transform: none; } }
+.ppl-chip.hub-chip-contact { border-style: dashed; }
+
+/* On a follow-up card (FollowUps.jsx): two quiet buttons beside the snooze ones. */
+.hub-fu-stop { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: auto; }
+.hub-fu-stop button { min-height: 28px; padding: 0 10px; border-radius: 999px; font: inherit; font-size: 12px; font-weight: 700; color: var(--color-text-muted); background: transparent; border: 1px dashed var(--color-border); cursor: pointer; }
+.hub-fu-stop button:hover:not(:disabled) { color: var(--color-text); border-style: solid; border-color: var(--color-text-muted); }
+.hub-fu-stop button:disabled { opacity: .5; }
+.hub-fu .cst-pick { margin: 0 0 4px; }
+
+/* The Inbox's side panel (CrmInboxPage.jsx). */
+.ib-side-contact { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; font-size: 13px;
+  border: 1px solid color-mix(in srgb, #7c5cc4 30%, var(--color-border)); background: color-mix(in srgb, #7c5cc4 8%, var(--color-bg)); }
+.ib-side-contact .ib-btn { align-self: flex-start; margin-top: 4px; }
+.ib-btn.ib-side-out { border: 1px dashed var(--color-border); background: transparent; color: var(--color-text-muted); font-size: 12.5px; white-space: normal; }
+.ib-btn.ib-side-out:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+.ib-side .cst-pick { padding: 10px; }
+.ib-side .cst-reason { font-size: 12px; padding: 5px 10px 5px 7px; }

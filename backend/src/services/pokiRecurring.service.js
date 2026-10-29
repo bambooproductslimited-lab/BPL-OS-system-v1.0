@@ -361,7 +361,7 @@ async function run(ctx, opts) {
       var c = due[i];
       if (c.booking_status !== 'active') {
         // A booking that ended stops its charges; a draft one waits.
-        if (['expired', 'terminated', 'renewed'].indexOf(c.booking_status) >= 0) {
+        if (['expired', 'terminated', 'renewed', 'moved'].indexOf(c.booking_status) >= 0) {
           await client.query("UPDATE poki_recurring_charges SET status = 'ended', updated_at = now() WHERE id = $1", [c.id]);
           ended++;
         }

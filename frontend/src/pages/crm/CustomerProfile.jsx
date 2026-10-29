@@ -7,6 +7,7 @@ import { SendProductsButton } from './SendProducts';
 import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
 import { StageTag, addDays, followUpClass, followUpText, todayISO } from './crmShared';
+import { StopBanners, StopTiles } from './crmStop';
 import { CATEGORIES, CHANNELS, CategoryTag, ChannelDot, CustMark, REASONS, RepSelect, ago, channelLabel, ghsOr, nextStepText, ourAuthor, reasonText, timeOf } from './crmHubShared';
 
 // One customer, whole (GET /api/crm/profiles/:id): who they are and every
@@ -62,6 +63,10 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
     try { const out = await fn(); if (out && out.id === id) setP(out); else await load(); if (done) setSaved(done); if (onChanged) onChanged(); return true; } catch (err) { setError(err.message); return false; } finally { setBusy(false); }
   }
   const go = (path) => { onClose(); navigate(path); };
+  const setContact = (on, reason, note) => run(() => api.put('/crm/profiles/' + id + '/contact', { on, reason, note }),
+    on ? tr('{name} is just a contact now: out of the leads, prospects and customers.', { name: p.name }) : tr('{name} is back in the lists.', { name: p.name }));
+  const setNoFollowUp = (on, reason, note) => run(() => api.put('/crm/profiles/' + id + '/no-follow-up', { on, reason, note }),
+    on ? tr('Nobody will be reminded to follow up {name}.', { name: p.name }) : tr('Follow-ups are back on for {name}.', { name: p.name }));
 
   if (!p) {
     return (
@@ -110,6 +115,7 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
 
         {error && <div className="error-banner" role="alert">{error}</div>}
         {saved && <div className="crm-note is-good" role="status"><Icon name="check" /><span>{saved}</span></div>}
+        <StopBanners kind="profile" notLead={p.category === 'contact'} notLeadWhy={p.contactReason} noFollowUp={p.noFollowUp} canManage={canManage} busy={busy} onNotLead={setContact} onFollowUp={setNoFollowUp} />
 
         {p.duplicateOf.length > 0 && (
           <div className="crm-note is-warn">
@@ -145,10 +151,10 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
                 </div>
               ) : <p className="crm-big">{p.rep ? p.rep.name : tr('No rep yet')}</p>}
               {!p.rep && canManage && meId && !canAssign && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => run(() => api.post('/crm/assign', { customerIds: [p.id], repId: meId }), tr('This customer is now yours.'))}>{tr('Take this customer')}</button>}
-              {!p.rep && <p className="dk-muted tl-small">{tr('Nobody is looking after this customer. Every customer should have one rep who answers them and follows up.')}</p>}
+              {!p.rep && p.category !== 'contact' && <p className="dk-muted tl-small">{tr('Nobody is looking after this customer. Every customer should have one rep who answers them and follows up.')}</p>}
             </section>
 
-            {canManage && (
+            {canManage && !p.noFollowUp && p.category !== 'contact' && (
               <section className="crm-box">
                 <h3 className="dk-h3">{tr('Next follow-up')}</h3>
                 <p className={'crm-follow ' + followUpClass(p.followUpOn)}><Icon name="calendar" /> {p.followUpOn ? fmtDate(p.followUpOn) + ' · ' + followUpText(p.followUpOn) : tr('No date set')}</p>
@@ -164,6 +170,8 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
                 </div>
               </section>
             )}
+
+            <StopTiles kind="profile" notLead={p.category === 'contact'} noFollowUp={p.noFollowUp} canManage={canManage} busy={busy} onNotLead={setContact} onFollowUp={setNoFollowUp} />
 
             <section className="crm-box">
               <div className="crm-box-head"><h3 className="dk-h3">{tr('Sales: order → invoice')}</h3></div>
@@ -267,7 +275,7 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
                   <div className="field"><label htmlFor="hp-loc">{tr('Location')}</label><input id="hp-loc" className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} /></div>
                   <div className="field">
                     <label htmlFor="hp-cat">{tr('Kind of customer')}</label>
-                    <select id="hp-cat" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{CATEGORIES.map((c) => <option key={c.key} value={c.key}>{tr(c.label)}</option>)}</select>
+                    <select id="hp-cat" className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>{CATEGORIES.filter((c) => c.key !== 'contact' || form.category === 'contact').map((c) => <option key={c.key} value={c.key}>{tr(c.label)}</option>)}</select>
                   </div>
                   <div className="field tl-span"><label htmlFor="hp-addr">{tr('Address')}</label><input id="hp-addr" className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
                   <div className="field tl-span"><label htmlFor="hp-notes">{tr('Notes')}</label><textarea id="hp-notes" className="input" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></div>

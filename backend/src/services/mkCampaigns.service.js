@@ -32,9 +32,9 @@ async function resultsFor(ids) {
   var rows = (await pool.query(
     'WITH c AS (SELECT id, code, start_date, end_date, budget FROM marketing_campaigns WHERE id = ANY($1)), ' +
     'cl AS (' +
-    '  SELECT c.id AS campaign_id, l.id AS lead_id, l.stage, l.customer_id, l.received_on FROM c JOIN crm_leads l ON l.campaign_id = c.id ' +
+    '  SELECT c.id AS campaign_id, l.id AS lead_id, l.stage, l.customer_id, l.received_on FROM c JOIN crm_leads l ON l.campaign_id = c.id AND l.stage <> \'not_lead\' ' +
     '  UNION ' +
-    '  SELECT c.id, l.id, l.stage, l.customer_id, l.received_on FROM c JOIN crm_leads l ON l.campaign_id IS NULL ' +
+    '  SELECT c.id, l.id, l.stage, l.customer_id, l.received_on FROM c JOIN crm_leads l ON l.campaign_id IS NULL AND l.stage <> \'not_lead\' ' +
     "    AND coalesce(c.code, '') <> '' AND lower(trim(l.source)) = lower(trim(c.code)) " +
     '    AND (c.start_date IS NULL OR l.received_on >= c.start_date) AND (c.end_date IS NULL OR l.received_on <= c.end_date + ' + LEAD_WINDOW_DAYS + ')), ' +
     'leads AS (SELECT campaign_id, count(*)::int AS leads, ' +
@@ -149,8 +149,8 @@ async function get(ctx, id) {
   var q = await Promise.all([
     ctx.can('crm.read') ? pool.query(
       'SELECT l.id, l.name, l.company, l.stage, l.received_on, l.source, l.item, l.campaign_id IS NOT NULL AS credited FROM crm_leads l ' +
-      'WHERE l.campaign_id = $1 OR (l.campaign_id IS NULL AND $2::text <> \'\' AND lower(trim(l.source)) = lower(trim($2)) ' +
-      'AND ($3::date IS NULL OR l.received_on >= $3) AND ($4::date IS NULL OR l.received_on <= $4::date + ' + LEAD_WINDOW_DAYS + ')) ' +
+      "WHERE l.stage <> 'not_lead' AND (l.campaign_id = $1 OR (l.campaign_id IS NULL AND $2::text <> '' AND lower(trim(l.source)) = lower(trim($2)) " +
+      'AND ($3::date IS NULL OR l.received_on >= $3) AND ($4::date IS NULL OR l.received_on <= $4::date + ' + LEAD_WINDOW_DAYS + '))) ' +
       'ORDER BY l.received_on DESC LIMIT 200', [id, r.code || '', r.start_date, r.end_date]) : { rows: null },
     pool.query('SELECT p.id, p.title, p.status, p.scheduled_at, p.published_at, p.reach, p.clicks, p.likes + p.comments + p.shares AS engagement, ch.name AS channel, ch.platform ' +
       'FROM marketing_posts p JOIN marketing_channels ch ON ch.id = p.channel_id WHERE p.campaign_id = $1 ORDER BY coalesce(p.published_at, p.scheduled_at, p.created_at) DESC LIMIT 100', [id]),

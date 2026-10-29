@@ -32,13 +32,21 @@ var OPEN_STAGES = STAGES.slice(0, 6);
 // they have paid, and until then a prospect waiting for the money.
 var LEAD_STAGES = STAGES.slice(0, 3);
 var PROSPECT_STAGES = STAGES.slice(3, 6);
-var PHASES = ['lead', 'prospect', 'won', 'customer', 'lost'];
+var PHASES = ['lead', 'prospect', 'won', 'customer', 'lost', 'notlead'];
+// Not a lead at all (migration 0208): a supplier, a job seeker, staff or
+// family, a wrong number. Outside the pipeline above and every count of it;
+// not "lost" either — there was never a sale to lose. Can be put back.
+var NOT_LEAD = 'not_lead';
+var NOT_LEAD_REASONS = ['supplier', 'staff_family', 'job_seeker', 'spam', 'other_business', 'other'];
+// Why someone is not to be followed up any more.
+var NO_FOLLOW_UP_REASONS = ['not_interested', 'asked_to_stop', 'bought_elsewhere', 'unreachable', 'cannot_serve', 'other'];
 // Has this lead paid? A linked sale with money on it, or a payment by its
 // customer on a sale raised since the lead came in.
 var PAID_SQL = "(EXISTS (SELECT 1 FROM crm_deals pd JOIN invoices pi ON pi.id = pd.invoice_id WHERE pd.lead_id = l.id AND pi.amount_paid > 0) " +
   "OR (l.customer_id IS NOT NULL AND EXISTS (SELECT 1 FROM payments pp JOIN invoices pi ON pi.id = pp.invoice_id " +
   "WHERE pp.customer_id = l.customer_id AND pp.amount > 0 AND pi.doc_kind = 'sale' AND pi.issued_at >= l.received_on)))";
 function phaseOf(stage, paid) {
+  if (stage === NOT_LEAD) return 'notlead';
   if (stage === 'lost') return 'lost';
   if (stage === 'won') return paid ? 'customer' : 'won';
   return LEAD_STAGES.indexOf(stage) >= 0 ? 'lead' : 'prospect';
@@ -49,6 +57,7 @@ function phaseWhere(phase) {
   if (phase === 'prospect') return "(l.stage IN ('qualified', 'quote_sent', 'negotiation') OR (l.stage = 'won' AND NOT " + PAID_SQL + '))';
   if (phase === 'won') return "(l.stage = 'won' AND NOT " + PAID_SQL + ')';
   if (phase === 'customer') return "(l.stage = 'won' AND " + PAID_SQL + ')';
+  if (phase === 'notlead') return "l.stage = 'not_lead'";
   return "l.stage = 'lost'";
 }
 var NOTE_KINDS = ['note', 'call'];
@@ -141,8 +150,9 @@ var LEAD_SELECT =
   '(SELECT count(*)::int FROM crm_deals d WHERE d.lead_id = l.id) AS deal_count, ' +
   '(SELECT coalesce(sum(i.grand_total), 0) FROM crm_deals d JOIN invoices i ON i.id = d.invoice_id WHERE d.lead_id = l.id) AS deal_value, ' +
   '(SELECT json_build_object(\'body\', n.body, \'kind\', n.kind, \'at\', n.at) FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.kind IN (\'note\', \'call\') ORDER BY n.at DESC LIMIT 1) AS last_note, ' +
-  PAID_SQL + ' AS paid ' +
-  'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id LEFT JOIN employees pe ON pe.id = l.priority_by ';
+  PAID_SQL + ' AS paid, c.no_follow_up_at AS customer_nfu_at, c.no_follow_up_reason AS customer_nfu_reason, nf.first_name AS nfu_first, nf.last_name AS nfu_last ' +
+  'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id LEFT JOIN employees pe ON pe.id = l.priority_by ' +
+  'LEFT JOIN employees nf ON nf.id = l.no_follow_up_by ';
 
 function rowToLead(r) {
   return {
@@ -155,9 +165,15 @@ function rowToLead(r) {
     stageChangedAt: r.stage_changed_at, createdAt: r.created_at, updatedAt: r.updated_at,
     dealCount: r.deal_count || 0, dealValue: round2(r.deal_value), lastNote: r.last_note || null,
     paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid),
-    manualPriority: r.manual_priority || null, priorityBy: r.priority_by ? personName(r.priority_first, r.priority_last) : null, priorityAt: r.priority_at || null
+    manualPriority: r.manual_priority || null, priorityBy: r.priority_by ? personName(r.priority_first, r.priority_last) : null, priorityAt: r.priority_at || null,
+    // Not to be followed up: this lead, or the person (their profile).
+    noFollowUp: r.no_follow_up_at ? { at: r.no_follow_up_at, reason: r.no_follow_up_reason || '', by: r.nfu_first ? personName(r.nfu_first, r.nfu_last) : null, onProfile: false }
+      : r.customer_nfu_at ? { at: r.customer_nfu_at, reason: r.customer_nfu_reason || '', by: null, onProfile: true } : null
   };
 }
+
+// Neither the lead nor its person's profile is set not to be followed up.
+var FOLLOWED_SQL = '(l.no_follow_up_at IS NULL AND NOT EXISTS (SELECT 1 FROM customers nc WHERE nc.id = l.customer_id AND nc.no_follow_up_at IS NOT NULL))';
 
 async function listLeads(ctx, q) {
   need(ctx, 'crm.read');
@@ -177,6 +193,9 @@ async function listLeads(ctx, q) {
   else if (q.followUp === 'today') where.push('l.next_follow_up = ' + arg(today));
   else if (q.followUp === 'week') where.push('l.next_follow_up BETWEEN ' + arg(today) + ' AND ' + arg(addDays(today, 7)));
   else if (q.followUp === 'none') where.push('l.next_follow_up IS NULL');
+  // A lead not to be followed up is not waiting for a date either.
+  if (q.followUp) where.push(FOLLOWED_SQL);
+  if (q.noFollowUp === '1') where.push('NOT ' + FOLLOWED_SQL);
   if (q.from) where.push('l.received_on >= ' + arg(V.date(q.from, 'From')));
   if (q.to) where.push('l.received_on <= ' + arg(V.date(q.to, 'To')));
   if (q.q) {
@@ -257,10 +276,17 @@ async function createLead(ctx, p) {
   return getLead(ctx, lead.id);
 }
 
+function refuseFollowUpIfStopped(cur, date) {
+  if (date && (cur.no_follow_up_at || cur.customer_nfu_at)) {
+    fail('conflict', cur.name + ' is set not to be followed up. Turn follow-ups back on first.');
+  }
+}
+
 async function updateLead(ctx, id, p) {
   need(ctx, 'crm.manage');
   p = p || {};
   var cur = await leadRow(id);
+  if (p.nextFollowUp !== undefined) refuseFollowUpIfStopped(cur, p.nextFollowUp);
   var rep = await repFields(p, cur.rep_id);
   if (p.repId === undefined) rep.name = cur.rep_name;
   var stage = p.stage === undefined ? cur.stage : V.oneOf(p.stage, STAGES, 'Stage');
@@ -275,7 +301,7 @@ async function updateLead(ctx, id, p) {
         pick('source', 'source', 40), pick('item', 'item', 200), pick('comments', 'comments', 4000),
         p.nextFollowUp === undefined ? cur.next_follow_up : optDate(p.nextFollowUp, 'Next follow-up'),
         rep.id, rep.name, p.receivedOn === undefined ? cur.received_on : V.date(p.receivedOn, 'Date received'),
-        stage, stage === 'lost' ? (p.lostReason === undefined ? cur.lost_reason : str(p.lostReason, 300)) : '']);
+        stage, stage === 'lost' || stage === NOT_LEAD ? (p.lostReason === undefined ? cur.lost_reason : str(p.lostReason, 300)) : '']);
     if (stage !== cur.stage) await note(db, ctx, id, 'stage', str(p.stageNote, 2000), cur.stage, stage);
     // Qualified, quoted, agreeing terms or won and not paid yet: their
     // profile says Prospect too (the payment makes it Customer).
@@ -298,6 +324,7 @@ async function addNote(ctx, id, p) {
   var kind = V.oneOf(p.kind || 'note', NOTE_KINDS, 'Kind');
   var body = V.text(p.body, 'Note', 4000);
   var cur = await leadRow(id);
+  if (p.nextFollowUp !== undefined) refuseFollowUpIfStopped(cur, p.nextFollowUp);
   await withTransaction(async function (db) {
     await note(db, ctx, id, kind, body);
     var next = p.nextFollowUp === undefined ? cur.next_follow_up : optDate(p.nextFollowUp, 'Next follow-up');
@@ -324,6 +351,63 @@ async function setPriority(ctx, id, p) {
     await note(db, ctx, id, 'priority', to || 'auto');
     await audit(db, ctx, 'crm.lead.priority', 'crm_lead', id,
       (to === 'high' ? 'Marked lead ' + cur.ref + ' important' : to === 'low' ? 'Marked lead ' + cur.ref + ' low priority' : 'Put lead ' + cur.ref + ' back to its worked-out priority') + ' (' + cur.name + ').');
+  });
+  return getLead(ctx, id);
+}
+
+// "Not a lead": a supplier, staff, a job seeker, a wrong number… Out of the
+// leads and prospects and every count, with the reason; {on: false} puts
+// it back as a new lead. A lead with a sale linked to it stays a lead.
+async function setNotLead(ctx, id, p) {
+  need(ctx, 'crm.manage');
+  p = p || {};
+  var cur = await leadRow(id);
+  if (p.on === false) {
+    if (cur.stage !== NOT_LEAD) return getLead(ctx, id);
+    await withTransaction(async function (db) {
+      await db.query("UPDATE crm_leads SET stage = 'new', lost_reason = '', stage_changed_at = now(), updated_at = now() WHERE id = $1", [id]);
+      await note(db, ctx, id, 'stage', 'Put back as a lead.', NOT_LEAD, 'new');
+      await audit(db, ctx, 'crm.lead.not_lead', 'crm_lead', id, 'Put ' + cur.ref + ' (' + cur.name + ') back as a lead.');
+    });
+    return getLead(ctx, id);
+  }
+  if (cur.deal_count > 0) fail('conflict', 'This lead has a sale linked to it, so it is a real lead. Unlink the sale first.');
+  var reason = V.oneOf(p.reason || 'other', NOT_LEAD_REASONS, 'Reason');
+  var said = str(p.note, 300);
+  if (reason === 'other' && !said) fail('invalid', 'Say who they are, in a few words.');
+  var why = reason + (said ? ': ' + said : '');
+  await withTransaction(async function (db) {
+    await db.query("UPDATE crm_leads SET stage = 'not_lead', lost_reason = $2, next_follow_up = NULL, stage_changed_at = now(), updated_at = now() WHERE id = $1", [id, why]);
+    await note(db, ctx, id, 'stage', said, cur.stage, NOT_LEAD);
+    await audit(db, ctx, 'crm.lead.not_lead', 'crm_lead', id, 'Took ' + cur.ref + ' (' + cur.name + ') out of the leads: not a lead (' + why + ').');
+  });
+  return getLead(ctx, id);
+}
+
+// "Don't follow up": nothing reminds anyone to chase this lead while it is
+// set (its follow-up date is cleared), it drops out of the follow-ups and
+// to the bottom of the priorities; {on: false} turns follow-ups back on.
+async function setLeadNoFollowUp(ctx, id, p) {
+  need(ctx, 'crm.manage');
+  p = p || {};
+  var cur = await leadRow(id);
+  var on = p.on !== false;
+  if (!on) {
+    if (!cur.no_follow_up_at) return getLead(ctx, id);
+    await withTransaction(async function (db) {
+      await db.query("UPDATE crm_leads SET no_follow_up_at = NULL, no_follow_up_by = NULL, no_follow_up_reason = '', updated_at = now() WHERE id = $1", [id]);
+      await note(db, ctx, id, 'note', 'Follow-ups back on.');
+      await audit(db, ctx, 'crm.lead.follow_up_on', 'crm_lead', id, 'Turned follow-ups back on for ' + cur.ref + ' (' + cur.name + ').');
+    });
+    return getLead(ctx, id);
+  }
+  var reason = V.oneOf(p.reason || 'other', NO_FOLLOW_UP_REASONS, 'Reason');
+  var said = str(p.note, 300);
+  var why = reason + (said ? ': ' + said : '');
+  await withTransaction(async function (db) {
+    await db.query('UPDATE crm_leads SET no_follow_up_at = now(), no_follow_up_by = $2, no_follow_up_reason = $3, next_follow_up = NULL, updated_at = now() WHERE id = $1', [id, me(ctx), why]);
+    await note(db, ctx, id, 'note', 'Not to be followed up any more (' + why + ').');
+    await audit(db, ctx, 'crm.lead.no_follow_up', 'crm_lead', id, 'Stopped following up ' + cur.ref + ' (' + cur.name + '): ' + why + '.');
   });
   return getLead(ctx, id);
 }
@@ -691,7 +775,7 @@ async function overview(ctx, q) {
 
   var leadsAll = (await pool.query(
     'SELECT l.id, l.stage, l.source, l.rep_id, l.rep_name, l.received_on, l.next_follow_up, l.stage_changed_at, l.name, l.ref, l.item, e.first_name, e.last_name ' +
-    'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id')).rows;
+    "FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id WHERE l.stage <> 'not_lead'")).rows;
   var leadsIn = leadsAll.filter(function (l) { var d = dateOnly(l.received_on); return d >= period.from && d <= period.to; });
   var leadsPrev = leadsAll.filter(function (l) { var d = dateOnly(l.received_on); return d >= prev.from && d <= prev.to; });
 
@@ -782,7 +866,7 @@ async function overview(ctx, q) {
 
   // Where every lead stands now: lead, prospect, won waiting for the
   // money, customer, lost.
-  var phaseRows = (await pool.query('SELECT l.stage, ' + PAID_SQL + ' AS paid, count(*)::int AS n FROM crm_leads l GROUP BY 1, 2')).rows;
+  var phaseRows = (await pool.query('SELECT l.stage, ' + PAID_SQL + " AS paid, count(*)::int AS n FROM crm_leads l WHERE l.stage <> 'not_lead' GROUP BY 1, 2")).rows;
   var phases = { lead: 0, prospect: 0, won: 0, customer: 0, lost: 0 };
   phaseRows.forEach(function (r) { phases[phaseOf(r.stage, r.paid)] += r.n; });
 
@@ -887,7 +971,8 @@ module.exports = {
   STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, LEAD_STAGES: LEAD_STAGES, PROSPECT_STAGES: PROSPECT_STAGES, PAID_SQL: PAID_SQL, phaseOf: phaseOf, commission: money,
   getSettings: getSettings, saveSettings: saveSettings, overview: overview, people: people,
   listLeads: listLeads, getLead: getLead, createLead: createLead, updateLead: updateLead, setStage: setStage, addNote: addNote,
-  removeLead: removeLead, toCustomer: toCustomer, setPriority: setPriority,
+  removeLead: removeLead, toCustomer: toCustomer, setPriority: setPriority, setNotLead: setNotLead, setLeadNoFollowUp: setLeadNoFollowUp,
+  NOT_LEAD: NOT_LEAD, NOT_LEAD_REASONS: NOT_LEAD_REASONS, NO_FOLLOW_UP_REASONS: NO_FOLLOW_UP_REASONS, FOLLOWED_SQL: FOLLOWED_SQL,
   invoicesToLink: invoicesToLink, linkInvoice: linkInvoice, updateDeal: updateDeal, setDealStatus: setDealStatus, unlinkDeal: unlinkDeal, listDeals: listDeals,
   listReferrals: listReferrals, saveReferral: saveReferral, setReferralStatus: setReferralStatus, removeReferral: removeReferral,
   listVisits: listVisits, saveVisit: saveVisit, removeVisit: removeVisit,

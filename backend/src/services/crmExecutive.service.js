@@ -86,7 +86,7 @@ async function money(co, from, to) {
     "SELECT count(*)::int AS n, " +
     "count(*) FILTER (WHERE l.stage IN ('qualified', 'quote_sent', 'negotiation', 'won') OR EXISTS (SELECT 1 FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.to_stage IN ('qualified', 'quote_sent', 'negotiation', 'won')))::int AS prospects, " +
     "count(*) FILTER (WHERE l.stage = 'won')::int AS won, count(*) FILTER (WHERE l.stage = 'won' AND " + crm.PAID_SQL + ")::int AS customers " +
-    'FROM crm_leads l WHERE l.received_on BETWEEN $1 AND $2', [from, to])).rows[0];
+    "FROM crm_leads l WHERE l.received_on BETWEEN $1 AND $2 AND l.stage <> 'not_lead'", [from, to])).rows[0];
   var sales = r2(inv.sales), decided = quotes.won + quotes.lost;
   return {
     sales: sales, cash: r2(paid.cash), invoices: inv.n, averageInvoice: inv.n ? r2(sales / inv.n) : null,

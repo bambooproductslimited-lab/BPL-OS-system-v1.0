@@ -343,7 +343,8 @@ export default function PokiTenantsPage() {
                     <span className="pk-list-main"><strong>{b.unitCode} · {b.propertyName}</strong><span className="dk-muted tl-small">{b.bookingNo} · {fmtDate(b.startDate)} – {fmtDate(b.endDate)} · {b.durationLabel}</span></span>
                     <span className="pk-list-side">
                       <strong>{money(b.rentTotal, b.currency)}</strong>
-                      {b.balanceTotal > 0 ? <Status tone="warn">{tr('{amount} still to pay', { amount: money(b.balanceTotal, b.currency) })}</Status> : <Status tone={b.status === 'active' ? 'good' : 'muted'}>{codeLabel(b.status)}</Status>}
+                      {b.balanceTotal > 0 ? <Status tone="warn">{tr('{amount} still to pay', { amount: money(b.balanceTotal, b.currency) })}</Status> : <Status tone={b.status === 'active' ? 'good' : 'muted'}>{b.status === 'moved' && b.movedToUnit ? tr('Moved to {unit}', { unit: b.movedToUnit }) : codeLabel(b.status)}</Status>}
+                      {canManage && (b.status === 'active' || b.status === 'draft') && <Link className="dk-link" to={'/pokibookings?move=' + b.id}>{tr('Move to another unit')}</Link>}
                     </span>
                   </li>
                 ))}

@@ -432,3 +432,55 @@ test('switch the sender ID from the screen: texts come from it at once; back to 
   assert.equal((await call('PUT', '/api/sms/sender', { senderId: 'Hacked' }, staff)).status, 403);
   await reset();
 });
+
+test('staff who never get texts: nothing reaches their phone but a sign-in code or a test; skipped texts are logged', async function () {
+  var smsService = require('../src/services/sms.service');
+  var dept = (await pool.query('SELECT id FROM departments LIMIT 1')).rows[0].id;
+  await pool.query("DELETE FROM employees WHERE code = 'ZSMS-Q1'");
+  var emp = (await pool.query(
+    "INSERT INTO employees (code, first_name, last_name, email, phone, department_id, hire_date, status, employment_type) VALUES ('ZSMS-Q1', 'Zq', 'Quiet', 'zsms.q1@example.com', '020 555 0991 / 020 555 0992', $1, current_date, 'active', 'permanent') RETURNING id",
+    [dept])).rows[0].id;
+  try {
+    var admin = await adminToken();
+    var s = (await call('GET', '/api/sms', null, admin)).body;
+    var me = s.staff.find(function (x) { return x.id === emp; });
+    assert.deepEqual(me, { id: emp, name: 'Zq Quiet', quiet: false }, 'everyone with a phone is listed, texted by default');
+    assert.equal((await call('PUT', '/api/sms/quiet-staff', { employeeId: emp, quiet: true }, await staffToken())).status, 403);
+    s = (await call('PUT', '/api/sms/quiet-staff', { employeeId: emp, quiet: true }, admin)).body;
+    assert.equal(s.staff.find(function (x) { return x.id === emp; }).quiet, true);
+    var audit = (await pool.query("SELECT summary FROM audit_logs WHERE action = 'sms.quiet_staff' ORDER BY at DESC LIMIT 1")).rows[0];
+    assert.match(audit.summary, /Zq Quiet no longer gets texts from the OS/);
+
+    // An alert to either of their numbers, in any form, is not sent — and says why in the log.
+    var before = received.length;
+    var r = await smsService.send({ to: '+233 20 555 0992', message: 'Zq alert', purpose: 'staff_alert' });
+    assert.equal(r.skipped, true);
+    assert.equal(received.length, before, 'nothing went to mNotify');
+    var row = (await pool.query('SELECT status, error, to_phone FROM sms_messages WHERE id = $1', [r.id])).rows[0];
+    assert.equal(row.status, 'skipped');
+    assert.equal(row.to_phone, '0205550992');
+    assert.match(row.error, /^Not sent: Zq Quiet doesn't get texts from the OS/);
+    s = (await call('GET', '/api/sms', null, admin)).body;
+    assert.ok(s.recent.some(function (m) { return m.id === r.id && m.status === 'skipped'; }));
+
+    // A test to that number on purpose, or a sign-in code, still goes.
+    r = await smsService.send({ to: '0205550991', message: 'Zq test', purpose: 'test' });
+    assert.ok(!r.skipped);
+    assert.deepEqual(lastText().body.recipient, ['0205550991']);
+    r = await smsService.send({ to: '0205550991', message: 'Zq code 123456', purpose: 'two_step', logMessage: 'Zq code ******' });
+    assert.ok(!r.skipped);
+
+    // Back on: texts reach them again.
+    await call('PUT', '/api/sms/quiet-staff', { employeeId: emp, quiet: false }, admin);
+    before = received.length;
+    r = await smsService.send({ to: '0205550991', message: 'Zq alert again', purpose: 'staff_alert' });
+    assert.ok(!r.skipped);
+    assert.equal(received.length, before + 1);
+    assert.equal((await call('PUT', '/api/sms/quiet-staff', { employeeId: '00000000-0000-0000-0000-000000000000', quiet: true }, admin)).status, 404);
+  } finally {
+    await pool.query("DELETE FROM sms_messages WHERE to_phone IN ('0205550991', '0205550992')");
+    await pool.query("DELETE FROM audit_logs WHERE action = 'sms.quiet_staff' AND entity_id = $1", [emp]);
+    await pool.query('DELETE FROM employees WHERE id = $1', [emp]);
+    await reset();
+  }
+});

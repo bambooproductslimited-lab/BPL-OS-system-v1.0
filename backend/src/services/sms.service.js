@@ -132,6 +132,21 @@ function succeeded(r) {
   return true;
 }
 
+// Staff who never get texts from the OS (employees.sms_opt_out, migration
+// 0208): the CEO, say. Nothing goes to their phone — alerts, reminders, a
+// request's team, a booking or receipt — except a sign-in code they asked
+// for themselves, or a test sent to that number on purpose. Matched on the
+// number, so every way a text is sent is covered, now and later.
+var ALWAYS_SENT = ['two_step', 'portal_code', 'test'];
+async function quietStaffAt(number) {
+  var rows = (await pool.query("SELECT id, first_name, last_name, phone FROM employees WHERE sms_opt_out AND coalesce(phone, '') <> ''")).rows;
+  for (var i = 0; i < rows.length; i++) {
+    var nums = String(rows[i].phone).split(/[\/,;]/).map(smsNumber).filter(Boolean);
+    if (nums.indexOf(number) >= 0) return rows[i];
+  }
+  return null;
+}
+
 // Sends one text. Throws a plain-language error when it can't be sent, after
 // logging the attempt. opts: { to, message, purpose, refId, sentBy,
 // logMessage (what to keep in the log instead — sign-in codes are masked) }.
@@ -145,6 +160,18 @@ async function send(opts) {
   var message = String(opts.message || '').trim();
   if (!message) fail('invalid', 'The message is empty.');
   if (message.length > MAX_LENGTH) message = message.slice(0, MAX_LENGTH - 1) + '…';
+  if (ALWAYS_SENT.indexOf(opts.purpose) < 0) {
+    var quiet = await quietStaffAt(number);
+    if (quiet) {
+      // Kept in the log, so "why didn't they get it?" has an answer.
+      var skipped = (await pool.query(
+        "INSERT INTO sms_messages (to_phone, message, purpose, ref_id, status, error, sent_by) VALUES ($1,$2,$3,$4,'skipped',$5,$6) RETURNING id",
+        [number, opts.logMessage || message, opts.purpose || 'other', opts.refId || null,
+          'Not sent: ' + quiet.first_name + ' ' + quiet.last_name + ' doesn\'t get texts from the OS (Company settings → Text messages).', opts.sentBy || null]
+      )).rows[0];
+      return { id: skipped.id, to: number, skipped: true, creditLeft: null };
+    }
+  }
 
   var sender = senderId();
   var r = await call('POST', '/api/sms/quick', {
@@ -292,6 +319,7 @@ async function status(ctx) {
     serverSenderId: config.sms.senderId || null,
     senderCheck: chosen.check && chosen.check.name === sender ? chosen.check : null,
     suggestedPurpose: suggestedPurpose(company),
+    staff: await quietStaff(),
     settings: await messaging(), dailyLimit: AUTO_DAILY_LIMIT, balance: null, balanceError: null
   };
   if (out.configured) {
@@ -328,6 +356,29 @@ async function saveSettings(ctx, p) {
   return status(ctx);
 }
 
+// Company settings → Text messages: who never gets texts, and everyone with
+// a phone who could be added.
+async function quietStaff() {
+  return (await pool.query(
+    "SELECT id, first_name, last_name, sms_opt_out FROM employees WHERE status = 'active' AND coalesce(phone, '') <> '' ORDER BY first_name, last_name")).rows
+    .map(function (e) { return { id: e.id, name: e.first_name + ' ' + e.last_name, quiet: !!e.sms_opt_out }; });
+}
+
+async function setQuietStaff(ctx, p) {
+  requireManage(ctx);
+  p = p || {};
+  var e = (await pool.query('SELECT id, first_name, last_name, sms_opt_out FROM employees WHERE id = $1', [p.employeeId])).rows[0];
+  if (!e) fail('notfound', 'Staff member not found.');
+  var quiet = p.quiet !== false;
+  if (!!e.sms_opt_out !== quiet) {
+    await pool.query('UPDATE employees SET sms_opt_out = $2 WHERE id = $1', [e.id, quiet]);
+    await audit(pool, ctx, 'sms.quiet_staff', 'employee', e.id, quiet
+      ? e.first_name + ' ' + e.last_name + ' no longer gets texts from the OS (sign-in codes they ask for still come).'
+      : e.first_name + ' ' + e.last_name + ' gets texts from the OS again.');
+  }
+  return status(ctx);
+}
+
 async function sendTest(ctx, phone) {
   requireManage(ctx);
   var sent = await send({
@@ -341,5 +392,6 @@ async function sendTest(ctx, phone) {
 module.exports = {
   configured: configured, send: send, balance: balance, smsNumber: smsNumber, messaging: messaging, autoSentToday: autoSentToday,
   status: status, saveSettings: saveSettings, sendTest: sendTest, AUTO_DAILY_LIMIT: AUTO_DAILY_LIMIT,
-  loadSender: loadSender, senderId: senderId, saveSender: saveSender, checkSender: checkSender, registerSender: registerSender
+  loadSender: loadSender, senderId: senderId, saveSender: saveSender, checkSender: checkSender, registerSender: registerSender,
+  setQuietStaff: setQuietStaff
 };

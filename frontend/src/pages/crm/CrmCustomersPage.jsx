@@ -9,6 +9,7 @@ import { tr } from '../../lib/i18n.jsx';
 import CustomerProfile from './CustomerProfile';
 import { CATEGORIES, CHANNELS, CategoryTag, ChannelDot, CustMark, RepSelect, ago, ghsOr, useReps } from './crmHubShared';
 import { Toast, followUpClass, followUpText } from './crmShared';
+import { StopPill } from './crmStop';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -50,6 +51,7 @@ export default function CrmCustomersPage() {
     if (show === 'waiting') qs.set('waiting', '1');
     if (show === 'followup') qs.set('followUp', 'due');
     if (show === 'inactive') qs.set('status', 'inactive');
+    if (show === 'nofollow') qs.set('noFollowUp', '1');
     if (repF) qs.set('rep', repF);
     if (catF !== 'all') qs.set('category', catF);
     if (chF) qs.set('channel', chF);
@@ -98,7 +100,8 @@ export default function CrmCustomersPage() {
 
       <Insights items={insights} />
 
-      <Section id="hub-customers" title={tr('Customer profiles')} sub={tr('{n} shown. Press one to open the whole profile.', { n: list.length })}
+      <Section id="hub-customers" title={catF === 'contact' ? tr('Just contacts') : tr('Customer profiles')}
+        sub={catF === 'contact' ? tr('{n} shown: people who got in touch but aren\'t leads, prospects or customers. Open one to put them back.', { n: list.length }) : tr('{n} shown. Press one to open the whole profile.', { n: list.length })}
         action={
           <select className="input hub-sort" value={sort} onChange={(e) => setParam('sort', e.target.value)} aria-label={tr('Order')}>
             <option value="">{tr('Latest contact first')}</option>
@@ -120,12 +123,13 @@ export default function CrmCustomersPage() {
           </select>
         </div>
         <div className="ppl-chips" role="radiogroup" aria-label={tr('Show')}>
-          {[['', tr('Everyone')], ['waiting', tr('Waiting for a reply')], ['followup', tr('Follow-up due')], ['inactive', tr('Inactive')]].map(([k, l]) => (
-            <button key={k || 'all'} type="button" role="radio" aria-checked={show === k} className={'ppl-chip' + (show === k ? ' is-on' : '')} onClick={() => setParam('show', k)}>{l}</button>
+          {[['', tr('Everyone')], ['waiting', tr('Waiting for a reply')], ['followup', tr('Follow-up due')], ['nofollow', tr('Not to be followed up'), s.no_follow_up], ['inactive', tr('Inactive')]].map(([k, l, n]) => (
+            <button key={k || 'all'} type="button" role="radio" aria-checked={show === k} className={'ppl-chip' + (show === k ? ' is-on' : '')} onClick={() => setParam('show', k)}>{l}{n !== undefined && <span className="ppl-chip-n">{n}</span>}</button>
           ))}
           <span className="hub-chip-gap" />
-          {[['paying', tr('Paying customers')], ['vip', tr('VIP')], ['prospect', tr('Prospects')], ['lead', tr('Leads')], ['all', tr('All profiles')]].map(([k, l]) => (
-            <button key={k} type="button" role="radio" aria-checked={catF === k} className={'ppl-chip' + (catF === k ? ' is-on' : '')} onClick={() => setParam('category', k === 'paying' ? '' : k)}>{l}</button>
+          {[['paying', tr('Paying customers')], ['vip', tr('VIP')], ['prospect', tr('Prospects')], ['lead', tr('Leads')], ['all', tr('All profiles')], ['contact', tr('Just contacts'), s.contacts]].map(([k, l, n]) => (
+            <button key={k} type="button" role="radio" aria-checked={catF === k} className={'ppl-chip' + (catF === k ? ' is-on' : '') + (k === 'contact' ? ' hub-chip-contact' : '')} onClick={() => setParam('category', k === 'paying' ? '' : k)}
+              title={k === 'contact' ? tr('Not leads, prospects or customers: suppliers, staff, family, wrong numbers… Kept out of every other list.') : undefined}>{l}{n !== undefined && <span className="ppl-chip-n">{n}</span>}</button>
           ))}
         </div>
 
@@ -158,12 +162,13 @@ export default function CrmCustomersPage() {
                   </span>
                   {c.waitingSince && <span className="hub-flag is-bad"><Icon name="send" /> {tr('Waiting for a reply since {time}', { time: ago(c.waitingSince) })}</span>}
                   {c.followUpOn && <span className={'hub-flag ' + followUpClass(c.followUpOn)}><Icon name="calendar" /> {tr('Follow-up {when}', { when: followUpText(c.followUpOn) })}</span>}
+                  {c.noFollowUp && c.category !== 'contact' && <StopPill noFollowUp={c.noFollowUp} />}
                   <span className="hub-card-money">
                     <span><small>{tr('Bought')}</small> {ghsOr(c.lifetime)}</span>
                     {c.outstanding > 0 && <span className={c.overdue > 0 ? 'is-bad' : ''}><small>{tr('Owes')}</small> {ghsOr(c.outstanding)}</span>}
                     {c.openQuotes > 0 && <span><small>{tr('Open quotes')}</small> {c.openQuotes}</span>}
                   </span>
-                  <span className="hub-card-rep">{c.rep ? <><Icon name="people" /> {c.rep.name}</> : <span className="hub-norep"><Icon name="warn" /> {tr('No sales rep')}</span>}{c.duplicates > 0 && <span className="hub-dup"><Icon name="layers" /> {tr('possible duplicate')}</span>}</span>
+                  <span className="hub-card-rep">{c.rep ? <><Icon name="people" /> {c.rep.name}</> : c.category === 'contact' ? null : <span className="hub-norep"><Icon name="warn" /> {tr('No sales rep')}</span>}{c.duplicates > 0 && <span className="hub-dup"><Icon name="layers" /> {tr('possible duplicate')}</span>}</span>
                 </button>
                 <div className="hub-card-acts"><ContactButtons name={c.name} phone={c.phone} email={c.email} /></div>
               </article>

@@ -46,6 +46,9 @@ router.get('/leads/:id', h(function (req) { return crm.getLead(req.ctx, req.para
 router.put('/leads/:id', h(function (req) { return crm.updateLead(req.ctx, req.params.id, req.body); }));
 router.post('/leads/:id/stage', h(function (req) { return crm.setStage(req.ctx, req.params.id, req.body); }));
 router.put('/leads/:id/priority', h(function (req) { return crm.setPriority(req.ctx, req.params.id, req.body); }));
+// Not a lead at all ({on, reason, note}); not to be followed up ({on, reason, note}).
+router.put('/leads/:id/not-lead', h(function (req) { return crm.setNotLead(req.ctx, req.params.id, req.body || {}); }));
+router.put('/leads/:id/no-follow-up', h(function (req) { return crm.setLeadNoFollowUp(req.ctx, req.params.id, req.body || {}); }));
 router.post('/leads/:id/notes', h(function (req) { return crm.addNote(req.ctx, req.params.id, req.body); }));
 router.post('/leads/:id/customer', h(function (req) { return crm.toCustomer(req.ctx, req.params.id); }));
 router.post('/leads/:id/deals', h(function (req) { return crm.linkInvoice(req.ctx, req.params.id, req.body); }));

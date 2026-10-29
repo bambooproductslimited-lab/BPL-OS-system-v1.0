@@ -50,7 +50,7 @@ function audienceSql(co, rules) {
       "WHERE i.doc_kind = 'sale' AND i.status <> 'void' GROUP BY 1) " +
       'SELECT c.id, c.name, c.phone, c.email, s.last_at, coalesce(s.spent, 0) AS spent, c.marketing_opt_out AS opted_out, c.category AS stage, c.location ' +
       'FROM customers c LEFT JOIN s ON s.customer_id = c.id ';
-    where.push(scope, "c.status = 'active'");
+    where.push(scope, "c.status = 'active'", "c.category <> 'contact'", 'c.no_follow_up_at IS NULL');
     if (rules.stages.length) where.push('c.category = ANY(' + p(rules.stages) + ')');
     if (rules.channels.length) where.push('c.origin_channel = ANY(' + p(rules.channels) + ')');
     if (rules.location) where.push("(c.location ILIKE " + p('%' + rules.location + '%') + " OR c.address ILIKE $" + args.length + ')');
