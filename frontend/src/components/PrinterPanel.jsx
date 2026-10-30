@@ -17,7 +17,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
-  const [help, setHelp] = useState(!printer);
+  const [help, setHelp] = useState(!printer && !(typeof navigator !== 'undefined' && /Android|iPad|iPhone/i.test(navigator.userAgent || '')));
   async function choose(kind, mm) {
     setBusy(kind); setError(null); setDone(null);
     try {
@@ -66,7 +66,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
     <div key="usb" className={'prp-way' + (printer && printer.kind === 'usb' ? ' is-on' : '') + (usbSupported() ? '' : ' is-off')}>
       <span className="prp-way-ico" aria-hidden="true">🔌</span>
       <div className="prp-way-txt">
-        <strong>{tr('USB printer, straight from Chrome')}{android && usbSupported() && <em className="prp-best">{tr('Best for this till')}</em>}</strong>
+        <strong>{tr('USB printer, straight from Chrome')}</strong>
         <small>{usbSupported() ? tr('No driver needed. Star printers print the receipt as a picture; other receipt printers as text.') : tr('This browser cannot reach USB printers: use Chrome or Edge.')}</small>
       </div>
       <div className="prp-way-acts"><button type="button" className="prp-chip" disabled={!!busy || !usbSupported()} onClick={() => choose('usb')}>{busy === 'usb' ? tr('Connecting…') : tr('Connect')}</button></div>
@@ -77,18 +77,19 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
       <span className="prp-way-ico" aria-hidden="true">📶</span>
       <div className="prp-way-txt">
         <strong>{tr('Bluetooth LE printer')}</strong>
-        <small>{tr('Small receipt printers on Bluetooth Low Energy. Star\'s Bluetooth printers use classic Bluetooth: choose Star Bluetooth, through the PassPRNT app.')}</small>
+        <small>{tr('Small receipt printers on Bluetooth Low Energy. Star\'s Bluetooth printers use classic Bluetooth: choose Star printer, through the PassPRNT app.')}</small>
       </div>
       <div className="prp-way-acts"><button type="button" className="prp-chip" disabled={!!busy || !bluetoothSupported()} onClick={() => choose('bluetooth')}>{busy === 'bluetooth' ? tr('Connecting…') : tr('Connect')}</button></div>
     </div>
   );
-  // A Star printer on Bluetooth: through Star's PassPRNT app.
+  // A Star printer on the network (a TSP143LAN) or on Bluetooth: through
+  // Star's PassPRNT app.
   const passWay = (
     <div key="pass" className={'prp-way' + (printer && printer.kind === 'passprnt' ? ' is-on' : '')}>
       <span className="prp-way-ico" aria-hidden="true">📲</span>
       <div className="prp-way-txt">
-        <strong>{tr('Star Bluetooth, through the PassPRNT app')}{(android || ios) && <em className="prp-best is-bt">{tr('For Bluetooth')}</em>}</strong>
-        <small>{tr('For a Star printer on Bluetooth, such as a TSP100III BI: Star\'s free PassPRNT app prints each receipt and brings you back to the till. Install it and choose the printer in it first.')}</small>
+        <strong>{tr('Star printer, through the PassPRNT app')}{(android || ios) && <em className="prp-best is-bt">{tr('Network or Bluetooth')}</em>}</strong>
+        <small>{tr('For a Star printer on the network (such as a TSP143LAN) or on Bluetooth: Star\'s free PassPRNT app prints each receipt and brings you back to the till. Install it and choose the printer in it first.')}</small>
       </div>
       <div className="prp-way-acts">
         {[80, 58].map((mm) => (
@@ -98,7 +99,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
     </div>
   );
   const kindText = !printer ? '' : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
-    : printer.kind === 'passprnt' ? tr('Bluetooth · through PassPRNT · {n} mm paper', { n: printer.paper })
+    : printer.kind === 'passprnt' ? tr('Through PassPRNT · {n} mm paper', { n: printer.paper })
     : printer.kind === 'usb' ? (printer.star ? tr('USB · Star, printed as a picture') : tr('USB')) : tr('Bluetooth');
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -120,13 +121,13 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
         {done && <p className="prp-ok" role="status">✅ {done}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
 
-        <div className="prp-ways">{android ? [usbWay, passWay, systemWay, btWay] : ios ? [passWay, systemWay, usbWay, btWay] : [systemWay, usbWay, passWay, btWay]}</div>
+        <div className="prp-ways">{android || ios ? [passWay, usbWay, systemWay, btWay] : [systemWay, usbWay, passWay, btWay]}</div>
 
         {!ios && (
           <details className="prp-help" open={help} onToggle={(e) => setHelp(e.currentTarget.open)}>
             {android ? (
               <>
-                <summary>⭐ {tr('Setting up a Star TSP100 on this Android till (iMin)')}</summary>
+                <summary>⭐ {tr('A Star printer on a USB cable (this Android till)')}</summary>
                 <ol>
                   <li>{tr('Plug the printer\'s USB cable into one of the till\'s USB ports, and switch the printer on.')}</li>
                   <li>{tr('Open the till in Chrome, or in the till installed from Chrome on the home screen. Other apps cannot reach USB printers.')}</li>
@@ -154,14 +155,14 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
         )}
 
         {(android || ios) && (
-          <details className="prp-help is-bt" open={!!printer && printer.kind === 'passprnt'}>
-            <summary>📲 {tr('A Star printer on Bluetooth (PassPRNT)')}</summary>
+          <details className="prp-help is-bt" open={!printer || printer.kind === 'passprnt'}>
+            <summary>📲 {tr('A Star printer on the network or Bluetooth (PassPRNT)')}</summary>
             <ol>
-              <li>{tr('Check the printer has Bluetooth: its label says BI (for example TSP143IIIBI) and it has a pairing button at the back. The first TSP100 futurePRNT has no Bluetooth: use its USB cable.')}</li>
+              <li>{tr('Find the model on the label under the printer. LAN (such as TSP143LAN): plug its network cable into the router the till\'s Wi-Fi comes from, and switch it on. BI (such as TSP143IIIBI): pair it in the till\'s Settings → Bluetooth (code 1234 if asked).')}</li>
               <li>{ios ? tr('Install Star PassPRNT (free) from the App Store.') : tr('Install Star PassPRNT (free) from Google Play.')}</li>
-              <li>{tr('Switch the printer on and pair it in the till\'s Settings → Bluetooth (code 1234 if asked).')}</li>
-              <li>{tr('Open PassPRNT, choose the printer in its settings, and set the paper to 3 inch (80mm).')}</li>
-              <li>{tr('Here, choose Star Bluetooth, through the PassPRNT app and 80 mm, then Print a test. Each print opens PassPRNT for a moment and comes back to the till.')}</li>
+              <li>{tr('Open PassPRNT, tap Printer and pick the Star in the list (one on the network shows its address, TCP:192.168…), set the paper to 3 inch (80mm), then Check communication.')}</li>
+              <li>{tr('Not in the list? Hold the printer\'s FEED button while switching it on: it prints its settings, with its IP address. The till and the printer must be on the same network.')}</li>
+              <li>{tr('Here, choose Star printer, through the PassPRNT app and 80 mm, then Print a test. Each print opens PassPRNT for a moment and comes back to the till.')}</li>
               <li>{tr('On the kitchen screen, new tickets cannot print by themselves this way: tap Print ticket.')}</li>
             </ol>
           </details>

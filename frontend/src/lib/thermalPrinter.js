@@ -491,13 +491,14 @@ export function reconnectSystemPrinter() {
   return mm ? systemPrinter(mm) : null;
 }
 
-// ── Star Bluetooth, through Star's PassPRNT app ─────────────────────────
-// Star's Bluetooth printers (TSP100III BI, mPOP, SM-S230i…) use classic
-// Bluetooth, which no web page can reach. Star's free PassPRNT app (Android,
-// iPhone, iPad) can: the till hands it the receipt as a small HTML page in
+// ── A Star printer, through Star's PassPRNT app ─────────────────────────
+// A Star printer on the network (a TSP143LAN) or on Bluetooth (TSP100III
+// BI, mPOP, SM-S230i… classic Bluetooth) is out of a web page's reach on a
+// tablet. Star's free PassPRNT app (Android, iPhone, iPad) reaches it: the
+// till hands it the receipt as a small HTML page in
 // a starpassprnt:// link — the paper size (2 = 58mm, 3 = 80mm), a partial
-// cut, the drawer opened first for cash — and PassPRNT prints it over
-// Bluetooth (or USB or the network), then opens the back link, which brings
+// cut, the drawer opened first for cash — and PassPRNT prints it over the
+// network or Bluetooth, then opens the back link, which brings
 // the till back with passprnt_code / passprnt_message (readPassPrntReply).
 // Several tickets go in one print, a dashed line between them.
 var PASSPRNT_KEY = 'bamboo.printer.passprnt';
@@ -546,7 +547,7 @@ export function passPrntPrinter(paperMm) {
     kind: 'passprnt',
     paper: mm,
     lineWidth: mm === 80 ? 42 : LINE_WIDTH_58MM,
-    name: tr('Star Bluetooth (PassPRNT)'),
+    name: tr('Star printer (PassPRNT)'),
     write: async function (byteArray) {
       // Back to this page, the reply after the #, so the till does not reload.
       var back = window.location.href.split('#')[0] + '#passprnt';
