@@ -38,3 +38,4 @@
   .prp-way-acts { width: 100%; padding-left: 52px; }
 }
 @media (prefers-reduced-motion: reduce) { .prp-dot { animation: none; } }
+.prp-best { display: inline-block; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 800; font-style: normal; vertical-align: 1px; color: #fff; border-radius: 999px; background: linear-gradient(135deg, #22c55e, #15803d); }
