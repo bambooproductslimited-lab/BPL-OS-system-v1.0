@@ -491,6 +491,93 @@ export function reconnectSystemPrinter() {
   return mm ? systemPrinter(mm) : null;
 }
 
+// ── Star Bluetooth, through Star's PassPRNT app ─────────────────────────
+// Star's Bluetooth printers (TSP100III BI, mPOP, SM-S230i…) use classic
+// Bluetooth, which no web page can reach. Star's free PassPRNT app (Android,
+// iPhone, iPad) can: the till hands it the receipt as a small HTML page in
+// a starpassprnt:// link — the paper size (2 = 58mm, 3 = 80mm), a partial
+// cut, the drawer opened first for cash — and PassPRNT prints it over
+// Bluetooth (or USB or the network), then opens the back link, which brings
+// the till back with passprnt_code / passprnt_message (readPassPrntReply).
+// Several tickets go in one print, a dashed line between them.
+var PASSPRNT_KEY = 'bamboo.printer.passprnt';
+
+async function passPrntHtml(byteArray) {
+  var doc = readEscPos(byteArray);
+  // The page is drawn at whatever width PassPRNT uses and scaled to the
+  // paper: sizes are in parts of the width (vw), so a line fills it.
+  var font = 100 / (doc.cols * 0.625);
+  var body = '';
+  for (var p = 0; p < doc.pages.length; p++) {
+    if (p > 0) body += '<div class="cut">- - - - - - - - - - - - - - - -</div>';
+    for (var j = 0; j < doc.pages[p].length; j++) {
+      var x = doc.pages[p][j];
+      if (x.t === 'feed') body += '<div style="height:' + (x.n * font * 1.25).toFixed(2) + 'vw"></div>';
+      else if (x.t === 'qr') {
+        var pic = await QRCode.toDataURL(x.data, { margin: 1, width: 200, errorCorrectionLevel: 'M' });
+        body += '<div class="l" style="text-align:' + x.align + '"><img src="' + pic + '" alt=""></div>';
+      } else body += '<div class="l' + (x.bold ? ' b' : '') + '" style="text-align:' + x.align + (x.scale > 1 ? ';font-size:' + (font * x.scale).toFixed(2) + 'vw' : '') + '">' + (x.text ? escapeHtml(x.text) : '&nbsp;') + '</div>';
+    }
+  }
+  return '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' +
+    'html,body{margin:0;padding:0;background:#fff;color:#000}' +
+    'body{font-family:monospace;font-size:' + font.toFixed(3) + 'vw;line-height:1.25}' +
+    '.l{white-space:pre-wrap;word-break:break-all}.b{font-weight:700}img{width:40vw;height:40vw}.cut{margin:4vw 0;text-align:center;color:#000}' +
+    '</style></head><body>' + body + '</body></html>';
+}
+
+// The link that hands a receipt to PassPRNT.
+export async function passPrntLink(byteArray, paperMm, backUrl) {
+  var doc = readEscPos(byteArray);
+  return 'starpassprnt://v1/print/nopreview?html=' + encodeURIComponent(await passPrntHtml(byteArray)) +
+    '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick ? 'ahead' : 'off') +
+    '&popup=enable&back=' + encodeURIComponent(backUrl);
+}
+
+// Opens another app from the page (the screenshots catch it to check the link).
+function launchApp(url) {
+  if (typeof window !== 'undefined' && typeof window.__bambooLaunch === 'function') { window.__bambooLaunch(url); return; }
+  window.location.href = url;
+}
+
+export function passPrntPrinter(paperMm) {
+  var mm = Number(paperMm) === 58 ? 58 : 80;
+  return {
+    kind: 'passprnt',
+    paper: mm,
+    lineWidth: mm === 80 ? 42 : LINE_WIDTH_58MM,
+    name: tr('Star Bluetooth (PassPRNT)'),
+    write: async function (byteArray) {
+      // Back to this page, the reply after the #, so the till does not reload.
+      var back = window.location.href.split('#')[0] + '#passprnt';
+      launchApp(await passPrntLink(byteArray, mm, back));
+    },
+    forget: async function () { savePassPrnt(null); }
+  };
+}
+export function savePassPrnt(paperMm) {
+  try { if (paperMm) localStorage.setItem(PASSPRNT_KEY, String(paperMm)); else localStorage.removeItem(PASSPRNT_KEY); } catch { /* kept for this visit only */ }
+}
+export function reconnectPassPrnt() {
+  var mm = null;
+  try { mm = localStorage.getItem(PASSPRNT_KEY); } catch { mm = null; }
+  return mm ? passPrntPrinter(mm) : null;
+}
+// PassPRNT's answer when it brings the till back: { ok, message }, or null
+// when the page was not opened by it. The answer is taken off the address.
+export function readPassPrntReply() {
+  if (typeof window === 'undefined') return null;
+  var href = window.location.href;
+  var code = /[?&#]passprnt_code=([^&#]*)/.exec(href);
+  if (!code && !/#passprnt\b/.test(href)) return null;
+  var said = /[?&#]passprnt_message=([^&#]*)/.exec(href);
+  var search = /passprnt_/.test(window.location.search) ? '' : window.location.search;
+  try { window.history.replaceState(null, '', window.location.pathname + search); } catch { /* the address stays */ }
+  if (!code) return null;
+  var message = said ? decodeURIComponent(said[1].replace(/\+/g, ' ')) : '';
+  return { ok: code[1] === '0', message: message };
+}
+
 // ── Star raster ─────────────────────────────────────────────────────────
 // Star Micronics' TSP100 (futurePRNT, II, III) takes no text commands at
 // all: only pictures, line by line (Star's raster mode). The receipt is

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { tr } from '../lib/i18n.jsx';
 import {
-  bluetoothSupported, buildTestBytes, requestBluetoothPrinter, requestUsbPrinter, saveSystemPrinter, systemPrinter, usbSupported
+  bluetoothSupported, buildTestBytes, passPrntPrinter, requestBluetoothPrinter, requestUsbPrinter, savePassPrnt, saveSystemPrinter, systemPrinter, usbSupported
 } from '../lib/thermalPrinter';
 import './PrinterPanel.css';
 
@@ -22,9 +22,11 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
     setBusy(kind); setError(null); setDone(null);
     try {
       let next;
-      if (kind === 'system') { next = systemPrinter(mm); saveSystemPrinter(mm); }
+      if (kind === 'system') next = systemPrinter(mm);
+      else if (kind === 'passprnt') next = passPrntPrinter(mm);
       else next = kind === 'usb' ? await requestUsbPrinter() : await requestBluetoothPrinter();
-      if (kind !== 'system') saveSystemPrinter(null);
+      saveSystemPrinter(kind === 'system' ? mm : null);
+      savePassPrnt(kind === 'passprnt' ? mm : null);
       onPrinter(next);
     } catch (e) {
       if (e && e.name !== 'NotFoundError') setError(e.message);
@@ -37,12 +39,15 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
   async function forget() {
     if (printer.forget) await printer.forget();
     saveSystemPrinter(null);
+    savePassPrnt(null);
     onPrinter(null);
   }
   // An Android till (an iMin, a tablet): a USB printer straight from Chrome
   // is the way there (no Star driver for Android's printing); a computer's
   // own printer first elsewhere.
-  const android = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  const android = /Android/i.test(ua);
+  const ios = /iPad|iPhone|iPod/.test(ua) || (/Macintosh/.test(ua) && typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1);
   const systemWay = (
     <div key="system" className={'prp-way' + (printer && printer.kind === 'system' ? ' is-on' : '')}>
       <span className="prp-way-ico" aria-hidden="true">🖥️</span>
@@ -72,12 +77,28 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
       <span className="prp-way-ico" aria-hidden="true">📶</span>
       <div className="prp-way-txt">
         <strong>{tr('Bluetooth LE printer')}</strong>
-        <small>{tr('Small receipt printers on Bluetooth Low Energy. Star\'s Bluetooth printers use classic Bluetooth, which web pages cannot reach: set them up on the computer and choose This computer\'s printer.')}</small>
+        <small>{tr('Small receipt printers on Bluetooth Low Energy. Star\'s Bluetooth printers use classic Bluetooth: choose Star Bluetooth, through the PassPRNT app.')}</small>
       </div>
       <div className="prp-way-acts"><button type="button" className="prp-chip" disabled={!!busy || !bluetoothSupported()} onClick={() => choose('bluetooth')}>{busy === 'bluetooth' ? tr('Connecting…') : tr('Connect')}</button></div>
     </div>
   );
+  // A Star printer on Bluetooth: through Star's PassPRNT app.
+  const passWay = (
+    <div key="pass" className={'prp-way' + (printer && printer.kind === 'passprnt' ? ' is-on' : '')}>
+      <span className="prp-way-ico" aria-hidden="true">📲</span>
+      <div className="prp-way-txt">
+        <strong>{tr('Star Bluetooth, through the PassPRNT app')}{(android || ios) && <em className="prp-best is-bt">{tr('For Bluetooth')}</em>}</strong>
+        <small>{tr('For a Star printer on Bluetooth, such as a TSP100III BI: Star\'s free PassPRNT app prints each receipt and brings you back to the till. Install it and choose the printer in it first.')}</small>
+      </div>
+      <div className="prp-way-acts">
+        {[80, 58].map((mm) => (
+          <button key={mm} type="button" className={'prp-chip' + (printer && printer.kind === 'passprnt' && printer.paper === mm ? ' is-on' : '')} disabled={!!busy} onClick={() => choose('passprnt', mm)}>{tr('{n} mm', { n: mm })}</button>
+        ))}
+      </div>
+    </div>
+  );
   const kindText = !printer ? '' : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
+    : printer.kind === 'passprnt' ? tr('Bluetooth · through PassPRNT · {n} mm paper', { n: printer.paper })
     : printer.kind === 'usb' ? (printer.star ? tr('USB · Star, printed as a picture') : tr('USB')) : tr('Bluetooth');
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -99,37 +120,52 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
         {done && <p className="prp-ok" role="status">✅ {done}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
 
-        <div className="prp-ways">{(android ? [usbWay, systemWay, btWay] : [systemWay, usbWay, btWay])}</div>
+        <div className="prp-ways">{android ? [usbWay, passWay, systemWay, btWay] : ios ? [passWay, systemWay, usbWay, btWay] : [systemWay, usbWay, passWay, btWay]}</div>
 
-        <details className="prp-help" open={help} onToggle={(e) => setHelp(e.currentTarget.open)}>
-          {android ? (
-            <>
-              <summary>⭐ {tr('Setting up a Star TSP100 on this Android till (iMin)')}</summary>
-              <ol>
-                <li>{tr('Plug the printer\'s USB cable into one of the till\'s USB ports, and switch the printer on.')}</li>
-                <li>{tr('Open the till in Chrome, or in the till installed from Chrome on the home screen. Other apps cannot reach USB printers.')}</li>
-                <li>{tr('Here, choose USB printer, straight from Chrome, press Connect and pick the Star (TSP100 or TSP143) in the list.')}</li>
-                <li>{tr('When Android asks, allow Chrome to use the printer. If it asks which app should open the printer, choose Chrome.')}</li>
-                <li>{tr('Print a test: the receipt prints as a picture and is cut. A cash drawer plugged into the printer opens for cash sales.')}</li>
-              </ol>
-              <p>{tr('Star\'s Bluetooth printers cannot be reached from a web page on Android: use the printer\'s USB cable.')}</p>
-            </>
-          ) : (
-            <>
-              <summary>⭐ {tr('Setting up a Star TSP100 on a Mac')}</summary>
-              <ol>
-                <li>{tr('Install Star\'s printer driver for macOS (from starmicronics.com, Support → Drivers, for the TSP100).')}</li>
-                <li>{tr('Connect the printer: pair it in System Settings → Bluetooth, or plug in its USB cable.')}</li>
-                <li>{tr('Add it in System Settings → Printers & Scanners, and make it the default printer. Paper: 72mm × Receipt (80mm roll).')}</li>
-                <li>{tr('Here, choose This computer\'s printer and 80 mm, then Print a test.')}</li>
-                <li>{tr('To print without the print box each time, open Chrome with kiosk printing: in Terminal, type open -a "Google Chrome" --args --kiosk-printing (Chrome closed first). Receipts then go straight to the default printer.')}</li>
-                <li>{tr('In the same Options: cut at the end of each page, and paper reduction on, so no blank paper comes out after a receipt.')}</li>
-                <li>{tr('The cash drawer: in the printer\'s driver settings (Printers & Scanners → Options), set the cash drawer to open with each receipt.')}</li>
-              </ol>
-              <p>{tr('With a USB cable, choosing USB printer, straight from Chrome works too, without a driver: the till sends the receipt to the Star as a picture.')}</p>
-            </>
-          )}
-        </details>
+        {!ios && (
+          <details className="prp-help" open={help} onToggle={(e) => setHelp(e.currentTarget.open)}>
+            {android ? (
+              <>
+                <summary>⭐ {tr('Setting up a Star TSP100 on this Android till (iMin)')}</summary>
+                <ol>
+                  <li>{tr('Plug the printer\'s USB cable into one of the till\'s USB ports, and switch the printer on.')}</li>
+                  <li>{tr('Open the till in Chrome, or in the till installed from Chrome on the home screen. Other apps cannot reach USB printers.')}</li>
+                  <li>{tr('Here, choose USB printer, straight from Chrome, press Connect and pick the Star (TSP100 or TSP143) in the list.')}</li>
+                  <li>{tr('When Android asks, allow Chrome to use the printer. If it asks which app should open the printer, choose Chrome.')}</li>
+                  <li>{tr('Print a test: the receipt prints as a picture and is cut. A cash drawer plugged into the printer opens for cash sales.')}</li>
+                </ol>
+              </>
+            ) : (
+              <>
+                <summary>⭐ {tr('Setting up a Star TSP100 on a Mac')}</summary>
+                <ol>
+                  <li>{tr('Install Star\'s printer driver for macOS (from starmicronics.com, Support → Drivers, for the TSP100).')}</li>
+                  <li>{tr('Connect the printer: pair it in System Settings → Bluetooth, or plug in its USB cable.')}</li>
+                  <li>{tr('Add it in System Settings → Printers & Scanners, and make it the default printer. Paper: 72mm × Receipt (80mm roll).')}</li>
+                  <li>{tr('Here, choose This computer\'s printer and 80 mm, then Print a test.')}</li>
+                  <li>{tr('To print without the print box each time, open Chrome with kiosk printing: in Terminal, type open -a "Google Chrome" --args --kiosk-printing (Chrome closed first). Receipts then go straight to the default printer.')}</li>
+                  <li>{tr('In the same Options: cut at the end of each page, and paper reduction on, so no blank paper comes out after a receipt.')}</li>
+                  <li>{tr('The cash drawer: in the printer\'s driver settings (Printers & Scanners → Options), set the cash drawer to open with each receipt.')}</li>
+                </ol>
+                <p>{tr('With a USB cable, choosing USB printer, straight from Chrome works too, without a driver: the till sends the receipt to the Star as a picture.')}</p>
+              </>
+            )}
+          </details>
+        )}
+
+        {(android || ios) && (
+          <details className="prp-help is-bt" open={!!printer && printer.kind === 'passprnt'}>
+            <summary>📲 {tr('A Star printer on Bluetooth (PassPRNT)')}</summary>
+            <ol>
+              <li>{tr('Check the printer has Bluetooth: its label says BI (for example TSP143IIIBI) and it has a pairing button at the back. The first TSP100 futurePRNT has no Bluetooth: use its USB cable.')}</li>
+              <li>{ios ? tr('Install Star PassPRNT (free) from the App Store.') : tr('Install Star PassPRNT (free) from Google Play.')}</li>
+              <li>{tr('Switch the printer on and pair it in the till\'s Settings → Bluetooth (code 1234 if asked).')}</li>
+              <li>{tr('Open PassPRNT, choose the printer in its settings, and set the paper to 3 inch (80mm).')}</li>
+              <li>{tr('Here, choose Star Bluetooth, through the PassPRNT app and 80 mm, then Print a test. Each print opens PassPRNT for a moment and comes back to the till.')}</li>
+              <li>{tr('On the kitchen screen, new tickets cannot print by themselves this way: tap Print ticket.')}</li>
+            </ol>
+          </details>
+        )}
 
         <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Done')}</button></div>
       </div>

@@ -39,3 +39,5 @@
 }
 @media (prefers-reduced-motion: reduce) { .prp-dot { animation: none; } }
 .prp-best { display: inline-block; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 800; font-style: normal; vertical-align: 1px; color: #fff; border-radius: 999px; background: linear-gradient(135deg, #22c55e, #15803d); }
+.prp-best.is-bt { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+.prp-help.is-bt { background: color-mix(in srgb, #3b82f6 8%, var(--color-bg)); border-color: color-mix(in srgb, #3b82f6 30%, transparent); }

@@ -7,7 +7,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
 import { modsWords } from './till/tillBill';
-import { buildKitchenChitBytes, buildRunnerTicketBytes, reconnectBluetoothPrinter, reconnectSystemPrinter, reconnectUsbPrinter } from '../lib/thermalPrinter';
+import { buildKitchenChitBytes, buildRunnerTicketBytes, readPassPrntReply, reconnectBluetoothPrinter, reconnectPassPrnt, reconnectSystemPrinter, reconnectUsbPrinter } from '../lib/thermalPrinter';
 import PrinterPanel from '../components/PrinterPanel';
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
@@ -166,13 +166,20 @@ export default function KdsPage() {
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => {
     (async () => {
-      const sys = reconnectSystemPrinter();
+      const sys = reconnectSystemPrinter() || reconnectPassPrnt();
       if (sys) { setPrinter(sys); return; }
       const usb = await reconnectUsbPrinter();
       if (usb) { setPrinter(usb); return; }
       const bt = await reconnectBluetoothPrinter();
       if (bt) setPrinter(bt);
     })();
+  }, []);
+  // Back from Star's PassPRNT app: why it did not print, if it did not.
+  useEffect(() => {
+    const said = () => { const r = readPassPrntReply(); if (r && !r.ok) setProblem(tr('The Star printer did not print: {message}', { message: r.message || tr('no answer from PassPRNT') })); };
+    said();
+    window.addEventListener('hashchange', said);
+    return () => window.removeEventListener('hashchange', said);
   }, []);
   // The ticket in the print dialog: printed once it is on the page, with
   // everything else hidden only for this print (KdsPage.css).
