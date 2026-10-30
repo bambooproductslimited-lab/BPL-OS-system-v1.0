@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { tr } from '../lib/i18n.jsx';
 import {
-  bluetoothSupported, buildTestBytes, passPrntPrinter, requestBluetoothPrinter, requestUsbPrinter, savePassPrnt, saveSystemPrinter, systemPrinter, usbSupported
+  bluetoothSupported, buildTestBytes, kitchenAddressOk, kitchenPrinterFor, passPrntPrinter, requestBluetoothPrinter, requestUsbPrinter, savePassPrnt, saveSystemPrinter, systemPrinter, usbSupported
 } from '../lib/thermalPrinter';
 import './PrinterPanel.css';
 
@@ -12,11 +12,15 @@ import './PrinterPanel.css';
 // printers as a picture, others as ESC/POS text), or a Bluetooth Low Energy
 // printer; on Android, USB first, with the iMin's set-up steps. A test
 // print, and letting go of the printer. lib/thermalPrinter.js does the
-// printing; the choice is kept on the device.
-export default function PrinterPanel({ printer, onPrinter, companyName, onClose }) {
+// printing; the choice is kept on the device. On the till (kitchen, onKitchen:
+// lib/thermalPrinter.js kitchenSetup), where kitchen tickets print: the same
+// printer, or the kitchen's own Star printer on the network by its address.
+export default function PrinterPanel({ printer, onPrinter, companyName, onClose, kitchen, onKitchen }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
+  const [own, setOwn] = useState(!!(kitchen && kitchen.address));
+  const [address, setAddress] = useState(kitchen ? kitchen.address : '');
   const [help, setHelp] = useState(!printer && !(typeof navigator !== 'undefined' && /Android|iPad|iPhone/i.test(navigator.userAgent || '')));
   async function choose(kind, mm) {
     setBusy(kind); setError(null); setDone(null);
@@ -35,6 +39,23 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
   async function test() {
     setBusy('test'); setError(null); setDone(null);
     try { await printer.write(buildTestBytes(companyName, { lineWidth: printer.lineWidth })); setDone(tr('Test sent to the printer.')); } catch (e) { setError(tr('Could not print: {message}', { message: e.message })); } finally { setBusy(null); }
+  }
+  // The kitchen's printer: kept as soon as its address is whole.
+  function kitchenTo(next) { onKitchen(Object.assign({}, kitchen, next)); }
+  function pickOwn(on) {
+    setOwn(on); setError(null); setDone(null);
+    kitchenTo({ address: on && kitchenAddressOk(address) ? address.trim() : '' });
+  }
+  function typeAddress(v) {
+    const a = v.replace(/[^0-9.]/g, '').slice(0, 15);
+    setAddress(a);
+    kitchenTo({ address: kitchenAddressOk(a) ? a : '' });
+  }
+  async function kitchenTest() {
+    const kp = kitchenPrinterFor(printer, kitchen);
+    if (!kp) return;
+    setBusy('ktest'); setError(null); setDone(null);
+    try { await kp.write(buildTestBytes(companyName, { lineWidth: kp.lineWidth })); setDone(tr('Test sent to the kitchen printer.')); } catch (e) { setError(tr('Could not print: {message}', { message: e.message })); } finally { setBusy(null); }
   }
   async function forget() {
     if (printer.forget) await printer.forget();
@@ -152,6 +173,49 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose 
               </>
             )}
           </details>
+        )}
+
+        {kitchen && (
+          <section className="prp-kit" aria-labelledby="prp-kit-title">
+            <div className="prp-kit-head">
+              <span className="prp-kit-ico" aria-hidden="true">🍳</span>
+              <div>
+                <h3 id="prp-kit-title">{tr('Kitchen tickets')}</h3>
+                <p>{tr('Each order sent to the kitchen prints there by itself, as it is sent.')}</p>
+              </div>
+            </div>
+            <div className="prp-seg" role="radiogroup" aria-label={tr('Kitchen tickets print on')}>
+              <button type="button" role="radio" aria-checked={!own} className={!own ? 'is-on' : ''} onClick={() => pickOwn(false)}>
+                <span aria-hidden="true">🧾</span><span><strong>{tr('This printer')}</strong><small>{tr('With the receipts')}</small></span>
+              </button>
+              <button type="button" role="radio" aria-checked={own} className={own ? 'is-on' : ''} disabled={!(android || ios)} onClick={() => pickOwn(true)}>
+                <span aria-hidden="true">📡</span><span><strong>{tr('The kitchen\'s own printer')}</strong><small>{android || ios ? tr('A Star on the network, such as a TSP143LAN') : tr('On an Android till or iPad, with PassPRNT')}</small></span>
+              </button>
+            </div>
+            {own && (android || ios) && (
+              <div className="prp-kit-own">
+                <label className="prp-kit-addr">
+                  <span>{tr('The kitchen printer\'s address')}</span>
+                  <input className="input" inputMode="decimal" autoComplete="off" spellCheck={false} placeholder="192.168.1.50" value={address} onChange={(e) => typeAddress(e.target.value)}
+                    aria-invalid={!!address && !kitchenAddressOk(address)} />
+                </label>
+                <div className="prp-way-acts">
+                  {[80, 58].map((mm) => (
+                    <button key={mm} type="button" className={'prp-chip' + (kitchen.paper === mm ? ' is-on' : '')} onClick={() => kitchenTo({ paper: mm })}>{tr('{n} mm', { n: mm })}</button>
+                  ))}
+                </div>
+                <button type="button" className="btn btn-primary prp-kit-test" disabled={!!busy || !kitchenAddressOk(address)} onClick={kitchenTest}>{busy === 'ktest' ? tr('Printing…') : '🍳 ' + tr('Test the kitchen printer')}</button>
+                <small className="prp-kit-hint">{address && !kitchenAddressOk(address) ? tr('Four numbers with dots, such as 192.168.1.50.')
+                  : tr('Hold the printer\'s FEED button while switching it on: the page it prints shows its IP address. The printer and this till must be on the same network, with PassPRNT installed here.')}</small>
+              </div>
+            )}
+            <button type="button" role="switch" aria-checked={kitchen.others} className="prp-kit-switch" onClick={() => kitchenTo({ others: !kitchen.others })}>
+              <span><strong>{tr('Also orders from the website, kiosk and tables')}</strong>
+                <small>{tr('Orders that reach the kitchen without this till print here too. With PassPRNT, tap Print on the till when they come: Android lets an app open only from a tap.')}</small></span>
+              <span className={'prp-switch' + (kitchen.others ? ' is-on' : '')} aria-hidden="true"><i /></span>
+            </button>
+            <p className="prp-kit-note">{tr('Which stations print: Till settings → Kitchen screens → No screen: print its tickets.')}</p>
+          </section>
         )}
 
         {(android || ios) && (

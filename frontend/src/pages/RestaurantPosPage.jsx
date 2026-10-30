@@ -7,7 +7,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
   buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, reconnectUsbPrinter, reconnectBluetoothPrinter, reconnectSystemPrinter,
-  reconnectPassPrnt, readPassPrntReply
+  reconnectPassPrnt, readPassPrntReply, kitchenSetup, saveKitchenSetup, kitchenPrinterFor
 } from '../lib/thermalPrinter';
 import PrinterPanel from '../components/PrinterPanel';
 import { activeIntlLocale, activeLocale, tr } from '../lib/i18n.jsx';
@@ -124,6 +124,9 @@ function useCountUp(target, durationMs) {
 // 401 (expired or the server restarted, which drops nothing server-side
 // since the token is self-contained, but is still worth handling).
 var SESSION_KEY = 'bamboo.pos.session';
+// Kitchen tickets just handed to PassPRNT, to print again if they could not
+// (on the device: PassPRNT may bring the till back in a new tab).
+var KITCHEN_SENT_KEY = 'bamboo.kitchen.sent';
 var PIN_LENGTH = 4;
 
 // The real Square-imported menus (1,600+ items each) have no photos yet —
@@ -338,6 +341,14 @@ export default function RestaurantPosPage() {
   const [printer, setPrinter] = useState(null); // { kind, name, write }
   const [printerError, setPrinterError] = useState(null);
   const [printerOpen, setPrinterOpen] = useState(false); // how this till prints (components/PrinterPanel.jsx)
+  // Where kitchen tickets print (the till's printer or the kitchen's own),
+  // the ones waiting to print that reached the kitchen without this till,
+  // and the ones PassPRNT could not print, to print again.
+  const [kitchenSet, setKitchenSet] = useState(() => kitchenSetup());
+  const kitchenPrinter = useMemo(() => kitchenPrinterFor(printer, kitchenSet), [printer, kitchenSet]);
+  const [toPrint, setToPrint] = useState([]);
+  const [kitchenRetry, setKitchenRetry] = useState(null);
+  const takingRef = useRef(false);
   const [printing, setPrinting] = useState(false);
 
   // The till follows the OS's light/dark choice on this device, with its
@@ -539,6 +550,27 @@ export default function RestaurantPosPage() {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
+  // Kitchen tickets that reached the kitchen without this till, for its
+  // kitchen printer (lib/thermalPrinter.js kitchenSetup others), every few
+  // seconds: a printer the page reaches prints them at once; through
+  // PassPRNT, Android opens the app only from a tap, so the till asks.
+  useEffect(() => {
+    if (!session || !session.token || !kitchenPrinter || !kitchenSet.others || offline) return undefined;
+    let gone = false;
+    const look = async () => {
+      if (takingRef.current) return;
+      try {
+        const r = await posFetch('GET', '/pos/kitchen/to-print', session.token);
+        if (gone) return;
+        if (kitchenPrinter.kind !== 'passprnt' && r.chits.length) takeAndPrint(r.chits);
+        else setToPrint(r.chits);
+      } catch { /* asked again in a moment */ }
+    };
+    look();
+    const t = setInterval(look, 8000);
+    return () => { gone = true; clearInterval(t); };
+  }, [session, kitchenPrinter, kitchenSet.others, offline]); // eslint-disable-line react-hooks/exhaustive-deps
+  const printWaiting = kitchenPrinter && kitchenSet.others && !offline ? toPrint : [];
   // A delivery's food is ready: ask once to send it out with a rider (not
   // over a payment being taken; the next look asks then).
   useEffect(() => {
@@ -579,7 +611,13 @@ export default function RestaurantPosPage() {
   useEffect(() => {
     const said = () => {
       const r = readPassPrntReply();
-      if (r) setToast(r.ok ? '🖨️ ' + tr('Printed on the Star printer.') : tr('The Star printer did not print: {message}', { message: r.message || tr('no answer from PassPRNT') }));
+      if (!r) return;
+      setToast(r.ok ? '🖨️ ' + tr('Printed on the Star printer.') : tr('The Star printer did not print: {message}', { message: r.message || tr('no answer from PassPRNT') }));
+      // Kitchen tickets just handed to PassPRNT: printed, or offered again.
+      let sent = null;
+      try { sent = JSON.parse(localStorage.getItem(KITCHEN_SENT_KEY) || 'null'); localStorage.removeItem(KITCHEN_SENT_KEY); } catch { sent = null; }
+      if (!r.ok && sent && Date.now() - sent.at < 120000) setKitchenRetry(sent.list);
+      if (r.ok) setKitchenRetry(null);
     };
     said();
     window.addEventListener('hashchange', said);
@@ -1498,21 +1536,40 @@ export default function RestaurantPosPage() {
     clearOrder();
     setSavingTab(false);
   }
-  // The tickets of stations without a screen: printed on the receipt
-  // printer when one is connected, else shown to print (till/ServiceParts.jsx).
+  // The tickets of stations without a screen: printed by themselves on the
+  // kitchen's printer (or the till's own) as the order is sent, else shown
+  // to print (till/ServiceParts.jsx).
   async function printChits(list) {
     if (!list || !list.length) return;
-    if (printer) {
+    const kp = kitchenPrinter;
+    if (kp) {
       try {
         // Printed in English, as the printer has no other letters (lib/thermalPrinter.js).
         const english = (x, v) => (v ? x.replace('{n}', v.n) : x);
+        // Through PassPRNT: kept for a moment, to print again if it could not.
+        if (kp.kind === 'passprnt') { try { localStorage.setItem(KITCHEN_SENT_KEY, JSON.stringify({ at: Date.now(), list })); } catch { /* not offered again */ } }
         // All of them in one go, each cut off: one print on the computer's printer.
-        await printer.write([].concat(...list.map((c) => buildKitchenChitBytes(c, session.companyName, { courseName: c.course ? courseName(tillSettings, c.course, english) : '' }))));
+        await kp.write([].concat(...list.map((c) => buildKitchenChitBytes(c, session.companyName, { courseName: c.course ? courseName(tillSettings, c.course, english) : '', lineWidth: kp.lineWidth }))));
+        setKitchenRetry(null);
         setToast(list.length === 1 ? tr('{station}\'s ticket printed.', { station: list[0].station }) : tr('{n} kitchen tickets printed.', { n: list.length }));
         return;
       } catch { /* shown to print instead */ }
     }
     setChits(list);
+  }
+  // Tickets that reached the kitchen without this till (website, kiosk,
+  // table QR), waiting for a kitchen printer: taken off the queue by this
+  // till (never two printing one) and printed.
+  async function takeAndPrint(list) {
+    if (takingRef.current || !list.length) return;
+    takingRef.current = true;
+    try {
+      const r = await posFetch('POST', '/pos/kitchen/to-print', session.token, { ids: [...new Set(list.map((c) => c.ticketId))] });
+      setToPrint([]);
+      await printChits(r.chits);
+    } catch (err) {
+      if (err.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); } else setToast(err.message);
+    } finally { takingRef.current = false; }
   }
   // Each dish's course as the send confirmation shows it: the first course
   // (or as far as the order has been called) goes now, the later ones wait.
@@ -2260,6 +2317,15 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
+          {(kitchenRetry || printWaiting.length > 0) && (
+            <button type="button" className={'pos-stat is-print is-asking' + (kitchenRetry ? ' is-bad' : '')} onClick={() => (kitchenRetry ? printChits(kitchenRetry) : takeAndPrint(printWaiting))}>
+              <span className="pos-stat-ico" aria-hidden="true">🖨️</span>
+              <span className="pos-stat-text">
+                <small>{tr('Kitchen printer')}</small>
+                <strong>{kitchenRetry ? tr('Print again') : printWaiting.length === 1 ? tr('1 ticket to print') : tr('{n} tickets to print', { n: printWaiting.length })}</strong>
+              </span>
+            </button>
+          )}
           <CurbsidePill outside={outside} onClick={() => setCurbOpen(true)} />
           <BusyPill busy={busyMode} onClick={() => setBusyOpen(true)} />
           {notes && notes.unread > 0 && !notesOpen && (
@@ -2445,7 +2511,10 @@ export default function RestaurantPosPage() {
       {appPickOpen && <AppPicker apps={(tillSettings.apps && tillSettings.apps.list) || []} current={appOrder} onClose={() => setAppPickOpen(false)}
         onPick={(a) => { setAppOrder(a); setAppPickOpen(false); setCurrentTab(null); }} />}
       {giftOpen && <GiftCards token={session.token} settings={tillSettings} companyName={session.companyName} can={can} onToast={setToast} onClose={() => { setGiftOpen(false); refreshDrawer(); loadShift(); }} />}
-      {printerOpen && <PrinterPanel printer={printer} onPrinter={(p) => { setPrinter(p); setPrinterError(null); }} companyName={session.companyName} onClose={() => setPrinterOpen(false)} />}
+      {printerOpen && (
+        <PrinterPanel printer={printer} onPrinter={(p) => { setPrinter(p); setPrinterError(null); }} companyName={session.companyName} onClose={() => setPrinterOpen(false)}
+          kitchen={kitchenSet} onKitchen={(k) => { saveKitchenSetup(k); setKitchenSet(k); }} />
+      )}
       {screenOpen && <CustomerScreen token={session.token} device={screen.device} displays={screen.displays} onChanged={screen.reload} onToast={setToast} onClose={() => setScreenOpen(false)} />}
       {rewardsOpen && selectedGuest && (
         <Rewards token={session.token} guest={selectedGuest} applied={billAdjust.discount ? billAdjust.discount.presetId : null}
@@ -2689,7 +2758,7 @@ export default function RestaurantPosPage() {
       )}
       {tableBoxOpen && tableBox && (
         <TableInbox token={session.token} box={tableBox} waiters={waiters} canSend={can('keepOpen')} onClose={() => setTableBoxOpen(false)}
-          onChanged={() => { loadTableBox(); loadTabs(); loadKitchen(); }} onToast={setToast} onOpenBill={openBill}
+          onChanged={() => { loadTableBox(); loadTabs(); loadKitchen(); }} onToast={setToast} onOpenBill={openBill} onChits={printChits}
           onUnauthorized={() => { localStorage.removeItem(SESSION_KEY); setSession(null); }} />
       )}
       {movementDirection && (

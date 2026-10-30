@@ -315,6 +315,14 @@ router.post('/kds/tickets/:id/recall', posAuth, async function (req, res, next) 
 router.get('/kitchen', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.tillSummary(req.posToken)); } catch (e) { next(e); }
 });
+// Kitchen tickets that reached the kitchen with nobody at the till to print
+// them, for the till's kitchen printer; taken by one till as it prints them.
+router.get('/kitchen/to-print', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.printQueue(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/kitchen/to-print', posAuth, async function (req, res, next) {
+  try { res.json(await kitchen.takePrints(req.posToken, req.body)); } catch (e) { next(e); }
+});
 
 router.get('/shift', posAuth, async function (req, res, next) {
   try { res.json(await restaurantPosService.shiftSummary(req.posToken)); } catch (e) { next(e); }

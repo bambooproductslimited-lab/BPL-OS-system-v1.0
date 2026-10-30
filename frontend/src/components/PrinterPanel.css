@@ -41,3 +41,34 @@
 .prp-best { display: inline-block; margin-left: 8px; padding: 2px 8px; font-size: 11px; font-weight: 800; font-style: normal; vertical-align: 1px; color: #fff; border-radius: 999px; background: linear-gradient(135deg, #22c55e, #15803d); }
 .prp-best.is-bt { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
 .prp-help.is-bt { background: color-mix(in srgb, #3b82f6 8%, var(--color-bg)); border-color: color-mix(in srgb, #3b82f6 30%, transparent); }
+/* Kitchen tickets: where they print, by themselves. */
+.prp-kit { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 20px; border: 1px solid color-mix(in srgb, #f97316 30%, var(--color-border)); background: linear-gradient(160deg, color-mix(in srgb, #f97316 9%, var(--color-bg)), var(--color-bg) 70%); }
+.prp-kit-head { display: flex; align-items: flex-start; gap: 12px; }
+.prp-kit-ico { flex: none; display: grid; place-items: center; width: 42px; height: 42px; font-size: 22px; border-radius: 14px; background: linear-gradient(135deg, #ffedd5, #fde68a); }
+.prp-kit-head h3 { margin: 0; font-size: 16px; }
+.prp-kit-head p { margin: 2px 0 0; font-size: 13px; color: var(--color-text-muted); }
+.prp-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.prp-seg button { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 10px 12px; font: inherit; text-align: left; color: var(--color-text); border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-bg); cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; }
+.prp-seg button > span:first-child { font-size: 20px; }
+.prp-seg button > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.prp-seg strong { font-size: 14px; }
+.prp-seg small { font-size: 12px; line-height: 1.35; color: var(--color-text-muted); }
+.prp-seg button.is-on { border-color: #f97316; background: color-mix(in srgb, #f97316 10%, var(--color-bg)); box-shadow: inset 0 0 0 1px #f97316; }
+.prp-seg button:disabled { opacity: .55; cursor: not-allowed; }
+.prp-kit-own { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 12px; border-radius: 16px; background: var(--color-bg-subtle); }
+.prp-kit-addr { flex: 1 1 200px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; }
+.prp-kit-addr .input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 17px; letter-spacing: .02em; }
+.prp-kit-addr .input[aria-invalid='true'] { border-color: #ef4444; }
+.prp-kit-test { min-height: 40px; }
+.prp-kit-hint { flex-basis: 100%; font-size: 12.5px; line-height: 1.45; color: var(--color-text-muted); }
+.prp-kit-switch { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; font: inherit; text-align: left; color: var(--color-text); border: 1px solid var(--color-border); border-radius: 16px; background: var(--color-bg); cursor: pointer; }
+.prp-kit-switch > span:first-child { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.prp-kit-switch strong { font-size: 14px; }
+.prp-kit-switch small { font-size: 12.5px; line-height: 1.4; color: var(--color-text-muted); }
+.prp-switch { flex: none; position: relative; width: 46px; height: 28px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 22%, transparent); transition: background .2s; }
+.prp-switch i { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .2s; }
+.prp-switch.is-on { background: linear-gradient(135deg, #f97316, #ea580c); }
+.prp-switch.is-on i { transform: translateX(18px); }
+.prp-kit-note { margin: 0; font-size: 12.5px; color: var(--color-text-muted); }
+@media (max-width: 560px) { .prp-seg { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .prp-switch, .prp-switch i { transition: none; } }

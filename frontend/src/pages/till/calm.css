@@ -15,6 +15,8 @@
 .pos-stat.is-asking .pos-stat-ico { animation: pos-pulse 2s ease-in-out infinite; }
 .pos-stat.is-qr { --st: #0ea5e9; }
 .pos-stat.is-bookings { --st: #8b5cf6; }
+.pos-stat.is-print { --st: #f97316; }
+.pos-stat.is-print.is-bad { --st: #ef4444; border-color: color-mix(in srgb, #ef4444 65%, var(--pos-line)); box-shadow: 0 0 0 3px color-mix(in srgb, #ef4444 18%, transparent); }
 @media (prefers-reduced-motion: reduce) { .pos-stat.is-asking .pos-stat-ico { animation: none; } }
 
 /* ── More: a panel in groups ── */

@@ -26,7 +26,7 @@ function OrderCard({ o, token, waiters, requireWaiter, canSend, onDone, onError 
   const needsWaiter = requireWaiter && !o.hasOpenOrder && !kiosk;
   async function run(path, body, text) {
     setBusy(true);
-    try { await posFetch('POST', '/pos/table-orders/' + o.id + path, token, body); onDone(text); } catch (e) { onError(e); } finally { setBusy(false); }
+    try { onDone(text, await posFetch('POST', '/pos/table-orders/' + o.id + path, token, body)); } catch (e) { onError(e); } finally { setBusy(false); }
   }
   return (
     <article className={'tq-card' + (o.waitingMinutes >= 3 ? ' is-late' : '') + (kiosk ? ' is-kiosk' : '')}>
@@ -79,7 +79,7 @@ function OrderCard({ o, token, waiters, requireWaiter, canSend, onDone, onError 
   );
 }
 
-export default function TableInbox({ token, box, waiters, canSend, onClose, onChanged, onToast, onOpenBill, onUnauthorized }) {
+export default function TableInbox({ token, box, waiters, canSend, onClose, onChanged, onToast, onOpenBill, onUnauthorized, onChits }) {
   const [busy, setBusy] = useState(null);
   function failed(e) { if (e.status === 401) onUnauthorized(); else { onToast(e.message); onChanged(); } }
   async function answer(c, bill) {
@@ -128,7 +128,7 @@ export default function TableInbox({ token, box, waiters, canSend, onClose, onCh
         <div className="tq-list">
           {box.orders.map((o) => (
             <OrderCard key={o.id} o={o} token={token} waiters={waiters} requireWaiter={box.requireWaiter} canSend={canSend}
-              onDone={(text) => { onToast(text); onChanged(); }} onError={failed} />
+              onDone={(text, r) => { onToast(text); onChanged(); if (r && r.chits && onChits) onChits(r.chits); }} onError={failed} />
           ))}
         </div>
         {empty && <div className="tq-empty"><span aria-hidden="true">📱</span><strong>{tr('Nothing from the tables')}</strong><p>{tr('When a table orders or calls from its QR code, it shows here and the till rings.')}</p></div>}

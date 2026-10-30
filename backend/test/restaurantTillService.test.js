@@ -195,6 +195,50 @@ test('allergens: the menu says what a dish has; an allergy alert goes on the tic
   await pos.removeTab(tok.kojo, tab.id);
 });
 
+test('the kitchen printer: the till prints what it sends; what reaches the kitchen without it waits for one till to print it', async function () {
+  async function waiting() { return (await kitchen.printQueue(tok.ama)).chits; }
+  assert.deepEqual(await waiting(), []);
+  // Sent from the till: its bar ticket comes back to print, and does not wait.
+  var tab = await pos.saveTab(tok.yaw, { tableId: t2, fulfillment: 'dine_in', items: [{ menuItemId: juice, qty: 1 }, { menuItemId: stew, qty: 1 }] });
+  assert.equal(tab.chits.length, 1);
+  assert.ok(tab.chits[0].ticketId);
+  assert.deepEqual(await waiting(), []);
+  await pos.removeTab(tok.kojo, tab.id);
+  // From a table's QR code, straight to the kitchen: nobody at the till printed it.
+  await settings({ qrOrders: { on: true, straightToKitchen: true } });
+  var placed = await tables.place('zqyqrtable0001', { items: [{ menuItemId: juice, qty: 2 }, { menuItemId: stew, qty: 1 }] }, '10.9.8.41');
+  assert.equal(placed.order.status, 'accepted');
+  var w = await waiting();
+  assert.equal(w.length, 1);
+  assert.equal(w[0].station, 'Zqy Bar');
+  assert.equal(w[0].tableName, 'Zqy T1');
+  assert.deepEqual(w[0].items.map(function (i) { return [i.qty, i.name]; }), [[2, 'Zqy sobolo']]);
+  // One till takes it; another asking at the same time gets nothing.
+  await assert.rejects(kitchen.takePrints(tok.ama, { ids: [] }), /Say which tickets/);
+  var took = await kitchen.takePrints(tok.ama, { ids: [w[0].ticketId] });
+  assert.equal(took.chits.length, 1);
+  assert.equal(took.chits[0].station, 'Zqy Bar');
+  assert.deepEqual((await kitchen.takePrints(tok.kojo, { ids: [w[0].ticketId] })).chits, []);
+  assert.deepEqual(await waiting(), []);
+  var log = (await pool.query("SELECT summary FROM restaurant_activity WHERE company_id = $1 AND action = 'till.kitchenPrinted'", [company.id])).rows;
+  assert.equal(log.length, 1);
+  assert.ok(/printed at the kitchen printer/.test(log[0].summary));
+  // A station that does not print never waits; the next round from the table does.
+  var open = (await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND table_id = $2', [company.id, t1])).rows[0].id;
+  await tables.place('zqyqrtable0001', { items: [{ menuItemId: stew, qty: 1 }] }, '10.9.8.41');
+  assert.deepEqual(await waiting(), []);
+  await settings({ qrOrders: { on: true, straightToKitchen: false } });
+  // Accepted on the till: the till prints it as it accepts.
+  var asked = await tables.place('zqyqrtable0001', { items: [{ menuItemId: juice, qty: 1 }] }, '10.9.8.41');
+  var row = (await pool.query("SELECT id FROM restaurant_table_orders WHERE company_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 1", [company.id])).rows[0];
+  assert.ok(asked.ref);
+  var ok = await tables.accept(tok.yaw, row.id, {});
+  assert.equal(ok.chits.length, 1);
+  assert.deepEqual(ok.chits[0].items.map(function (i) { return [i.qty, i.name]; }), [[1, 'Zqy sobolo']]);
+  assert.deepEqual(await waiting(), []);
+  await pos.removeTab(tok.kojo, open);
+});
+
 test('menus by time of day and happy hours, on the till and from the table', async function () {
   await assert.rejects(settings({ hours: { categories: { 'Zqy Breakfast': { from: '6am', to: '11:00' } } } }), /HH:MM/);
   await settings({ hours: { categories: { 'Zqy Breakfast': later() } } });

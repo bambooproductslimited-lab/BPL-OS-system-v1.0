@@ -238,12 +238,48 @@ async function chitsFor(client, ticketIds) {
   rows.forEach(function (r) {
     var k = r.station_id + ':' + r.ticket_id;
     if (!by.has(k)) {
-      by.set(k, { station: r.station_name, number: r.number, label: r.label, tableName: r.table_name, waiterName: r.waiter_name, guestName: r.guest_name, note: r.ticket_note || '',
+      by.set(k, { ticketId: r.ticket_id, station: r.station_name, number: r.number, label: r.label, tableName: r.table_name, waiterName: r.waiter_name, guestName: r.guest_name, note: r.ticket_note || '',
         fulfillment: r.fulfillment || '', course: r.ticket_course, guests: r.guests || null, allergy: r.allergy || '', allergens: r.ticket_allergens || [], sentAt: r.sent_at, items: [] });
     }
     by.get(k).items.push(withMods({ name: r.name, qty: Number(r.qty), note: r.note || '', seat: r.seat || null, allergens: r.allergens || [] }, r.mods));
   });
   return Array.from(by.values());
+}
+// The tickets a till has in hand to print as it sends them (sent, a course
+// called, paid): not printed again from the queue below.
+async function markPrinted(client, ticketIds) {
+  if (!ticketIds || !ticketIds.length) return;
+  await client.query('UPDATE restaurant_kitchen_tickets SET chit_printed_at = coalesce(chit_printed_at, now()) WHERE id = ANY($1::uuid[])', [ticketIds]);
+}
+// Tickets that reached the kitchen with nobody at the till to print them —
+// a website order, a kiosk or table QR order sent straight on, an order for
+// later reaching its time — for the stations that print: waiting for a till
+// with a kitchen printer. Within the last hour, still cooking.
+var QUEUE_SQL = "SELECT t.id FROM restaurant_kitchen_tickets t WHERE t.company_id = $1 AND t.chit_printed_at IS NULL AND t.status = 'cooking' " +
+  "AND coalesce(t.fired_at, t.created_at) > now() - interval '60 minutes' " +
+  "AND EXISTS (SELECT 1 FROM restaurant_kitchen_items i JOIN restaurant_kds_stations s ON s.id = i.station_id AND s.print_tickets WHERE i.ticket_id = t.id AND i.status = 'cooking')";
+// GET /api/pos/kitchen/to-print — what waits (each station's ticket).
+async function printQueue(token) {
+  var session = await access.need(token, 'till');
+  var ids = (await pool.query(QUEUE_SQL + ' ORDER BY t.created_at', [session.posCompanyId])).rows.map(function (r) { return r.id; });
+  return { chits: await chitsFor(pool, ids) };
+}
+// POST /api/pos/kitchen/to-print { ids } — this till prints them now: taken
+// off the queue first, so two tills never print the same ticket. Returns
+// the tickets it took (an empty list when another till took them).
+async function takePrints(token, p) {
+  var session = await access.need(token, 'till');
+  var ids = Array.isArray((p || {}).ids) ? p.ids.filter(function (x) { return typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x); }).slice(0, 50) : [];
+  if (!ids.length) fail('invalid', 'Say which tickets to print.');
+  return withTransaction(async function (client) {
+    var took = (await client.query('UPDATE restaurant_kitchen_tickets SET chit_printed_at = now() WHERE company_id = $1 AND id = ANY($2::uuid[]) AND chit_printed_at IS NULL RETURNING id, number',
+      [session.posCompanyId, ids])).rows;
+    if (took.length) {
+      await activity.log(client, { companyId: session.posCompanyId, employeeId: session.posEmployeeId, app: 'till', action: 'till.kitchenPrinted',
+        summary: (took.length === 1 ? 'Kitchen ticket #' + took[0].number : 'Kitchen tickets ' + took.map(function (t) { return '#' + t.number; }).join(', ')) + ' printed at the kitchen printer.', refType: 'ticket', refId: took[0].id });
+    }
+    return { chits: await chitsFor(client, took.map(function (t) { return t.id; })) };
+  });
 }
 
 // Dishes leaving an open order for another bill (restaurantPos: paid on
@@ -262,13 +298,15 @@ async function moveItems(client, companyId, fromTabId, lines, dest) {
     var t = (await client.query('SELECT * FROM restaurant_kitchen_tickets WHERE id = $1', [ticketId])).rows[0];
     var id = (await client.query(
       'INSERT INTO restaurant_kitchen_tickets (company_id, number, tab_id, order_id, label, table_name, waiter_name, guest_name, note, sent_by, fulfillment, customer_phone, delivery_address, status, created_at, ready_at, served_at, printed_at, ' +
-      '  course, fired_at, allergy, allergens, guests) ' +
-      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id',
+      '  course, fired_at, allergy, allergens, guests, chit_printed_at) ' +
+      'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING id',
       [companyId, t.number, dest.tabId || null, dest.orderId || null, String(dest.label || t.label || '').slice(0, 80), dest.tableName !== undefined ? dest.tableName : t.table_name,
         dest.waiterName !== undefined ? dest.waiterName : t.waiter_name, dest.guestName !== undefined ? dest.guestName : t.guest_name, t.note, t.sent_by, t.fulfillment, t.customer_phone, t.delivery_address,
         // Paid on their own: a course still waiting is cooked now.
         t.status === 'held' && dest.orderId ? 'cooking' : t.status, t.created_at, t.ready_at, t.served_at, t.printed_at,
-        t.course || 0, t.status === 'held' && dest.orderId ? new Date() : t.fired_at, t.allergy || '', t.allergens || [], t.guests])).rows[0].id;
+        t.course || 0, t.status === 'held' && dest.orderId ? new Date() : t.fired_at, t.allergy || '', t.allergens || [], t.guests,
+        // Printed with the order it came from, or still waiting to be (printQueue).
+        t.chit_printed_at])).rows[0].id;
     twins.set(ticketId, id);
     return id;
   }
@@ -748,7 +786,7 @@ async function removeStation(ctx, id) {
 }
 
 module.exports = {
-  moveItems: moveItems, retarget: retarget, fireCourse: fireCourse, releaseHeld: releaseHeld, chitsFor: chitsFor,
+  moveItems: moveItems, retarget: retarget, fireCourse: fireCourse, releaseHeld: releaseHeld, chitsFor: chitsFor, markPrinted: markPrinted, printQueue: printQueue, takePrints: takePrints,
   fire: fire, cancelForTab: cancelForTab, cancelForOrder: cancelForOrder,
   board: board, setItemDone: setItemDone, finishTicket: finishTicket, serveTicket: serveTicket, recallTicket: recallTicket, printTicket: printTicket, tillSummary: tillSummary,
   statusOf: statusOf,

@@ -527,12 +527,14 @@ async function passPrntHtml(byteArray) {
     '</style></head><body>' + body + '</body></html>';
 }
 
-// The link that hands a receipt to PassPRNT.
-export async function passPrntLink(byteArray, paperMm, backUrl) {
+// The link that hands a receipt to PassPRNT. port: one printer by its
+// address (TCP:192.168.1.50, Star's port name), else the one chosen in
+// PassPRNT.
+export async function passPrntLink(byteArray, paperMm, backUrl, port) {
   var doc = readEscPos(byteArray);
   return 'starpassprnt://v1/print/nopreview?html=' + encodeURIComponent(await passPrntHtml(byteArray)) +
     '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick ? 'ahead' : 'off') +
-    '&popup=enable&back=' + encodeURIComponent(backUrl);
+    (port ? '&port=' + encodeURIComponent(port) : '') + '&popup=enable&back=' + encodeURIComponent(backUrl);
 }
 
 // Opens another app from the page (the screenshots catch it to check the link).
@@ -541,17 +543,21 @@ function launchApp(url) {
   window.location.href = url;
 }
 
-export function passPrntPrinter(paperMm) {
+// opts.address: a printer on the network by its IP address (the kitchen's),
+// else the printer chosen in PassPRNT.
+export function passPrntPrinter(paperMm, opts) {
   var mm = Number(paperMm) === 58 ? 58 : 80;
+  var address = opts && opts.address;
   return {
     kind: 'passprnt',
     paper: mm,
+    address: address || null,
     lineWidth: mm === 80 ? 42 : LINE_WIDTH_58MM,
-    name: tr('Star printer (PassPRNT)'),
+    name: address ? tr('Kitchen printer · {address}', { address: address }) : tr('Star printer (PassPRNT)'),
     write: async function (byteArray) {
       // Back to this page, the reply after the #, so the till does not reload.
       var back = window.location.href.split('#')[0] + '#passprnt';
-      launchApp(await passPrntLink(byteArray, mm, back));
+      launchApp(await passPrntLink(byteArray, mm, back, address ? 'TCP:' + address : ''));
     },
     forget: async function () { savePassPrnt(null); }
   };
@@ -564,6 +570,33 @@ export function reconnectPassPrnt() {
   try { mm = localStorage.getItem(PASSPRNT_KEY); } catch { mm = null; }
   return mm ? passPrntPrinter(mm) : null;
 }
+// ── The kitchen's printer ───────────────────────────────────────────────
+// Kitchen tickets print by themselves as an order goes to the kitchen: on
+// the till's own printer, or on a Star printer in the kitchen on the
+// network (a TSP143LAN), by its address, through PassPRNT — receipts stay
+// at the till. others: this till also prints the tickets that reached the
+// kitchen without it (website, kiosk, table QR orders). Kept on the device.
+var KITCHEN_KEY = 'bamboo.printer.kitchen';
+export function kitchenSetup() {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem(KITCHEN_KEY) || 'null'); } catch { s = null; }
+  s = s && typeof s === 'object' ? s : {};
+  return { address: kitchenAddressOk(s.address) ? s.address : '', paper: Number(s.paper) === 58 ? 58 : 80, others: s.others !== false };
+}
+export function saveKitchenSetup(s) {
+  try { localStorage.setItem(KITCHEN_KEY, JSON.stringify({ address: s.address || '', paper: s.paper, others: s.others !== false })); } catch { /* kept for this visit only */ }
+}
+// An address on the local network: 192.168.1.50.
+export function kitchenAddressOk(a) {
+  var m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(a || '').trim());
+  return !!m && m.slice(1).every(function (n) { return Number(n) <= 255; });
+}
+// What kitchen tickets print on: the kitchen's own printer when it has an
+// address, else the till's printer (or none).
+export function kitchenPrinterFor(printer, setup) {
+  return setup && setup.address ? passPrntPrinter(setup.paper, { address: setup.address }) : printer || null;
+}
+
 // PassPRNT's answer when it brings the till back: { ok, message }, or null
 // when the page was not opened by it. The answer is taken off the address.
 export function readPassPrntReply() {

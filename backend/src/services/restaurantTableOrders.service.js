@@ -216,6 +216,9 @@ async function inbox(token) {
 // accepted it, or (straight to the kitchen) of the table's waiter.
 async function acceptRow(o, session, p) {
   if (o.kind === 'kiosk') return acceptKiosk(o, session);
+  // Accepted on the till: it prints the kitchen tickets; sent straight on,
+  // they wait for a till's kitchen printer (restaurantKitchen printQueue).
+  var printing = { tillPrints: !!session };
   var tab = (await pool.query('SELECT * FROM restaurant_open_tabs WHERE company_id = $1 AND table_id = $2 ORDER BY created_at LIMIT 1', [o.company_id, o.table_id])).rows[0] || null;
   var settings = session ? session.access.settings : await access.settingsOf(o.company_id);
   var waiterId = tab && tab.waiter_id ? tab.waiter_id : (p.waiterId || null);
@@ -232,8 +235,8 @@ async function acceptRow(o, session, p) {
     var note = [refOf(claimed) + ' (ordered at the table)', claimed.note].filter(Boolean).join(' · ');
     t = tab
       ? await pos().saveTabFor(session, { id: tab.id, tableId: o.table_id, waiterId: waiterId || undefined, guestId: tab.guest_id || undefined, label: tab.label, fulfillment: 'dine_in',
-        customerName: tab.customer_name, customerPhone: tab.customer_phone, items: (tab.items || []).concat(add), kitchenNote: note })
-      : await pos().saveTabFor(session, { tableId: o.table_id, waiterId: waiterId || undefined, fulfillment: 'dine_in', label: '', customerName: claimed.customer_name, items: add, kitchenNote: note });
+        customerName: tab.customer_name, customerPhone: tab.customer_phone, items: (tab.items || []).concat(add), kitchenNote: note }, printing)
+      : await pos().saveTabFor(session, { tableId: o.table_id, waiterId: waiterId || undefined, fulfillment: 'dine_in', label: '', customerName: claimed.customer_name, items: add, kitchenNote: note }, printing);
   } catch (err) {
     await pool.query('UPDATE restaurant_table_orders SET decided_by = NULL, decided_at = NULL WHERE id = $1', [o.id]);
     throw err;
@@ -251,6 +254,7 @@ async function acceptRow(o, session, p) {
 // the kitchen; paid at the till (or paid on the kiosk already: the open
 // order carries the Paystack payment for the cashier to take).
 async function acceptKiosk(o, session) {
+  var printing = { tillPrints: !!session };
   var settings = session ? session.access.settings : await access.settingsOf(o.company_id);
   if (!session) session = { posCompanyId: o.company_id, posEmployeeId: null, access: { settings: settings, can: { customItem: false } } };
   var claimed = (await pool.query("UPDATE restaurant_table_orders SET decided_by = $2, decided_at = now(), updated_at = now() WHERE id = $1 AND status = 'pending' AND decided_at IS NULL RETURNING *",
@@ -263,7 +267,7 @@ async function acceptKiosk(o, session) {
     t = await pos().saveTabFor(session, { fulfillment: claimed.dining === 'here' ? 'dine_in' : 'pickup', kioskOrder: true, label: label.slice(0, 60), customerName: claimed.customer_name || '',
       adjust: claimed.adjust || {}, placed: { adjust: claimed.adjust || {} },
       items: add, kitchenNote: [refOf(claimed) + (claimed.dining === 'here' ? ' (kiosk, eat here)' : ' (kiosk, take away)'), claimed.paystack_ref ? 'PAID on the kiosk' : '', claimed.note].filter(Boolean).join(' · '),
-      paystackRef: claimed.paystack_ref || undefined });
+      paystackRef: claimed.paystack_ref || undefined }, printing);
   } catch (err) {
     await pool.query('UPDATE restaurant_table_orders SET decided_by = NULL, decided_at = NULL WHERE id = $1', [o.id]);
     throw err;
@@ -287,7 +291,7 @@ async function accept(token, id, p) {
   // The waiter: the table's, the one picked, or the person accepting if they wait tables.
   if (!(tab && tab.waiter_id) && !p.waiterId && session.access.role === 'waiter') p.waiterId = session.posEmployeeId;
   var r = await acceptRow(o, session, p);
-  return { order: staffOut(Object.assign({}, r.row, { table_name: '', open_tab: r.tab.id })), tab: { id: r.tab.id, total: r.tab.total, kitchenTicket: r.tab.kitchenTicket || null } };
+  return { order: staffOut(Object.assign({}, r.row, { table_name: '', open_tab: r.tab.id })), tab: { id: r.tab.id, total: r.tab.total, kitchenTicket: r.tab.kitchenTicket || null }, chits: r.tab.chits || [] };
 }
 // POST /api/pos/table-orders/:id/reject { reason } — turned down; the table sees why.
 async function reject(token, id, p) {

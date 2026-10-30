@@ -733,6 +733,7 @@ async function chargeOrder(session, p, clientRef) {
         discounts: bill.discountTotal || undefined, serviceCharge: bill.serviceCharge || undefined, taxes: bill.taxes.length ? bill.taxes : undefined, approvedBy: bill.approvals.length ? bill.approvals : undefined } });
     var paid = (await money.paymentsOf(client, [order.id])).get(order.id) || [];
     var chits = await kitchen.chitsFor(client, printNow);
+    await kitchen.markPrinted(client, printNow);
     var giftLeft = plan.rows.filter(function (r) { return r.method === 'gift_card'; }).map(function (r) { return { card: r.giftCode.slice(-4), left: r.giftLeft }; });
     return Object.assign(rowToOrder(Object.assign({}, order, points ? { points_earned: points.earned, points_used: points.used } : {}), lines, paid),
       { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null, restOpen: rest ? tab.id : null, chits: chits, points: points, giftCards: giftLeft });
@@ -914,19 +915,21 @@ async function listTabs(token) {
 // at the counter under the customer's name; a delivery keeps who, the
 // phone and where.
 async function saveTab(token, p) {
-  return saveTabFor(await access.need(token, 'keepOpen'), Object.assign({}, p, { placed: undefined }));
+  return saveTabFor(await access.need(token, 'keepOpen'), Object.assign({}, p, { placed: undefined }), { tillPrints: true });
 }
 // An open order saved and sent to the kitchen by whoever the session is: the
 // till (saveTab), or the delivery screen accepting a website order
-// (restaurantOnline accept).
-async function saveTabFor(session, p) {
+// (restaurantOnline accept). opts.tillPrints: the till asking prints its
+// kitchen tickets as it sends them; otherwise they wait for a till's
+// kitchen printer (restaurantKitchen printQueue).
+async function saveTabFor(session, p, opts) {
   p = p || {};
   // Sent from the till while it was offline, and made already: that one.
   var clientRef = p.id ? null : clientRefOf(p);
   var made = clientRef ? (await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND client_ref = $2', [session.posCompanyId, clientRef])).rows[0] : null;
   if (made) return Object.assign((await tabRows(session.posCompanyId, ' AND t.id = $2', [made.id]))[0], { kitchenTicket: null, replayed: true });
   try {
-    return await keepTab(session, p, clientRef);
+    return await keepTab(session, p, clientRef, opts || {});
   } catch (e) {
     var again = clientRef && e.code === '23505' ? (await pool.query('SELECT id FROM restaurant_open_tabs WHERE company_id = $1 AND client_ref = $2', [session.posCompanyId, clientRef])).rows[0] : null;
     if (again) return Object.assign((await tabRows(session.posCompanyId, ' AND t.id = $2', [again.id]))[0], { kitchenTicket: null, replayed: true });
@@ -937,7 +940,7 @@ async function saveTabFor(session, p) {
 async function fromKiosk(db, tabId) {
   return !!tabId && (await db.query("SELECT 1 FROM restaurant_table_orders WHERE tab_id = $1 AND kind = 'kiosk' LIMIT 1", [tabId])).rows.length > 0;
 }
-async function keepTab(session, p, clientRef) {
+async function keepTab(session, p, clientRef, opts) {
   if (p.id && !p.kioskOrder && await fromKiosk(pool, p.id)) p = Object.assign({}, p, { kioskOrder: true });
   if (session.access.settings.requireWaiter && p.tableId && !p.waiterId && (p.fulfillment || 'dine_in') === 'dine_in') fail('invalid', 'Pick the waiter for this table.');
   var company = session.posCompanyId;
@@ -998,6 +1001,7 @@ async function keepTab(session, p, clientRef) {
     }, names));
     if (ticket && ticket.firedCourse !== (stored ? stored.fired_course : 0)) await client.query('UPDATE restaurant_open_tabs SET fired_course = $2 WHERE id = $1', [id, ticket.firedCourse]);
     var chits = ticket ? await kitchen.chitsFor(client, ticket.ids) : [];
+    if (ticket && opts.tillPrints) await kitchen.markPrinted(client, ticket.ids);
     await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.kitchen',
       summary: (ticket ? 'Sent to the kitchen as #' + ticket.number + ': ' : 'Kept open (nothing new for the kitchen): ') + (label || names.tableName || names.guestName || 'order') +
         (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + ' · ' + bill.total.toFixed(2) + '.' + discountWords(bill),
@@ -1026,7 +1030,9 @@ async function fireCourse(token, id, p) {
     var called = waiting.filter(function (c) { return c <= upTo; }).map(function (c) { return names[c - 1] || 'course ' + c; });
     await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.course',
       summary: 'Called ' + called.join(' and ') + ' for ' + tabWords(tab, n) + '.', refType: 'tab', refId: id });
-    return { chits: await kitchen.chitsFor(client, ids), called: called };
+    var chits = await kitchen.chitsFor(client, ids);
+    await kitchen.markPrinted(client, ids);
+    return { chits: chits, called: called };
   });
   return Object.assign((await tabRows(company, ' AND t.id = $2', [id]))[0], out);
 }
