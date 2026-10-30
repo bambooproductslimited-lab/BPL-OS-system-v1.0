@@ -33,7 +33,7 @@ export default function TableBill({ token, tab, companyName, printer, onClose, o
   async function print() {
     if (!printer) { window.print(); return; }
     setPrinting(true);
-    try { await printer.write(buildBillBytes(tab, companyName, { payUrl: link && link.on ? link.url : null })); } catch (e) { onFail(e); } finally { setPrinting(false); }
+    try { await printer.write(buildBillBytes(tab, companyName, { payUrl: link && link.on ? link.url : null, lineWidth: printer.lineWidth })); } catch (e) { onFail(e); } finally { setPrinting(false); }
   }
   return (
     <div className="dialog-backdrop" onClick={onClose}>

@@ -6,9 +6,9 @@ import { money } from '../lib/currency';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
-  buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, usbSupported, bluetoothSupported,
-  requestUsbPrinter, requestBluetoothPrinter, reconnectUsbPrinter, reconnectBluetoothPrinter
+  buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, reconnectUsbPrinter, reconnectBluetoothPrinter, reconnectSystemPrinter
 } from '../lib/thermalPrinter';
+import PrinterPanel from '../components/PrinterPanel';
 import { activeIntlLocale, activeLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
 import DeviceLanguage from '../components/DeviceLanguage';
@@ -336,7 +336,7 @@ export default function RestaurantPosPage() {
   // iPad in any browser, so this stays optional rather than replacing it.
   const [printer, setPrinter] = useState(null); // { kind, name, write }
   const [printerError, setPrinterError] = useState(null);
-  const [pairingKind, setPairingKind] = useState(null); // 'usb' | 'bluetooth' | null
+  const [printerOpen, setPrinterOpen] = useState(false); // how this till prints (components/PrinterPanel.jsx)
   const [printing, setPrinting] = useState(false);
 
   // The till follows the OS's light/dark choice on this device, with its
@@ -564,6 +564,10 @@ export default function RestaurantPosPage() {
 
   useEffect(() => {
     (async () => {
+      // The computer's own printer when chosen on this device, else the
+      // USB or Bluetooth printer paired before.
+      const sys = reconnectSystemPrinter();
+      if (sys) { setPrinter(sys); return; }
       const usb = await reconnectUsbPrinter();
       if (usb) { setPrinter(usb); return; }
       const bt = await reconnectBluetoothPrinter();
@@ -583,36 +587,12 @@ export default function RestaurantPosPage() {
     }
   }, []);
 
-  async function pairUsb() {
-    setPrinterError(null);
-    setPairingKind('usb');
-    try {
-      const conn = await requestUsbPrinter();
-      setPrinter(conn);
-    } catch (err) {
-      setPrinterError(err.message);
-    } finally {
-      setPairingKind(null);
-    }
-  }
-  async function pairBluetooth() {
-    setPrinterError(null);
-    setPairingKind('bluetooth');
-    try {
-      const conn = await requestBluetoothPrinter();
-      setPrinter(conn);
-    } catch (err) {
-      setPrinterError(err.message);
-    } finally {
-      setPairingKind(null);
-    }
-  }
   async function printToThermalPrinter(order) {
     setPrinting(true);
     setPrinterError(null);
     try {
       const bytes = buildReceiptBytes(order, session.companyName, order.cashierName || session.employeeName, {
-        kickDrawer: order.paymentMethod === 'cash' || (order.payments || []).some((p) => p.method === 'cash'), footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra
+        kickDrawer: order.paymentMethod === 'cash' || (order.payments || []).some((p) => p.method === 'cash'), footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra, lineWidth: printer.lineWidth
       });
       await printer.write(bytes);
     } catch (err) {
@@ -1080,7 +1060,7 @@ export default function RestaurantPosPage() {
     setPrinting(true);
     setPrinterError(null);
     try {
-      const bytes = buildDrawerReportBytes(report, session.companyName, session.employeeName);
+      const bytes = buildDrawerReportBytes(report, session.companyName, session.employeeName, { lineWidth: printer.lineWidth });
       await printer.write(bytes);
     } catch (err) {
       setPrinterError(tr('Could not print: {message}', { message: err.message }));
@@ -1515,7 +1495,8 @@ export default function RestaurantPosPage() {
       try {
         // Printed in English, as the printer has no other letters (lib/thermalPrinter.js).
         const english = (x, v) => (v ? x.replace('{n}', v.n) : x);
-        for (const c of list) await printer.write(buildKitchenChitBytes(c, session.companyName, { courseName: c.course ? courseName(tillSettings, c.course, english) : '' }));
+        // All of them in one go, each cut off: one print on the computer's printer.
+        await printer.write([].concat(...list.map((c) => buildKitchenChitBytes(c, session.companyName, { courseName: c.course ? courseName(tillSettings, c.course, english) : '' }))));
         setToast(list.length === 1 ? tr('{station}\'s ticket printed.', { station: list[0].station }) : tr('{n} kitchen tickets printed.', { n: list.length }));
         return;
       } catch { /* shown to print instead */ }
@@ -2318,9 +2299,7 @@ export default function RestaurantPosPage() {
               { key: 'kiosk', group: 'screens', icon: <span className="tl-more-emo">🧾</span>, tone: 'kiosk', label: tr('Self-order kiosk'), note: tillSettings.kiosk && tillSettings.kiosk.on ? tr('Taking orders') : tr('Pair a tablet for customers to order'), onClick: () => setKiosksOpen(true) },
               { key: 'board', group: 'screens', icon: <span className="tl-more-emo">📺</span>, tone: 'kiosk', label: tr('Ready board'), note: tr('A TV for customers: preparing and ready orders'), onClick: () => setBoardsOpen(true) },
               kitchen && kitchen.inUse && { key: 'kds', group: 'screens', icon: 'bag', tone: 'kitchen', label: tr('Open the kitchen screen'), note: tr('In a new tab'), href: KDS_URL },
-              printer ? { key: 'printer', group: 'screens', icon: 'receipt', tone: 'printer', label: tr('Printer connected'), note: printer.name, disabled: true, onClick: () => {} }
-                : usbSupported() && { key: 'usb', group: 'screens', icon: 'receipt', tone: 'printer', label: pairingKind === 'usb' ? tr('Connecting…') : tr('Connect a USB printer'), disabled: !!pairingKind, onClick: pairUsb },
-              !printer && bluetoothSupported() && { key: 'bt', group: 'screens', icon: 'receipt', tone: 'printer', label: pairingKind === 'bluetooth' ? tr('Connecting…') : tr('Connect a Bluetooth printer'), disabled: !!pairingKind, onClick: pairBluetooth },
+              { key: 'printer', group: 'screens', icon: 'receipt', tone: 'printer', label: tr('Printer'), note: printer ? printer.name : tr('Not set up: choose one'), onClick: () => setPrinterOpen(true) },
               { key: 'rota', group: 'manage', icon: <span className="tl-more-emo">🗓️</span>, tone: 'rota', label: tr('Who is on today'),
                 note: rotaToday ? (rotaToday.length ? rotaToday.map((x) => x.name.split(' ')[0]).slice(0, 4).join(', ') + (rotaToday.length > 4 ? ' +' + (rotaToday.length - 4) : '') : tr('Nobody on the rota')) : tr('The rota'),
                 onClick: () => { loadRota(); setRotaOpen(true); } },
@@ -2455,6 +2434,7 @@ export default function RestaurantPosPage() {
       {appPickOpen && <AppPicker apps={(tillSettings.apps && tillSettings.apps.list) || []} current={appOrder} onClose={() => setAppPickOpen(false)}
         onPick={(a) => { setAppOrder(a); setAppPickOpen(false); setCurrentTab(null); }} />}
       {giftOpen && <GiftCards token={session.token} settings={tillSettings} companyName={session.companyName} can={can} onToast={setToast} onClose={() => { setGiftOpen(false); refreshDrawer(); loadShift(); }} />}
+      {printerOpen && <PrinterPanel printer={printer} onPrinter={(p) => { setPrinter(p); setPrinterError(null); }} companyName={session.companyName} onClose={() => setPrinterOpen(false)} />}
       {screenOpen && <CustomerScreen token={session.token} device={screen.device} displays={screen.displays} onChanged={screen.reload} onToast={setToast} onClose={() => setScreenOpen(false)} />}
       {rewardsOpen && selectedGuest && (
         <Rewards token={session.token} guest={selectedGuest} applied={billAdjust.discount ? billAdjust.discount.presetId : null}

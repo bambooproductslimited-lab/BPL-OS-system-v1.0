@@ -7,7 +7,8 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
 import { modsWords } from './till/tillBill';
-import { buildKitchenChitBytes, buildRunnerTicketBytes, bluetoothSupported, reconnectBluetoothPrinter, reconnectUsbPrinter, requestBluetoothPrinter, requestUsbPrinter, usbSupported } from '../lib/thermalPrinter';
+import { buildKitchenChitBytes, buildRunnerTicketBytes, reconnectBluetoothPrinter, reconnectSystemPrinter, reconnectUsbPrinter } from '../lib/thermalPrinter';
+import PrinterPanel from '../components/PrinterPanel';
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
 import { allergenWords, clashes } from './till/tillService';
@@ -145,6 +146,7 @@ export default function KdsPage() {
   // A thermal printer at the kitchen, and the ticket being printed through
   // the print dialog when there is none.
   const [printer, setPrinter] = useState(null);
+  const [printerOpen, setPrinterOpen] = useState(false); // how this screen prints (components/PrinterPanel.jsx)
   const [printing, setPrinting] = useState(null);
   const [paper, setPaper] = useState(null);
   const seenRef = useRef(null); // ticket ids already shown, to ding only for new ones
@@ -164,6 +166,8 @@ export default function KdsPage() {
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => {
     (async () => {
+      const sys = reconnectSystemPrinter();
+      if (sys) { setPrinter(sys); return; }
       const usb = await reconnectUsbPrinter();
       if (usb) { setPrinter(usb); return; }
       const bt = await reconnectBluetoothPrinter();
@@ -357,9 +361,6 @@ export default function KdsPage() {
     } finally { setBusy((b) => { const n = new Set(b); n.delete(t.id); return n; }); }
   }
   const serve = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/served', { from: 'kds' });
-  async function pair(kind) {
-    try { setPrinter(kind === 'usb' ? await requestUsbPrinter() : await requestBluetoothPrinter()); } catch (err) { setProblem(err.message); }
-  }
   const recall = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/recall');
   function toggleSound() { const on = !sound; setSound(on); writeKey(SOUND_KEY, on ? 'on' : 'off'); if (on) { unlockAudio(); playNewTicket(); } }
   function toggleAutoPrint() {
@@ -493,10 +494,8 @@ export default function KdsPage() {
           <button type="button" className={'kds-tool is-text' + (autoPrint ? ' is-on' : '')} aria-pressed={autoPrint} onClick={toggleAutoPrint}
             title={tr('Print each new ticket on this screen\'s printer as it comes')}>🧾 {autoPrint ? tr('Printing new tickets') : tr('Print new tickets')}</button>
           {(printReady || autoPrint) && (printer
-            ? <span className="kds-tool is-text kds-printer" title={printer.name}>🖨 {tr('Printer ready')}</span>
-            : (usbSupported() || bluetoothSupported()) && (
-              <button type="button" className="kds-tool is-text" onClick={() => pair(usbSupported() ? 'usb' : 'bluetooth')} title={tr('Tickets print through the print dialog until a printer is connected.')}>🖨 {tr('Connect printer')}</button>
-            ))}
+            ? <button type="button" className="kds-tool is-text kds-printer" title={printer.name} onClick={() => setPrinterOpen(true)}>🖨 {tr('Printer ready')}</button>
+            : <button type="button" className="kds-tool is-text" onClick={() => setPrinterOpen(true)} title={tr('Tickets print through the print dialog until a printer is connected.')}>🖨 {tr('Connect printer')}</button>)}
           <button type="button" className="kds-tool is-text" onClick={() => setPrepOpen(true)}>🔪 {tr('Prep list')}</button>
           <DeviceLanguage className="kds-lang" />
           {themeButton}
@@ -637,6 +636,7 @@ export default function KdsPage() {
         </aside>
       </div>
 
+      {printerOpen && <PrinterPanel printer={printer} onPrinter={setPrinter} companyName={session.companyName} onClose={() => setPrinterOpen(false)} />}
       {/* The runner's ticket, for the print dialog when no printer is connected. */}
       {paper && (
         <div className="kds-print" aria-hidden="true">
