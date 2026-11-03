@@ -1094,7 +1094,12 @@ async function taxSummary(ctx, params) {
 
   var r2 = function (n) { return Math.round(n * 100) / 100; };
   var byRateArr = Object.keys(byRate)
-    .sort(function (a, b) { return byRate[b].rate - byRate[a].rate || (byRate[a].whole ? 1 : -1); })
+    // Highest rate first; at one rate, what the lines carry before the
+    // whole-document taxes, and those by name.
+    .sort(function (a, b) {
+      var x = byRate[a], y = byRate[b];
+      return y.rate - x.rate || (x.whole === y.whole ? 0 : x.whole ? 1 : -1) || x.name.localeCompare(y.name);
+    })
     .map(function (key) {
       var r = byRate[key];
       var nameKey = r.rate.toFixed(3);
