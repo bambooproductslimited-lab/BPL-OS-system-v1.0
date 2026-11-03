@@ -1,5 +1,6 @@
 import QRCode from 'qrcode';
 import { tr, msg } from './i18n.jsx';
+import { posFetch } from './posApi';
 
 // What this file PRINTS stays in English, whatever language the till's
 // screen is in: text is sent as one Latin-1 byte per character (see
@@ -570,6 +571,38 @@ export function reconnectPassPrnt() {
   try { mm = localStorage.getItem(PASSPRNT_KEY); } catch { mm = null; }
   return mm ? passPrntPrinter(mm) : null;
 }
+// ── A printer on the restaurant's network ───────────────────────────────
+// A Star printer plugged into the router, set up once for the whole
+// restaurant in Till settings → Printers (backend restaurantPrinters
+// .service.js, Star CloudPRNT): the till sends its receipt, bill or report
+// to the server as lines, and the printer fetches it, drawn as a picture.
+// Chosen on each till for its receipts; tokenOf: the till's sign-in now.
+var NETWORK_KEY = 'bamboo.printer.network';
+export function networkPrinter(info, tokenOf) {
+  var mm = Number(info.paper) === 58 ? 58 : 80;
+  return {
+    kind: 'network',
+    id: info.id,
+    paper: mm,
+    lineWidth: mm === 80 ? 42 : LINE_WIDTH_58MM,
+    name: info.name,
+    // meta: { kind: 'receipt'|'bill'|'report'|'test', title }.
+    write: async function (byteArray, meta) {
+      var doc = readEscPos(byteArray);
+      await posFetch('POST', '/pos/printers/' + info.id + '/print', tokenOf(), {
+        kind: (meta && meta.kind) || 'receipt', title: (meta && meta.title) || '', doc: { cols: doc.cols, pages: doc.pages }, kick: doc.kick
+      });
+    },
+    forget: async function () { saveNetworkPrinter(null); }
+  };
+}
+export function saveNetworkPrinter(info) {
+  try { if (info) localStorage.setItem(NETWORK_KEY, JSON.stringify({ id: info.id, name: info.name, paper: info.paper })); else localStorage.removeItem(NETWORK_KEY); } catch { /* kept for this visit only */ }
+}
+export function savedNetworkPrinter() {
+  try { var s = JSON.parse(localStorage.getItem(NETWORK_KEY) || 'null'); return s && s.id ? s : null; } catch { return null; }
+}
+
 // ── The kitchen's printer ───────────────────────────────────────────────
 // Kitchen tickets print by themselves as an order goes to the kitchen: on
 // the till's own printer, or on a Star printer in the kitchen on the

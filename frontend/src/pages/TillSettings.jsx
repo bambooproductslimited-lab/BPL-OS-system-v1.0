@@ -7,6 +7,7 @@ import { CURRENCY_LABEL, CURRENCY_NAME, FULFILLMENT, FulfillmentIcon, MethodGlyp
 import { ActivityTab, CustomersTab, FloorMapTab } from './till/SettingsTabs';
 import SalesReport from './till/SalesReport';
 import { AccountsTab, DisputesTab, DrawersTab, KitchenScreensTab } from './till/OfficeTabs';
+import PrintersTab from './till/PrintersTab';
 import { MenuTab, StockTab } from './till/MenuStock';
 import { WasteTab } from './till/Waste';
 import { ChecklistsTab } from './till/Checklists';
@@ -96,7 +97,7 @@ const GROUPS = [
   ['guestsGroup', () => tr('Guests'), [['feedback', () => tr('Feedback'), 'star'], ['campaigns', () => tr('Texts and emails'), 'send'], ['loyalty', () => tr('Loyalty'), 'star'], ['giftcards', () => tr('Gift cards'), 'card'], ['events', () => tr('Events and room hire'), 'calendar']]],
   ['menu', () => tr('Menu and stock'), [['menu', () => tr('Menu'), 'receipt'], ['recipes', () => tr('Recipes and costs'), 'percent'], ['stock', () => tr('Stock'), 'layers'], ['waste', () => tr('Waste and stock takes'), 'void'], ['transfers', () => tr('Between restaurants'), 'send'], ['purchasing', () => tr('Low stock and orders'), 'send'], ['prices', () => tr('Prices'), 'up']]],
   ['setup', () => tr('Setup'), [['people', () => tr('People'), 'people'], ['rota', () => tr('Rota'), 'calendar'], ['timecards', () => tr('Timecards'), 'clock'], ['checklists', () => tr('Checklists'), 'check'], ['roles', () => tr('What each role can do'), 'key'], ['payments', () => tr('Payments'), 'cash'], ['map', () => tr('Floor map'), 'map'], ['qr', () => tr('Table QR codes'), 'phone'],
-    ['screens', () => tr('Kitchen screens'), 'layers'], ['menuboards', () => tr('Menu boards'), 'layers'], ['equipment', () => tr('Equipment'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['deals', () => tr('Deals and promo codes'), 'spark'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'],
+    ['printers', () => tr('Printers'), 'receipt'], ['screens', () => tr('Kitchen screens'), 'layers'], ['menuboards', () => tr('Menu boards'), 'layers'], ['equipment', () => tr('Equipment'), 'layers'], ['customers', () => tr('Customers'), 'owed'], ['bill', () => tr('Discounts, service and tax'), 'percent'], ['deals', () => tr('Deals and promo codes'), 'spark'], ['service', () => tr('Courses, menu times and happy hours'), 'clock'], ['guests', () => tr('Bookings, tips and rewards'), 'spark'],
     ['apps', () => tr('Delivery apps'), 'send'], ['kiosk', () => tr('Self-order kiosk'), 'receipt'], ['receipts', () => tr('Receipts'), 'receipt'], ['till', () => tr('Till and kitchen'), 'clock']]]
 ];
 const GROUP_OF = {};
@@ -389,6 +390,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
             {tab === 'equipment' && <EquipmentTab token={token} pin={pin} onFail={fail} />}
             {tab === 'prices' && <PricesTab token={token} pin={pin} onFail={fail} />}
             {tab === 'screens' && <KitchenScreensTab token={token} pin={pin} onFail={fail} />}
+            {tab === 'printers' && <PrintersTab token={token} pin={pin} onFail={fail} />}
             {tab === 'activity' && <ActivityTab token={token} pin={pin} onFail={fail} drawer={actDrawer} onClearDrawer={() => setActDrawer(null)} />}
 
             {tab === 'bill' && <BillSettings draft={draft} set={set} />}
@@ -487,7 +489,7 @@ export default function TillSettings({ token, companyName, logoUrl, onClose, onS
               {dirty && <span className="ts-dirty">{tr('Unsaved changes')}</span>}
               <button type="button" className="btn btn-secondary" onClick={close} disabled={busy}>{tr('Close')}</button>
               {/* Reports, the menu, the stock and the kitchen screens save as they go. */}
-              {(dirty || (group === 'setup' && tab !== 'screens' && tab !== 'menuboards' && tab !== 'equipment' && tab !== 'checklists') || tab === 'campaigns') && <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? tr('Saving…') : tr('Save changes')}</button>}
+              {(dirty || (group === 'setup' && tab !== 'screens' && tab !== 'printers' && tab !== 'menuboards' && tab !== 'equipment' && tab !== 'checklists') || tab === 'campaigns') && <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? tr('Saving…') : tr('Save changes')}</button>}
             </div>
           </>
         )}

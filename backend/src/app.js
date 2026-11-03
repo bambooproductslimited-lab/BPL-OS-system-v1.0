@@ -41,6 +41,7 @@ var waybillsRoutes = require('./routes/waybills.routes');
 var toolRoomRoutes = require('./routes/toolRoom.routes');
 var restaurantRoutes = require('./routes/restaurant.routes');
 var restaurantPosRoutes = require('./routes/restaurantPos.routes');
+var cloudprntRoutes = require('./routes/cloudprnt.routes');
 var restaurantDeliveryRoutes = require('./routes/restaurantDelivery.routes');
 var restaurantFrontRoutes = require('./routes/restaurantFront.routes');
 var menuPhotosRoutes = require('./routes/menuPhotos.routes');
@@ -137,7 +138,7 @@ var apiLimiter = rateLimit({
   skip: function (req) {
     var path = apiPath(req);
     return config.nodeEnv === 'test' || path === '/api/health' || path === '/api/marketing/whatsapp/webhook' || path === '/api/marketing/meta/webhook' ||
-      path.indexOf('/api/menu-photos/') === 0;
+      path.indexOf('/api/menu-photos/') === 0 || path.indexOf('/api/cloudprnt/') === 0;
   },
   message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
 });
@@ -150,6 +151,17 @@ var photoLimiter = rateLimit({
   message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
 });
 app.use('/api/menu-photos', photoLimiter);
+// The restaurants' network printers ask every 5 seconds each, all from the
+// restaurant's one address: an allowance of their own (routes/cloudprnt.routes.js).
+var printerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 6000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: function () { return config.nodeEnv === 'test'; },
+  message: { error: { code: 'rate_limited', message: 'Too many requests.' } }
+});
+app.use('/api/cloudprnt', printerLimiter, cloudprntRoutes);
 app.use('/api', apiLimiter);
 
 app.use('/api/auth', authRoutes);

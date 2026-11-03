@@ -7,9 +7,11 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
   buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, reconnectUsbPrinter, reconnectBluetoothPrinter, reconnectSystemPrinter,
-  reconnectPassPrnt, readPassPrntReply, kitchenSetup, saveKitchenSetup, kitchenPrinterFor
+  reconnectPassPrnt, readPassPrntReply, kitchenSetup, saveKitchenSetup, kitchenPrinterFor, networkPrinter, savedNetworkPrinter
 } from '../lib/thermalPrinter';
 import PrinterPanel from '../components/PrinterPanel';
+import PrinterStatus from './till/PrinterStatus';
+import { printerState } from './till/printerState';
 import { activeIntlLocale, activeLocale, tr } from '../lib/i18n.jsx';
 import { Icon, Status } from '../components/DashKit';
 import DeviceLanguage from '../components/DeviceLanguage';
@@ -349,6 +351,13 @@ export default function RestaurantPosPage() {
   const [toPrint, setToPrint] = useState([]);
   const [kitchenRetry, setKitchenRetry] = useState(null);
   const takingRef = useRef(false);
+  // The restaurant's network printers (Till settings → Printers): their
+  // state sheet, and the cashier's alerts of orders others sent to the
+  // kitchen. tokenRef: the sign-in a network printer prints with.
+  const [printerSheet, setPrinterSheet] = useState(false);
+  const [sentAlerts, setSentAlerts] = useState([]);
+  const sentSeen = useRef(null);
+  const tokenRef = useRef(null);
   const [printing, setPrinting] = useState(false);
 
   // The till follows the OS's light/dark choice on this device, with its
@@ -571,6 +580,9 @@ export default function RestaurantPosPage() {
     return () => { gone = true; clearInterval(t); };
   }, [session, kitchenPrinter, kitchenSet.others, offline]); // eslint-disable-line react-hooks/exhaustive-deps
   const printWaiting = kitchenPrinter && kitchenSet.others && !offline ? toPrint : [];
+  // Network printers that are off, out of paper or left tickets unprinted.
+  const netPrinters = (tableBox && tableBox.printers) || [];
+  const netTrouble = netPrinters.filter((p) => (p.problem && p.problem !== 'low') || p.failed > 0);
   // A delivery's food is ready: ask once to send it out with a rider (not
   // over a payment being taken; the next look asks then).
   useEffect(() => {
@@ -589,6 +601,13 @@ export default function RestaurantPosPage() {
     askedMoney.current.add(t.delivery.id);
     setHandIn(t);
   }, [tabs, deliveryPrompt, sendFor, checkoutOpen, handIn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { tokenRef.current = session ? session.token : null; }, [session]);
+  // An order alert stays a little while, then goes.
+  useEffect(() => {
+    if (!sentAlerts.length) return undefined;
+    const t = setTimeout(() => setSentAlerts((list) => list.filter((a) => Date.now() - a.shownAt < 12000)), 2000);
+    return () => clearTimeout(t);
+  }, [sentAlerts]);
   useEffect(() => {
     if (!toast) return undefined;
     const t = setTimeout(() => setToast(null), 3500);
@@ -599,6 +618,9 @@ export default function RestaurantPosPage() {
     (async () => {
       // The computer's own printer when chosen on this device, else the
       // USB or Bluetooth printer paired before.
+      // A printer on the restaurant's network, chosen on this till before.
+      const net = savedNetworkPrinter();
+      if (net) { setPrinter(networkPrinter(net, () => tokenRef.current)); return; }
       const sys = reconnectSystemPrinter() || reconnectPassPrnt();
       if (sys) { setPrinter(sys); return; }
       const usb = await reconnectUsbPrinter();
@@ -816,6 +838,19 @@ export default function RestaurantPosPage() {
     }
     tableSeen.current = new Set(ids);
     setTableBox(b);
+    // Sent to the kitchen by someone else (a waiter, the website, a kiosk,
+    // a table's QR code): the cashier hears it and sees it, as its tickets
+    // print in the kitchens. Those there when the till opens are not news.
+    const sent = b.sent || [];
+    if (sentSeen.current) {
+      const news = sent.filter((x) => !sentSeen.current.has(x.key));
+      if (news.length) {
+        playNewTicket();
+        loadTabs();
+        setSentAlerts((list) => list.concat(news.map((x) => ({ ...x, shownAt: Date.now() }))).slice(-3));
+      }
+    }
+    sentSeen.current = new Set(sent.map((x) => x.key).concat(sentSeen.current ? [...sentSeen.current] : []));
   }
   // A table asked for its bill: its open order, on the till to charge.
   async function openBill(c) {
@@ -2317,6 +2352,15 @@ export default function RestaurantPosPage() {
               </span>
             </button>
           )}
+          {netTrouble.length > 0 && (
+            <button type="button" className={'pos-stat is-printer is-asking' + (netTrouble.every((p) => p.problem === 'offline') ? ' is-off' : '')} onClick={() => setPrinterSheet(true)}>
+              <span className="pos-stat-ico" aria-hidden="true">🖨️</span>
+              <span className="pos-stat-text">
+                <small>{netTrouble.length === 1 ? netTrouble[0].name : tr('{n} printers', { n: netTrouble.length })}</small>
+                <strong>{netTrouble.length === 1 ? (netTrouble[0].problem ? printerState(netTrouble[0]).text : tr('{n} not printed', { n: netTrouble[0].failed })) : tr('Need a look')}</strong>
+              </span>
+            </button>
+          )}
           {(kitchenRetry || printWaiting.length > 0) && (
             <button type="button" className={'pos-stat is-print is-asking' + (kitchenRetry ? ' is-bad' : '')} onClick={() => (kitchenRetry ? printChits(kitchenRetry) : takeAndPrint(printWaiting))}>
               <span className="pos-stat-ico" aria-hidden="true">🖨️</span>
@@ -2513,7 +2557,27 @@ export default function RestaurantPosPage() {
       {giftOpen && <GiftCards token={session.token} settings={tillSettings} companyName={session.companyName} can={can} onToast={setToast} onClose={() => { setGiftOpen(false); refreshDrawer(); loadShift(); }} />}
       {printerOpen && (
         <PrinterPanel printer={printer} onPrinter={(p) => { setPrinter(p); setPrinterError(null); }} companyName={session.companyName} onClose={() => setPrinterOpen(false)}
-          kitchen={kitchenSet} onKitchen={(k) => { saveKitchenSetup(k); setKitchenSet(k); }} />
+          kitchen={kitchenSet} onKitchen={(k) => { saveKitchenSetup(k); setKitchenSet(k); }}
+          network={netPrinters.filter((p) => p.receipts)} onNetwork={(p) => networkPrinter(p, () => tokenRef.current)} networkKitchen={netPrinters.some((p) => (p.stationIds || []).length)} />
+      )}
+      {printerSheet && (
+        <PrinterStatus token={session.token} onClose={() => setPrinterSheet(false)} onFail={(e) => { if (e.status === 401) { localStorage.removeItem(SESSION_KEY); setSession(null); } else setToast(e.message); }}
+          onSettings={isManager ? () => { setPrinterSheet(false); setSettingsOpen('printers'); } : null} />
+      )}
+      {sentAlerts.length > 0 && (
+        <div className="tpr-alerts" aria-live="polite">
+          {sentAlerts.map((a) => (
+            <div key={a.key} className="tpr-alert" role="status">
+              <span className="tpr-alert-ico" aria-hidden="true">🍳</span>
+              <span>
+                <strong>{a.by ? tr('{who} sent {name} to the kitchen', { who: a.by, name: a.name || '#' + a.number }) : tr('{name} went to the kitchen', { name: a.name || '#' + a.number })}</strong>
+                <small>{(a.dishes === 1 ? tr('1 dish') : tr('{n} dishes', { n: a.dishes })) + ' · #' + a.number}</small>
+              </span>
+              {a.tabId && tabs.some((t) => t.id === a.tabId) && <button type="button" className="btn btn-secondary tl-btn" onClick={() => { const t = tabs.find((x) => x.id === a.tabId); setSentAlerts((list) => list.filter((x) => x.key !== a.key)); if (t) openTab(t); }}>{tr('Open')}</button>}
+              <button type="button" className="tpr-alert-x" aria-label={tr('Close')} onClick={() => setSentAlerts((list) => list.filter((x) => x.key !== a.key))}>✕</button>
+            </div>
+          ))}
+        </div>
       )}
       {screenOpen && <CustomerScreen token={session.token} device={screen.device} displays={screen.displays} onChanged={screen.reload} onToast={setToast} onClose={() => setScreenOpen(false)} />}
       {rewardsOpen && selectedGuest && (
@@ -3025,7 +3089,7 @@ export default function RestaurantPosPage() {
         </Suspense>
       )}
       {settingsOpen && (
-        <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)}
+        <TillSettings token={session.token} companyName={session.companyName} logoUrl={restaurantLogoUrl(session.companyCode)} initialTab={typeof settingsOpen === 'string' ? settingsOpen : undefined}
           onClose={() => setSettingsOpen(false)} onSaved={() => loadAccess()} onAuth={sessionEnded} />
       )}
     </div>

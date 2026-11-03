@@ -5,6 +5,8 @@ var { V } = require('../utils/validate');
 var config = require('../config');
 var pinAuth = require('../lib/pinAuth');
 var kitchen = require('./restaurantKitchen.service');
+// The restaurant's network printers (Square-style kitchen, summary and void tickets).
+function printers() { return require('./restaurantPrinters.service'); }
 var money = require('./restaurantTillMoney.service');
 var restaurantService = require('./restaurant.service');
 var access = require('./restaurantTillAccess.service');
@@ -691,6 +693,7 @@ async function chargeOrder(session, p, clientRef) {
     // whole sale; the open order's tickets now belong to the sale.
     var names = await refNames(client, refs, type);
     var ticket = null;
+    var voided = [];
     if (rest) {
       // Paid on their own: their food in the kitchen goes with this sale;
       // the rest of the order stays open (a bill-wide amount off is used up).
@@ -700,7 +703,7 @@ async function chargeOrder(session, p, clientRef) {
       await client.query('UPDATE restaurant_open_tabs SET items = $2, adjust = $3, updated_at = now() WHERE id = $1', [tab.id, JSON.stringify(rest), JSON.stringify(keptAdjust)]);
     } else ticket = await kitchen.fire(client, session.posCompanyId, Object.assign({
       lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : app ? apps().labelOf(app) : (type.customerName || orderNo),
-      note: p.kitchenNote, sentBy: session.posEmployeeId, settings: tillSettings, allergy: allergy, guests: guests
+      note: p.kitchenNote, sentBy: session.posEmployeeId, settings: tillSettings, allergy: allergy, guests: guests, voided: voided
     }, names));
     // What goes to the cooks now, for the stations that print their tickets.
     var printNow = ticket ? ticket.ids.slice() : [];
@@ -734,6 +737,8 @@ async function chargeOrder(session, p, clientRef) {
     var paid = (await money.paymentsOf(client, [order.id])).get(order.id) || [];
     var chits = await kitchen.chitsFor(client, printNow);
     await kitchen.markPrinted(client, printNow);
+    await printers().sendKitchen(client, session.posCompanyId, printNow);
+    await printers().sendVoids(client, session.posCompanyId, voided, { by: session.posEmployeeId });
     var giftLeft = plan.rows.filter(function (r) { return r.method === 'gift_card'; }).map(function (r) { return { card: r.giftCode.slice(-4), left: r.giftLeft }; });
     return Object.assign(rowToOrder(Object.assign({}, order, points ? { points_earned: points.earned, points_used: points.used } : {}), lines, paid),
       { kitchenTicket: ticket, vipBalance: vip ? vip.balance : null, restOpen: rest ? tab.id : null, chits: chits, points: points, giftCards: giftLeft });
@@ -995,13 +1000,17 @@ async function keepTab(session, p, clientRef, opts) {
           guests, allergy ? JSON.stringify(allergy) : null])).rows[0].id;
     }
     var names = await refNames(client, refs, type);
+    var voided = [];
     var ticket = await kitchen.fire(client, company, Object.assign({
       lines: priced.lines, tabId: id, label: label || names.tableName || names.guestName || '', note: p.kitchenNote, sentBy: session.posEmployeeId,
-      settings: session.access.settings, hold: hold, firedCourse: stored ? stored.fired_course : 0, allergy: allergy, guests: guests
+      settings: session.access.settings, hold: hold, firedCourse: stored ? stored.fired_course : 0, allergy: allergy, guests: guests, voided: voided
     }, names));
     if (ticket && ticket.firedCourse !== (stored ? stored.fired_course : 0)) await client.query('UPDATE restaurant_open_tabs SET fired_course = $2 WHERE id = $1', [id, ticket.firedCourse]);
     var chits = ticket ? await kitchen.chitsFor(client, ticket.ids) : [];
     if (ticket && opts.tillPrints) await kitchen.markPrinted(client, ticket.ids);
+    // The kitchens' own printers print theirs now, wherever the order came from.
+    if (ticket) await printers().sendKitchen(client, company, ticket.ids);
+    await printers().sendVoids(client, company, voided, { by: session.posEmployeeId });
     await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.kitchen',
       summary: (ticket ? 'Sent to the kitchen as #' + ticket.number + ': ' : 'Kept open (nothing new for the kitchen): ') + (label || names.tableName || names.guestName || 'order') +
         (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + ' · ' + bill.total.toFixed(2) + '.' + discountWords(bill),
@@ -1032,6 +1041,7 @@ async function fireCourse(token, id, p) {
       summary: 'Called ' + called.join(' and ') + ' for ' + tabWords(tab, n) + '.', refType: 'tab', refId: id });
     var chits = await kitchen.chitsFor(client, ids);
     await kitchen.markPrinted(client, ids);
+    await printers().sendKitchen(client, company, ids);
     return { chits: chits, called: called };
   });
   return Object.assign((await tabRows(company, ' AND t.id = $2', [id]))[0], out);
@@ -1043,8 +1053,10 @@ async function removeTab(token, id) {
   var out = await withTransaction(async function (client) {
     var res = await client.query('DELETE FROM restaurant_open_tabs WHERE id = $1 AND company_id = $2 RETURNING id, label, table_id', [id, session.posCompanyId]);
     if (!res.rows[0]) fail('notfound', 'That open order has already been paid or removed.');
-    // Nothing more to cook for it.
-    await kitchen.cancelForTab(client, session.posCompanyId, id);
+    // Nothing more to cook for it: the kitchens' printers say so.
+    var voided = [];
+    await kitchen.cancelForTab(client, session.posCompanyId, id, voided);
+    await printers().sendVoids(client, session.posCompanyId, voided, { by: session.posEmployeeId });
     // A website order it came from is cancelled (its customer sees so), and a delivery on its way stops.
     paidOnline = (await client.query("UPDATE restaurant_online_orders SET status = 'cancelled', reject_reason = 'Cancelled by the restaurant.', updated_at = now() WHERE tab_id = $1 AND company_id = $2 AND status = 'accepted' RETURNING id, pay_method",
       [id, session.posCompanyId])).rows.filter(function (o) { return o.pay_method === 'online'; });
@@ -1441,7 +1453,9 @@ async function voidOrder(ctx, id) {
     var res = await client.query("UPDATE restaurant_orders SET status = 'voided' WHERE id = $1 AND status = 'completed' RETURNING *", [id]);
     if (!res.rows[0]) fail('notfound', 'Order not found, or already voided.');
     // A voided sale is not cooked, and a VIP guest gets their money back.
-    await kitchen.cancelForOrder(client, res.rows[0].company_id, id);
+    var voided = [];
+    await kitchen.cancelForOrder(client, res.rows[0].company_id, id, voided);
+    await printers().sendVoids(client, res.rows[0].company_id, voided, { by: ctx.employee ? ctx.employee.id : null });
     await money.onVoid(client, res.rows[0]);
     await tillMenu.returnForVoid(client, res.rows[0]);
     await costs().returnForVoid(client, res.rows[0]);

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { tr } from '../lib/i18n.jsx';
 import {
-  bluetoothSupported, buildTestBytes, kitchenAddressOk, kitchenPrinterFor, passPrntPrinter, requestBluetoothPrinter, requestUsbPrinter, savePassPrnt, saveSystemPrinter, systemPrinter, usbSupported
+  bluetoothSupported, buildTestBytes, kitchenAddressOk, kitchenPrinterFor, passPrntPrinter, requestBluetoothPrinter, requestUsbPrinter, saveNetworkPrinter, savePassPrnt, saveSystemPrinter, systemPrinter, usbSupported
 } from '../lib/thermalPrinter';
 import './PrinterPanel.css';
 
@@ -15,22 +15,30 @@ import './PrinterPanel.css';
 // printing; the choice is kept on the device. On the till (kitchen, onKitchen:
 // lib/thermalPrinter.js kitchenSetup), where kitchen tickets print: the same
 // printer, or the kitchen's own Star printer on the network by its address.
-export default function PrinterPanel({ printer, onPrinter, companyName, onClose, kitchen, onKitchen }) {
+// network: the restaurant's printers on its network that print receipts
+// (Till settings → Printers), first when there are any; onNetwork(p) makes
+// one this till's printer. networkKitchen: the kitchens have network
+// printers of their own, printing their tickets by themselves.
+export default function PrinterPanel({ printer, onPrinter, companyName, onClose, kitchen, onKitchen, network, onNetwork, networkKitchen }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [done, setDone] = useState(null);
   const [own, setOwn] = useState(!!(kitchen && kitchen.address));
   const [address, setAddress] = useState(kitchen ? kitchen.address : '');
   const [help, setHelp] = useState(!printer && !(typeof navigator !== 'undefined' && /Android|iPad|iPhone/i.test(navigator.userAgent || '')));
-  async function choose(kind, mm) {
+  // arg: the paper (58/80) for this computer's printer and PassPRNT, the
+  // printer itself for one on the network.
+  async function choose(kind, arg) {
     setBusy(kind); setError(null); setDone(null);
     try {
       let next;
-      if (kind === 'system') next = systemPrinter(mm);
-      else if (kind === 'passprnt') next = passPrntPrinter(mm);
+      if (kind === 'network') next = onNetwork(arg);
+      else if (kind === 'system') next = systemPrinter(arg);
+      else if (kind === 'passprnt') next = passPrntPrinter(arg);
       else next = kind === 'usb' ? await requestUsbPrinter() : await requestBluetoothPrinter();
-      saveSystemPrinter(kind === 'system' ? mm : null);
-      savePassPrnt(kind === 'passprnt' ? mm : null);
+      saveSystemPrinter(kind === 'system' ? arg : null);
+      savePassPrnt(kind === 'passprnt' ? arg : null);
+      saveNetworkPrinter(kind === 'network' ? arg : null);
       onPrinter(next);
     } catch (e) {
       if (e && e.name !== 'NotFoundError') setError(e.message);
@@ -38,7 +46,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
   }
   async function test() {
     setBusy('test'); setError(null); setDone(null);
-    try { await printer.write(buildTestBytes(companyName, { lineWidth: printer.lineWidth })); setDone(tr('Test sent to the printer.')); } catch (e) { setError(tr('Could not print: {message}', { message: e.message })); } finally { setBusy(null); }
+    try { await printer.write(buildTestBytes(companyName, { lineWidth: printer.lineWidth }), { kind: 'test', title: tr('Test print') }); setDone(tr('Test sent to the printer.')); } catch (e) { setError(tr('Could not print: {message}', { message: e.message })); } finally { setBusy(null); }
   }
   // The kitchen's printer: kept as soon as its address is whole.
   function kitchenTo(next) { onKitchen(Object.assign({}, kitchen, next)); }
@@ -61,6 +69,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
     if (printer.forget) await printer.forget();
     saveSystemPrinter(null);
     savePassPrnt(null);
+    saveNetworkPrinter(null);
     onPrinter(null);
   }
   // An Android till (an iMin, a tablet): a USB printer straight from Chrome
@@ -119,7 +128,26 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
       </div>
     </div>
   );
-  const kindText = !printer ? '' : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
+  const nets = network || [];
+  const netWays = nets.length > 0 && (
+    <div key="net" className="prp-net">
+      <h3>🖧 {tr('Printers on the restaurant\'s network')}</h3>
+      {nets.map((p) => {
+        const on = printer && printer.kind === 'network' && printer.id === p.id;
+        return (
+          <div key={p.id} className={'prp-way' + (on ? ' is-on' : '')}>
+            <span className="prp-way-ico" aria-hidden="true">🖨️<i className={'prp-net-dot' + (p.online ? '' : ' is-off') + (p.problem && p.problem !== 'offline' && p.problem !== 'low' ? ' is-bad' : '')} /></span>
+            <div className="prp-way-txt">
+              <strong>{p.name}</strong>
+              <small>{p.online ? (p.problem && p.problem !== 'low' ? tr('Online, but not printing: {why}', { why: p.statusText || p.problem }) : tr('Online · {n} mm · receipts, bills and reports print here from any till', { n: p.paper })) : tr('Offline: switched off or not on the network')}</small>
+            </div>
+            <div className="prp-way-acts"><button type="button" className={'prp-chip' + (on ? ' is-on' : '')} disabled={!!busy} onClick={() => choose('network', p)}>{on ? '✓ ' + tr('In use') : tr('Use')}</button></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+  const kindText = !printer ? '' : printer.kind === 'network' ? tr('On the restaurant\'s network · {n} mm paper', { n: printer.paper }) : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
     : printer.kind === 'passprnt' ? tr('Through PassPRNT · {n} mm paper', { n: printer.paper })
     : printer.kind === 'usb' ? (printer.star ? tr('USB · Star, printed as a picture') : tr('USB')) : tr('Bluetooth');
   return (
@@ -142,6 +170,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
         {done && <p className="prp-ok" role="status">✅ {done}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
 
+        {netWays}
         <div className="prp-ways">{android || ios ? [passWay, usbWay, systemWay, btWay] : [systemWay, usbWay, passWay, btWay]}</div>
 
         {!ios && (
@@ -184,6 +213,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
                 <p>{tr('Each order sent to the kitchen prints there by itself, as it is sent.')}</p>
               </div>
             </div>
+            {networkKitchen && <p className="prp-kit-net">✅ {tr('The kitchens have their own printers on the network: their tickets print there by themselves (Till settings → Printers). This is only for stations without one.')}</p>}
             <div className="prp-seg" role="radiogroup" aria-label={tr('Kitchen tickets print on')}>
               <button type="button" role="radio" aria-checked={!own} className={!own ? 'is-on' : ''} onClick={() => pickOwn(false)}>
                 <span aria-hidden="true">🧾</span><span><strong>{tr('This printer')}</strong><small>{tr('With the receipts')}</small></span>

@@ -112,7 +112,7 @@ async function fire(client, companyId, o) {
   var sent = new Map();
   if (o.tabId) {
     var rows = (await client.query(
-      "SELECT i.* FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
+      "SELECT i.*, t.status AS ticket_status FROM restaurant_kitchen_items i JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
       "WHERE t.company_id = $1 AND t.tab_id = $2 AND i.status <> 'cancelled' ORDER BY i.created_at DESC", [companyId, o.tabId])).rows;
     rows.forEach(function (r) {
       var k = lineKey(r.menu_item_id, r.variation_id, r.name, r.note, r.mods, r.seat);
@@ -129,6 +129,8 @@ async function fire(client, companyId, o) {
     var less = round2(have - (want.has(k) ? want.get(k).qty : 0));
     for (var i = 0; i < items.length && less > 0; i++) {
       var it = items[i], q = Number(it.qty), take = Math.min(q, less);
+      // The kitchen had it already (not a course still waiting): a void ticket (restaurantPrinters).
+      if (o.voided && it.ticket_status !== 'held') o.voided.push({ ticketId: it.ticket_id, stationId: it.station_id, name: it.name, qty: take, mods: it.mods });
       if (take >= q) {
         await client.query("UPDATE restaurant_kitchen_items SET status = 'cancelled' WHERE id = $1", [it.id]);
       } else {
@@ -224,6 +226,9 @@ async function releaseHeld(client, companyId, where, arg) {
     "UPDATE restaurant_kitchen_tickets SET status = 'cooking', fired_at = now() WHERE company_id = $1 AND " + (where === 'order_id' ? 'order_id' : 'tab_id') + " = $2 AND status = 'held' RETURNING id",
     [companyId, arg])).rows.map(function (r) { return r.id; });
 }
+// A station whose tickets a network printer prints (restaurantPrinters):
+// the till does not print them too.
+var NOT_NETWORK = "NOT EXISTS (SELECT 1 FROM restaurant_printers np WHERE np.name <> '' AND s.id = ANY(np.station_ids))";
 // The ticket of each station that prints (no screen there: print_tickets),
 // for the till to print when it sends or calls a course: what that station
 // cooks of these tickets, with who it is for, its course, seats, add-ons,
@@ -232,7 +237,7 @@ async function chitsFor(client, ticketIds) {
   if (!ticketIds || !ticketIds.length) return [];
   var rows = (await client.query(
     "SELECT i.*, s.name AS station_name, t.number, t.label, t.table_name, t.waiter_name, t.guest_name, t.note AS ticket_note, t.fulfillment, t.course AS ticket_course, t.allergy, t.allergens AS ticket_allergens, t.guests, t.created_at AS sent_at " +
-    "FROM restaurant_kitchen_items i JOIN restaurant_kds_stations s ON s.id = i.station_id AND s.print_tickets JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
+    "FROM restaurant_kitchen_items i JOIN restaurant_kds_stations s ON s.id = i.station_id AND s.print_tickets AND " + NOT_NETWORK + " JOIN restaurant_kitchen_tickets t ON t.id = i.ticket_id " +
     "WHERE i.ticket_id = ANY($1::uuid[]) AND i.status = 'cooking' ORDER BY s.sort_order, s.name, t.course, i.seat NULLS FIRST, i.created_at", [ticketIds])).rows;
   var by = new Map();
   rows.forEach(function (r) {
@@ -257,7 +262,7 @@ async function markPrinted(client, ticketIds) {
 // with a kitchen printer. Within the last hour, still cooking.
 var QUEUE_SQL = "SELECT t.id FROM restaurant_kitchen_tickets t WHERE t.company_id = $1 AND t.chit_printed_at IS NULL AND t.status = 'cooking' " +
   "AND coalesce(t.fired_at, t.created_at) > now() - interval '60 minutes' " +
-  "AND EXISTS (SELECT 1 FROM restaurant_kitchen_items i JOIN restaurant_kds_stations s ON s.id = i.station_id AND s.print_tickets WHERE i.ticket_id = t.id AND i.status = 'cooking')";
+  "AND EXISTS (SELECT 1 FROM restaurant_kitchen_items i JOIN restaurant_kds_stations s ON s.id = i.station_id AND s.print_tickets AND " + NOT_NETWORK + " WHERE i.ticket_id = t.id AND i.status = 'cooking')";
 // GET /api/pos/kitchen/to-print — what waits (each station's ticket).
 async function printQueue(token) {
   var session = await access.need(token, 'till');
@@ -349,18 +354,24 @@ async function retarget(client, companyId, fromTabId, toTabId, names) {
 }
 
 // An open table removed, or a sale voided: what the kitchen has not
-// served yet is cancelled.
-async function cancelUnserved(client, companyId, where, arg) {
+// served yet is cancelled. voided: gathers what the kitchen had already,
+// for its void tickets (restaurantPrinters sendVoids).
+async function cancelUnserved(client, companyId, where, arg, voided) {
   var tickets = (await client.query(
-    "SELECT id FROM restaurant_kitchen_tickets WHERE company_id = $1 AND " + where + " = $2 AND status <> 'served' AND served_at IS NULL", [companyId, arg])).rows;
+    "SELECT id, status FROM restaurant_kitchen_tickets WHERE company_id = $1 AND " + where + " = $2 AND status <> 'served' AND served_at IS NULL", [companyId, arg])).rows;
   for (var i = 0; i < tickets.length; i++) {
+    if (voided && tickets[i].status !== 'held') {
+      (await client.query("SELECT * FROM restaurant_kitchen_items WHERE ticket_id = $1 AND status <> 'cancelled'", [tickets[i].id])).rows.forEach(function (it) {
+        voided.push({ ticketId: it.ticket_id, stationId: it.station_id, name: it.name, qty: Number(it.qty), mods: it.mods });
+      });
+    }
     await client.query("UPDATE restaurant_kitchen_items SET status = 'cancelled' WHERE ticket_id = $1 AND status <> 'cancelled'", [tickets[i].id]);
     await refresh(client, tickets[i].id);
   }
   return tickets.length;
 }
-function cancelForTab(client, companyId, tabId) { return cancelUnserved(client, companyId, 'tab_id', tabId); }
-function cancelForOrder(client, companyId, orderId) { return cancelUnserved(client, companyId, 'order_id', orderId); }
+function cancelForTab(client, companyId, tabId, voided) { return cancelUnserved(client, companyId, 'tab_id', tabId, voided); }
+function cancelForOrder(client, companyId, orderId, voided) { return cancelUnserved(client, companyId, 'order_id', orderId, voided); }
 
 // ── the kitchen screen ─────────────────────────────────────────────────
 

@@ -208,7 +208,11 @@ async function inbox(token) {
     "JOIN restaurant_open_tabs o ON o.id = p.tab_id LEFT JOIN restaurant_tables t ON t.id = o.table_id WHERE p.company_id = $1 AND p.purpose = 'table' AND p.status = 'success' AND p.used_by_order IS NULL " +
     'GROUP BY 1, 2 ORDER BY max(p.paid_at)', [company])).rows
     .map(function (r) { return { tabId: r.tab_id, tableName: r.table_name || '', amount: round2(r.amount), tip: round2(r.tip), payments: r.n, at: r.at }; });
-  return { orders: orders, calls: calls, paidAtTable: paid, settings: session.access.settings.qrOrders, requireWaiter: session.access.settings.requireWaiter };
+  // The network printers' state (a problem shows on every till), and for
+  // whoever charges, the orders others sent to the kitchen (their alert).
+  var printing = require('./restaurantPrinters.service');
+  return { orders: orders, calls: calls, paidAtTable: paid, settings: session.access.settings.qrOrders, requireWaiter: session.access.settings.requireWaiter,
+    printers: await printing.summary(company), sent: session.access.can.charge ? await printing.sentByOthers(company, session.posEmployeeId) : [] };
 }
 
 // An order from the table onto its open order on the till (made if there is

@@ -4,6 +4,7 @@ var kitchen = require('../services/restaurantKitchen.service');
 var money = require('../services/restaurantTillMoney.service');
 var access = require('../services/restaurantTillAccess.service');
 var screens = require('../services/restaurantKdsScreens.service');
+var printers = require('../services/restaurantPrinters.service');
 
 // The till's own endpoints — mounted at /api/pos in app.js, deliberately
 // public like /api/kiosk (see kiosk.routes.js's comment): no logged-in
@@ -311,6 +312,25 @@ router.post('/kds/tickets/:id/printed', posAuth, async function (req, res, next)
 });
 router.post('/kds/tickets/:id/recall', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.recallTicket(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+// The restaurant's network printers (Square-style): how they are, a till's
+// receipt or bill on one, a ticket printed again or cancelled; set up by a
+// manager in Till settings → Printers. origin: this server's address, for
+// the printer link.
+router.get('/printers', posAuth, async function (req, res, next) {
+  try { res.json(await printers.tillStatus(req.posToken)); } catch (e) { next(e); }
+});
+router.post('/printers/:id/print', posAuth, async function (req, res, next) {
+  try { res.status(201).json(await printers.tillPrint(req.posToken, req.params.id, req.body)); } catch (e) { next(e); }
+});
+router.post('/print-jobs/:id/again', posAuth, async function (req, res, next) {
+  try { res.json(await printers.printAgain(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/print-jobs/:id/cancel', posAuth, async function (req, res, next) {
+  try { res.json(await printers.cancelJob(req.posToken, req.params.id)); } catch (e) { next(e); }
+});
+router.post('/settings/printers', posAuth, async function (req, res, next) {
+  try { res.json(await printers.manage(req.posToken, req.body, req.ip, req.protocol + '://' + req.get('host'))); } catch (e) { next(e); }
 });
 router.get('/kitchen', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.tillSummary(req.posToken)); } catch (e) { next(e); }
