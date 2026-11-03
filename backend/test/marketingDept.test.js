@@ -230,6 +230,8 @@ test('audiences count the right people, never those who opted out, and export th
 });
 
 test('the home page adds it all up, and the calendar has everything with a date and the year\'s moments', async function () {
+  // A lead of today: the ones above are days old, last month in a month's first days.
+  await pool.query("INSERT INTO crm_leads (name, received_on, source, stage) VALUES ('ZMK Lead today', $1, 'Walk-in', 'new')", [day(0)]);
   var h = await home.home(boss, { company: 'BPL' });
   assert.ok(h.leads.month >= 1, 'the leads received this month');
   assert.ok(h.spend.month > 0 || h.spend.year > 0);

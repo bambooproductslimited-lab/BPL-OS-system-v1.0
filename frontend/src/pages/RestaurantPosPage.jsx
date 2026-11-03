@@ -184,6 +184,8 @@ const NO_ADJUST = { discount: null, serviceOff: null, promoCode: null, promo: nu
 // from then (its menu's hours); clash: it has what the order's allergy
 // alert names.
 const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, onTap, onFavorite, happy, closedFrom, clash }) {
+  // A photo that does not load (the file storage refusing it): the tile's letter instead.
+  const [broken, setBroken] = useState(false);
   return (
     <button
       type="button"
@@ -191,8 +193,9 @@ const MenuTile = memo(function MenuTile({ m, qty, tapped, plusN, canFavorite, on
       style={{ '--c': tileColor(m.name) }}
       onClick={() => onTap(m)}
     >
-      <span className="pos-tile-pic" style={m.photoUrl ? undefined : { '--c': tileColor(m.name) }}>
-        {m.photoUrl ? <img src={API_ORIGIN + m.photoUrl} alt="" width="52" height="52" loading="lazy" decoding="async" /> : <span>{tileInitial(m.name.replace(/^zq\s+/i, ''))}</span>}
+      <span className="pos-tile-pic" style={m.photoUrl && !broken ? undefined : { '--c': tileColor(m.name) }}>
+        {m.photoUrl && !broken ? <img src={API_ORIGIN + m.photoUrl} alt="" width="52" height="52" loading="lazy" decoding="async" onError={() => setBroken(true)} />
+          : <span>{tileInitial(m.name.replace(/^zq\s+/i, ''))}</span>}
       </span>
       <span className="pos-tile-text">
         <span className="pos-tile-name">{m.name}</span>

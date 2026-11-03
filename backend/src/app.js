@@ -163,6 +163,11 @@ var printerLimiter = rateLimit({
 });
 app.use('/api/cloudprnt', printerLimiter, cloudprntRoutes);
 app.use('/api', apiLimiter);
+// Is the file storage working (every photo comes through it)? The state
+// and what to do, for anyone to open — no numbers, no settings.
+app.get('/api/health/storage', async function (req, res) {
+  try { res.json(await require('./services/storageHealth.service').publicStatus()); } catch (e) { res.status(500).json({ storage: 'error', ok: false }); }
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/me', meRoutes);

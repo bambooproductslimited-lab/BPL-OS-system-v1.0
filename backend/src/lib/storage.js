@@ -4,7 +4,7 @@
 // R2_* env vars are set; callers check that and fail with a clear message
 // instead of the SDK throwing a confusing one.
 var crypto = require('crypto');
-var { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+var { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand } = require('@aws-sdk/client-s3');
 var { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 var config = require('../config');
 
@@ -60,7 +60,8 @@ async function deleteFile(key) {
 // and <img> tags can't attach an Authorization header at all, so this has
 // to be a plain unauthenticated GET (see routes/menuPhotos.routes.js).
 async function getObjectStream(key) {
-  var res = await client.send(new GetObjectCommand({ Bucket: r2.bucket, Key: key }));
+  if (!api.configured) throw Object.assign(new Error('Cloudflare R2 is not set up on this server.'), { name: 'NotConfigured' });
+  var res = await api.client.send(new GetObjectCommand({ Bucket: r2.bucket, Key: key }));
   return { stream: res.Body, contentType: res.ContentType };
 }
 // Every object under a prefix: [{ key, lastModified }] (catalogue photo
@@ -75,7 +76,40 @@ async function listKeys(prefix) {
   return out;
 }
 
+// What R2 said when it refused, in one word: the SDK's error name
+// (InvalidAccessKeyId, AccessDenied, NoSuchBucket, NoSuchKey…), or the
+// network's (ENOTFOUND, ETIMEDOUT), or the HTTP status.
+function codeOf(e) {
+  if (!e) return 'Unknown';
+  var c = e.name && e.name !== 'Error' ? e.name : e.Code || e.code || (e.$metadata && e.$metadata.httpStatusCode ? 'HTTP ' + e.$metadata.httpStatusCode : '');
+  if (c === 'NotFound' || (e.$metadata && e.$metadata.httpStatusCode === 404 && !/bucket/i.test(String(e.name || '')))) c = c === 'NoSuchBucket' ? c : 'NoSuchKey';
+  return String(c || e.message || 'Unknown').slice(0, 60);
+}
+// Does R2 answer, and with this server's key? A stored file (sampleKey)
+// is looked at (not downloaded); without one, the bucket is listed.
+// { ok: true } or { ok: false, step: 'settings'|'read'|'list', code }.
+async function check(sampleKey) {
+  if (!api.configured) return { ok: false, step: 'settings', code: 'NotConfigured' };
+  var list = function () { return api.client.send(new ListObjectsV2Command({ Bucket: r2.bucket, MaxKeys: 1 })); };
+  try {
+    if (sampleKey) await api.client.send(new HeadObjectCommand({ Bucket: r2.bucket, Key: sampleKey }));
+    else await list();
+    return { ok: true };
+  } catch (e) {
+    var code = codeOf(e);
+    // A look at a file answers "not found" for a missing bucket too: the
+    // bucket is asked for, to tell them apart.
+    if (sampleKey && code === 'NoSuchKey') {
+      try { await list(); } catch (e2) { if (codeOf(e2) === 'NoSuchBucket') return { ok: false, step: 'list', code: 'NoSuchBucket' }; }
+    }
+    return { ok: false, step: sampleKey ? 'read' : 'list', code: code };
+  }
+}
+// Tests stand in for R2: { configured, client: { send } }.
+var api = { configured: r2.configured, client: client };
+function setForTests(fake) { api = fake || { configured: r2.configured, client: client }; }
+
 module.exports = {
   configured: r2.configured, uploadFile: uploadFile, getDownloadUrl: getDownloadUrl,
-  deleteFile: deleteFile, getObjectStream: getObjectStream, listKeys: listKeys
+  deleteFile: deleteFile, getObjectStream: getObjectStream, listKeys: listKeys, check: check, codeOf: codeOf, setForTests: setForTests
 };

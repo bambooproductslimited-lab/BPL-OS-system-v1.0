@@ -73,6 +73,7 @@ var FIXTURE_MARK = 'AUTHZ-FIXTURE';
 var ALLOWED = {
   // --- genuinely public: no session at all ---
   'GET /api/health': 'liveness probe, no data',
+  'GET /api/health/storage': 'whether the file storage (Cloudflare R2) works and what to fix: a state and fixed advice, no counts, no settings (storageHealth publicStatus)',
   'POST /api/auth/login': 'the front door; rate-limited + per-account lockout',
   'GET /api/auth/password/options': 'only whether email and text messages are set up on the server — nothing about any account',
   'POST /api/auth/password/forgot': 'sends a reset code to the account\'s own address; same answer whether or not it exists; rate-limited per IP and per account',

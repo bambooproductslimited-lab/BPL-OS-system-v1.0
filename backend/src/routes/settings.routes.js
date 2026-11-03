@@ -24,6 +24,10 @@ router.get('/changes', async function (req, res, next) {
 router.get('/services', async function (req, res, next) {
   try { res.json(await settingsService.services(req.ctx)); } catch (e) { next(e); }
 });
+// The file storage checked now: does Cloudflare R2 answer, are the photos there.
+router.get('/storage-check', async function (req, res, next) {
+  try { res.json(await require('../services/storageHealth.service').checkNow(req.ctx)); } catch (e) { next(e); }
+});
 router.get('/integrations', async function (req, res, next) {
   try { res.json(await settingsService.listIntegrations(req.ctx)); } catch (e) { next(e); }
 });

@@ -40,8 +40,23 @@ async function get(key) {
     if (!r) return null;
     return { contentType: r.content_type, size: r.size, buffer: r.data };
   }
-  return storage.getObjectStream(key);
+  try {
+    return await storage.getObjectStream(key);
+  } catch (e) {
+    // Not there: like a missing row. Refused (the key, the settings, the
+    // bucket): said plainly in the log, at most once a minute, instead of
+    // a stack for every picture on the page (services/storageHealth).
+    var code = storage.codeOf(e);
+    if (code === 'NoSuchKey') return null;
+    if (Date.now() - lastRefusal > 60000) {
+      lastRefusal = Date.now();
+      console.error('[file storage] Cloudflare R2 refused to give a file (' + code + '). Photos and files cannot be shown until this is fixed: open /api/health/storage for what to do.');
+    }
+    var { fail } = require('../utils/errors');
+    fail('unavailable', 'This file cannot be shown right now: file storage (Cloudflare R2) refused it (' + code + ').');
+  }
 }
+var lastRefusal = 0;
 
 async function del(key, db) {
   if (!key) return;

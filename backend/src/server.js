@@ -16,6 +16,8 @@ var paymentLinksJob = require('./jobs/paymentLinks');
 
 app.listen(config.port, function () {
   console.log('Bamboo OS backend listening on port ' + config.port + ' (' + config.nodeEnv + ')');
+  // The file storage, checked once: a line in the log says if photos can be shown.
+  setTimeout(function () { require('./services/storageHealth.service').logAtStart(); }, 5000);
   autoClockOut.start();
   meetingReminders.start();
   morningDigest.start();

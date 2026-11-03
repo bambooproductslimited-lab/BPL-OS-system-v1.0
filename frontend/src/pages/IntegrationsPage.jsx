@@ -38,6 +38,23 @@ const HOW = {
   server: { label: msg('Set up on the server'), tone: 'muted' },
   planned: { label: msg('Not available yet'), tone: 'muted' }
 };
+// The file storage checked for real (backend storageHealth.service.js):
+// every photo — the till, the shops, the OS — is read through the server
+// from Cloudflare R2. Each state, what it means and what to do.
+const STORAGE_WORDS = {
+  ok: [msg('Working: Cloudflare R2 answers and the photos are there.'), null],
+  database: [msg('Files are kept in the database (Cloudflare R2 is not set up). Photos work; files over 15 MB cannot be kept.'), null],
+  'missing-settings': [msg('The R2 settings are missing on the server, but the photos are kept in Cloudflare R2, so no photo can be shown.'),
+    msg('Put R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET back in Render → bamboo-os-backend → Environment, and save.')],
+  refused: [msg('Cloudflare refused the server\'s R2 key: it was deleted, has expired or was changed. No photo or file can be shown.'),
+    msg('In Cloudflare → R2 → Manage API tokens, create a token with Object Read & Write on the bucket and no end date. Put its Access Key ID and Secret Access Key in Render as R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY, and save.')],
+  'no-bucket': [msg('The bucket named in R2_BUCKET does not exist: it was renamed or deleted.'), msg('In Render, set R2_BUCKET to the bucket\'s exact name as Cloudflare → R2 lists it.')],
+  'not-in-bucket': [msg('Cloudflare R2 answers, but the photos are not in this bucket: R2_BUCKET or R2_ACCOUNT_ID points at another bucket or account.'),
+    msg('In Render, set R2_ACCOUNT_ID and R2_BUCKET back to the account and bucket the photos were saved in.')],
+  unreachable: [msg('The server cannot reach Cloudflare R2: R2_ACCOUNT_ID may be wrong, or Cloudflare is having trouble.'), msg('Check R2_ACCOUNT_ID in Render against the Account ID in Cloudflare → R2, and Cloudflare\'s status page.')],
+  error: [msg('Cloudflare R2 answered with an error.'), msg('Look at the server\'s log in Render for the line starting [file storage].')]
+};
+
 const SERVICE_TEXT = {
   ai: msg('The AI Assistant and marketing suggestions.'),
   sms: msg('Text messages: payment reminders, booking notices, sign-in codes.'),
@@ -86,6 +103,13 @@ export default function IntegrationsPage() {
   const [squareStarting, setSquareStarting] = useState(false);
   const [squareError, setSquareError] = useState(null);
   const [feeds, setFeeds] = useState([]);
+  const [storage, setStorage] = useState(null); // the file storage checked: { state, ok, code, photos, checkedAt }
+  const [checking, setChecking] = useState(false);
+  const checkStorage = useCallback(async () => {
+    setChecking(true);
+    try { setStorage(await api.get('/settings/storage-check')); } catch { setStorage(null); } finally { setChecking(false); }
+  }, []);
+  useEffect(() => { checkStorage(); }, [checkStorage]);
   const squareRunning = !!(squareJob && squareJob.status === 'running');
 
   const load = useCallback(async () => {
@@ -182,7 +206,8 @@ export default function IntegrationsPage() {
   ];
 
   const insights = [];
-  missingEssential.forEach((s) => insights.push({ tone: 'bad', icon: 'warn', text: tr('{name} isn\'t set up: {what} Add {vars} in Render → Environment.', { name: s.name, what: tr(SERVICE_TEXT[s.id]), vars: s.env.join(', ') }), action: { label: tr('Show'), run: () => jump('in-services') } }));
+  // The storage's own check says it better (below) when it fails.
+  missingEssential.filter((s) => !(s.id === 'storage' && storage && !storage.ok)).forEach((s) => insights.push({ tone: 'bad', icon: 'warn', text: tr('{name} isn\'t set up: {what} Add {vars} in Render → Environment.', { name: s.name, what: tr(SERVICE_TEXT[s.id]), vars: s.env.join(', ') }), action: { label: tr('Show'), run: () => jump('in-services') } }));
   if (cantConnect.length) insights.push({ tone: 'warn', icon: 'warn', text: tr('The Connect button for {names} can\'t work until the platform\'s app keys are on the server.', { names: cantConnect.map((i) => i.name).join(', ') }), action: { label: tr('Show them'), run: () => showOnly('cant') } });
   if (planned.length) insights.push({ tone: 'info', icon: 'info', text: tr('{names} are listed but not built yet, so there is nothing to connect. Ask for them if the company needs them.', { names: planned.map((i) => i.name).join(', ') }), action: null });
   if (squareJob && (squareJob.status === 'failed' || squareJob.status === 'interrupted')) insights.unshift({ tone: 'bad', icon: 'warn', text: squareJob.status === 'failed' ? tr('The last Square import stopped with an error on {date}.', { date: fmtDate(squareJob.finishedAt || squareJob.heartbeatAt) }) : tr('The last Square import was stopped by a server restart. Run it again to finish — nothing is imported twice.'), action: { label: tr('Show'), run: () => jump('in-square') } });
@@ -191,6 +216,8 @@ export default function IntegrationsPage() {
   if (failingFeeds.length) insights.unshift({ tone: 'bad', icon: 'warn', text: failingFeeds.length === 1 ? tr('The attendance feed "{name}" can\'t reach {host}: {why} Clock-ins wait and are sent when it answers.', { name: failingFeeds[0].name, host: (() => { try { return new URL(failingFeeds[0].pushUrl).hostname; } catch { return failingFeeds[0].pushUrl; } })(), why: failingFeeds[0].lastError }) : tr('{n} attendance feeds can\'t reach their site. Clock-ins wait and are sent when they answer.', { n: failingFeeds.length }), action: { label: tr('Show'), run: () => jump('in-feeds') } });
   const pausedFeeds = feeds.filter((f) => !f.active);
   if (pausedFeeds.length) insights.push({ tone: 'info', icon: 'info', text: tr('{names}: paused, so no clock-ins are sent or read. What changes meanwhile is sent when resumed.', { names: pausedFeeds.map((f) => f.name).join(', ') }), action: { label: tr('Show'), run: () => jump('in-feeds') } });
+  // Photos and files not showing: why, first.
+  if (storage && !storage.ok && STORAGE_WORDS[storage.state]) insights.unshift({ tone: 'bad', icon: 'warn', text: tr('Photos and files can\'t be shown: {why}', { why: tr(STORAGE_WORDS[storage.state][0]) }), action: { label: tr('Show'), run: () => jump('in-services') } });
   if (!insights.length) insights.push({ tone: 'good', icon: 'check', text: tr('Everything the company relies on is connected.') });
 
   const chipTest = { all: () => true, connected: (i) => i.connected, cant: (i) => i.how === 'oauth' && !i.connected && !i.ready, oauth: (i) => i.how === 'oauth', server: (i) => i.how === 'server', planned: (i) => i.how === 'planned' };
@@ -345,6 +372,18 @@ export default function IntegrationsPage() {
                 <strong>{s.name}</strong>
                 <span className="dk-muted tl-small">{tr(SERVICE_TEXT[s.id])}</span>
                 {!s.ready && <span className="in-env">{s.env.map((v) => <code key={v}>{v}</code>)}</span>}
+                {s.id === 'storage' && (
+                  <div className={'in-sv-check' + (storage ? (storage.ok ? ' is-ok' : ' is-bad') : '')} role="status">
+                    {storage && STORAGE_WORDS[storage.state] ? (
+                      <>
+                        <strong>{storage.ok ? '✅ ' : '❌ '}{tr(STORAGE_WORDS[storage.state][0])}</strong>
+                        {STORAGE_WORDS[storage.state][1] && <span>{tr('What to do: {fix}', { fix: tr(STORAGE_WORDS[storage.state][1]) })}</span>}
+                        <small className="dk-muted">{[storage.code && !storage.ok ? tr('Cloudflare said: {code}', { code: storage.code }) : '', tr('{r2} photos in R2, {db} in the database', { r2: storage.photos.r2, db: storage.photos.database }), tr('checked {when}', { when: new Date(storage.checkedAt).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })].filter(Boolean).join(' · ')}</small>
+                      </>
+                    ) : <span className="dk-muted">{checking ? tr('Checking the file storage…') : tr('The file storage could not be checked.')}</span>}
+                    <button type="button" className="btn btn-secondary" disabled={checking} onClick={checkStorage}>{checking ? tr('Checking…') : tr('Check now')}</button>
+                  </div>
+                )}
               </div>
               <Status tone={s.ready ? 'good' : s.essential ? 'bad' : 'muted'}>{s.ready ? tr('Ready') : tr('Not set up')}</Status>
             </li>

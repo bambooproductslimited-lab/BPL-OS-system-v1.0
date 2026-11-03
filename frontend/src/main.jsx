@@ -9,10 +9,12 @@ import { AuthProvider } from './auth/AuthContext'
 import { API_URL } from './api/client'
 import { LazySalesApp } from './pages/sales/lazySalesApp.js'
 import { installTypeToSearch } from './lib/typeToSearch.js'
+import { installBrokenImages } from './lib/brokenImages.js'
 import { installPrintTheme } from './lib/theme.js'
 
 // Every dropdown searchable, and typing goes into a screen's search box.
 installTypeToSearch()
+installBrokenImages()
 // Whatever the theme on screen, it prints as the light one.
 installPrintTheme()
 

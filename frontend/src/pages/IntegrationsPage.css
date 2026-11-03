@@ -32,3 +32,10 @@
 .in-sq-errors code { font-size: 11.5px; overflow-wrap: anywhere; }
 @media (max-width: 720px) { .in-sq-run { margin-left: 0; width: 100%; } }
 .in-sq-msg { margin: 0; padding: 10px 14px; font-size: 13px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-danger); border-radius: var(--dk-r); background: var(--color-bg-subtle); overflow-wrap: anywhere; }
+/* The file storage checked for real: working, or what is wrong and what to do. */
+.in-sv-check { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; font-size: 13px; background: var(--color-bg-subtle); border: 1px solid var(--color-divider); }
+.in-sv-check.is-ok { background: color-mix(in srgb, #22c55e 9%, var(--color-bg)); border-color: color-mix(in srgb, #22c55e 30%, var(--color-divider)); }
+.in-sv-check.is-bad { background: color-mix(in srgb, #ef4444 9%, var(--color-bg)); border-color: color-mix(in srgb, #ef4444 35%, var(--color-divider)); }
+.in-sv-check strong { font-size: 13.5px; line-height: 1.4; }
+.in-sv-check span { line-height: 1.45; }
+.in-sv-check .btn { margin-top: 4px; }
