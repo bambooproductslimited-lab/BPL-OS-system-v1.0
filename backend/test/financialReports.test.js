@@ -112,7 +112,10 @@ test('tax summary: groups by rate, labels ambiguous shared rates, and reconciles
   // invoices "today" that fall inside tax-summary's default (month-to-date)
   // period — diff against a before-snapshot rather than asserting absolute
   // bucket totals, same pattern marketing.test.js uses for follower stats.
-  function bucket(tax, rate) { return (tax.byRate.find(function (r) { return r.rate === rate; }) || { taxCollected: 0 }).taxCollected; }
+  // The lines' own tax at a rate: whole-document taxes by name (VAT, NHIL,
+  // GETFund; migration 0212) have rows of their own at the same rates.
+  function lineRow(tax, rate) { return tax.byRate.find(function (r) { return r.rate === rate && !r.onWholeDocument; }); }
+  function bucket(tax, rate) { return (lineRow(tax, rate) || { taxCollected: 0 }).taxCollected; }
   var before = await (await fetch(base + '/api/reports/tax-summary', { headers: authed(kelvin) })).json();
 
   var custRes = await fetch(base + '/api/customers', {
@@ -135,8 +138,8 @@ test('tax summary: groups by rate, labels ambiguous shared rates, and reconciles
   assert.equal(invRes.status, 201);
 
   var tax = await (await fetch(base + '/api/reports/tax-summary', { headers: authed(kelvin) })).json();
-  var vat = tax.byRate.find(function (r) { return r.rate === 15; });
-  var shared = tax.byRate.find(function (r) { return r.rate === 2.5; });
+  var vat = lineRow(tax, 15);
+  var shared = lineRow(tax, 2.5);
 
   assert.ok(vat, 'expected a 15% bucket');
   assert.equal(vat.label, 'VAT');
