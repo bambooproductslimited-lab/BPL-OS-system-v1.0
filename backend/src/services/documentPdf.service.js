@@ -3,6 +3,7 @@ var fs = require('fs');
 var PDFDocument = require('pdfkit');
 var { pool } = require('../db/pool');
 var shares = require('./shares.service');
+var { taxLines } = require('../utils/documents');
 
 // The PDF a customer gets by email (documentEmails.service.js): an invoice,
 // quotation, estimate or Poki bill, and the receipt for a payment. Made on
@@ -94,8 +95,8 @@ function adjustmentRows(doc, currency) {
   var discounts = [];
   if (itemDiscounts > 0.005) discounts.push({ label: 'Discount on items', value: '- ' + money(itemDiscounts, currency) });
   if (docDiscount > 0.005) discounts.push({ label: dd.type === 'percent' ? 'Discount (' + ddValue + '%)' : 'Discount', value: '- ' + money(docDiscount, currency) });
-  var rate = Number(doc.taxRate) || 0;
-  var taxes = taxTotal > 0.005 ? [{ label: rate ? 'Tax (' + rate + '%)' : 'Tax', value: money(taxTotal, currency) }] : [];
+  // The tax by name, one line each — VAT, NHIL, GETFund — as charged.
+  var taxes = taxTotal > 0.005 ? taxLines(doc).map(function (t) { return { label: t.label, value: money(t.amount, currency) }; }) : [];
   return discounts.concat(taxes);
 }
 
@@ -396,4 +397,4 @@ async function receiptPdf(receiptId) {
   };
 }
 
-module.exports = { documentPdf: documentPdf, receiptPdf: receiptPdf, letterheadFor: letterheadFor, money: money, docDate: docDate, clean: clean };
+module.exports = { documentPdf: documentPdf, receiptPdf: receiptPdf, letterheadFor: letterheadFor, money: money, docDate: docDate, clean: clean, adjustmentRows: adjustmentRows };

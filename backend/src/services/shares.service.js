@@ -168,6 +168,8 @@ async function documentView(documentType, documentId) {
     // the printed one. All three document tables carry these columns.
     discount: { value: Number(d.discount_value) || 0, type: d.discount_type === 'percent' ? 'percent' : 'fixed' },
     taxRate: Number(d.tax_rate) || 0,
+    // Its taxes by name (VAT, NHIL, GETFund…; migration 0212), one line each.
+    taxComponents: Array.isArray(d.tax_components) ? d.tax_components : [],
     // Credit notes taken off an invoice (creditNotes.service.js).
     creditTotal: Number(d.credit_total || 0),
     amountPaid: d.amount_paid != null ? Number(d.amount_paid) : null, balanceDue: d.balance_due != null ? Number(d.balance_due) : null,

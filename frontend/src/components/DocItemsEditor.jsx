@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { money } from '../lib/currency';
 import CatalogPicker from './CatalogPicker';
 import DocOptions from './DocOptions';
+import DocTaxes from './DocTaxes';
 import { linesForOption, optionLetter } from '../lib/docOptions';
 import { tr } from '../lib/i18n.jsx';
 import './DocItemsEditor.css';
@@ -146,7 +147,7 @@ function CatalogStockLine({ item, cat, stockMode }) {
 
 export default function DocItemsEditor({
   items, onChange, catalogOptions, currency, docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
-  paymentSchedule, onPaymentScheduleChange, stockProducts, stockMode, options, onOptionsChange
+  docTaxComponents, onDocTaxComponentsChange, paymentSchedule, onPaymentScheduleChange, stockProducts, stockMode, options, onOptionsChange
 }) {
   const stockList = stockProducts || null;
   // A catalogue item's stock: its linked product's, else its own (shown when it has any).
@@ -337,17 +338,18 @@ export default function DocItemsEditor({
           </div>
         </div>
       )}
+      {/* The taxes on the whole document: VAT, NHIL, GETFund by name, or
+          one other rate (DocTaxes.jsx). */}
+      {onDocTaxRateChange && (
+        <DocTaxes
+          currency={cur} totals={totals} docTaxRate={docTaxRate} components={docTaxComponents}
+          onChange={(list, rate) => { if (onDocTaxComponentsChange) onDocTaxComponentsChange(list); onDocTaxRateChange(rate); }}
+        />
+      )}
       <div className="doc-items-footer">
         <div>{tr('Subtotal')} <strong>{money(totals.subtotal, cur)}</strong></div>
         <div>{tr('Discount')} <strong>{money(totals.discountTotal, cur)}</strong></div>
-        <div>
-          {tr('Tax')} <strong>{money(totals.taxTotal, cur)}</strong>
-          {onDocTaxRateChange && (
-            <span className="doc-items-doc-tax">
-              (<input className="input" type="number" min="0" step="0.1" value={docTaxRate || ''} placeholder="0" onChange={(e) => onDocTaxRateChange(e.target.value)} />%)
-            </span>
-          )}
-        </div>
+        <div>{tr('Tax')} <strong>{money(totals.taxTotal, cur)}</strong></div>
         <div>{opts.length ? tr('Total of {name}', { name: opts[0].name || tr('option {letter}', { letter: 'A' }) }) : tr('Total')} <strong className="doc-items-grand-total">{money(totals.grandTotal, cur)}</strong></div>
       </div>
     </div>

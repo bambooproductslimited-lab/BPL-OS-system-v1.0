@@ -108,6 +108,8 @@ export default function InvoicesPage() {
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
+  // Its taxes by name — VAT, NHIL, GETFund — each a line on the document.
+  const [docTaxComponents, setDocTaxComponents] = useState([]);
   const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [dialogError, setDialogError] = useState(null);
   // The customer whose credit limit this invoice goes over, once told:
@@ -184,6 +186,7 @@ export default function InvoicesPage() {
     setItems([blankDocItem()]);
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
+    setDocTaxComponents([]);
     setPaymentSchedule([]);
     setOverCreditFor(null);
     setDialogOpen(true);
@@ -194,7 +197,7 @@ export default function InvoicesPage() {
     try {
       const made = await api.post('/invoices', {
         customerId: form.customerId, items, dueDate: form.dueDate, poReference: form.poReference, notes: form.notes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule,
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, taxComponents: docTaxComponents, paymentSchedule,
         overCreditOk: overCreditFor === form.customerId || undefined
       });
       // Say what left stock with it (backend inventorySales.service.js).
@@ -634,6 +637,7 @@ export default function InvoicesPage() {
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          docTaxComponents={docTaxComponents} onDocTaxComponentsChange={setDocTaxComponents}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
             { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },

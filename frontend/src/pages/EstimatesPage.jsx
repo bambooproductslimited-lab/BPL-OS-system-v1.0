@@ -93,6 +93,8 @@ export default function EstimatesPage() {
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
+  // Its taxes by name — VAT, NHIL, GETFund — each a line on the document.
+  const [docTaxComponents, setDocTaxComponents] = useState([]);
   const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -144,6 +146,7 @@ export default function EstimatesPage() {
     setItems([blankDocItem()]);
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
+    setDocTaxComponents([]);
     setPaymentSchedule([]);
     setDialogOpen(true);
   }
@@ -154,6 +157,7 @@ export default function EstimatesPage() {
     setItems(es.items.map((it) => ({ ...it })));
     setDocDiscount(es.discount || { value: 0, type: 'fixed' });
     setDocTaxRate(es.taxRate || 0);
+    setDocTaxComponents(es.taxComponents || []);
     setPaymentSchedule((es.paymentSchedule || []).map((r) => ({ label: r.label, type: r.type, value: r.value, dueDate: r.dueDate || '' })));
     setDetail(null);
     setDialogOpen(true);
@@ -165,7 +169,7 @@ export default function EstimatesPage() {
     try {
       const payload = {
         customerId: form.customerId, items, validUntil: form.validUntil, internalNotes: form.internalNotes, clientNotes: form.clientNotes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, taxComponents: docTaxComponents, paymentSchedule
       };
       if (editId) await api.put('/estimates/' + editId, payload);
       else await api.post('/estimates', payload);
@@ -485,6 +489,7 @@ export default function EstimatesPage() {
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          docTaxComponents={docTaxComponents} onDocTaxComponentsChange={setDocTaxComponents}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           recapBlocks={[
             { label: tr('Customer'), value: (customers.find((c) => c.id === form.customerId) || {}).name || '—' },

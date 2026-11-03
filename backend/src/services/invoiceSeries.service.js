@@ -129,7 +129,7 @@ async function raiseDue(s, today) {
     try {
       var inv = await require('./invoices.service').createManual(ctx, {
         customerId: template.customer_id, items: items, currency: template.currency, dueDate: addDays(next, s.due_days),
-        discount: { value: Number(template.discount_value), type: template.discount_type }, taxRate: Number(template.tax_rate),
+        discount: { value: Number(template.discount_value), type: template.discount_type }, taxRate: Number(template.tax_rate), taxComponents: template.tax_components || [],
         notes: template.notes, terms: template.terms, poReference: template.po_reference
       }, { seriesId: s.id, seriesPeriod: next });
       raised.push(inv);

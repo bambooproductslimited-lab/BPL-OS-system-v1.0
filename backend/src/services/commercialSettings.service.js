@@ -60,6 +60,21 @@ async function save(ctx, p) {
   return c;
 }
 
+// The taxes set up here, for whoever makes quotations, estimates and
+// invoices to charge by name (the document editor's VAT, NHIL and GETFund
+// switches; utils/documents.js docTaxOf). Only the names and rates: the
+// rest of these settings stay with settings.manage. Withholding tax is
+// marked, as it is held back by the customer rather than added to a bill.
+async function taxRates(ctx) {
+  if (!['settings.manage', 'quotation.manage', 'invoice.manage', 'poki.manage'].some(function (p) { return ctx.can(p); })) {
+    fail('forbidden', 'Your role does not allow this action (quotation.manage).');
+  }
+  var c = (await pool.query('SELECT commercial FROM settings WHERE id = 1')).rows[0].commercial || {};
+  return (c.taxRates || []).map(function (t) {
+    return { id: t.id, name: t.name, rate: Number(t.rate) || 0, withheld: t.id === 'tx_wht' || /withholding|\bwht\b/i.test(String(t.name || '')) };
+  });
+}
+
 // kernel.js: handlers['commercialSettings.addTaxRate']
 async function addTaxRate(ctx, p) {
   if (!ctx.can('settings.manage')) fail('forbidden', 'Your role does not allow this action (settings.manage).');
@@ -93,4 +108,4 @@ async function removeTaxRate(ctx, id) {
   return true;
 }
 
-module.exports = { get: get, save: save, addTaxRate: addTaxRate, removeTaxRate: removeTaxRate };
+module.exports = { get: get, save: save, taxRates: taxRates, addTaxRate: addTaxRate, removeTaxRate: removeTaxRate };

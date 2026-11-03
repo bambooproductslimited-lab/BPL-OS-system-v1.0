@@ -96,6 +96,80 @@ function computeDocTotals(items, docDiscount, docTaxRate) {
   };
 }
 
+// The taxes a document charges on its whole amount, by name (migration
+// 0212): VAT, NHIL, GETFund… Each is a rate on the same amount (what is left
+// after discounts), the way Ghana charges them since 2026 — the levies no
+// longer sit under VAT — so the document's tax_rate is simply their sum and
+// every total is worked out exactly as with one plain rate. Up to six, each
+// named and above 0%; one named twice is refused rather than charged twice.
+var MAX_TAX_COMPONENTS = 6;
+function cleanTaxComponents(raw) {
+  var arr = Array.isArray(raw) ? raw : [];
+  if (arr.length > MAX_TAX_COMPONENTS) fail('invalid', 'A document can carry at most ' + MAX_TAX_COMPONENTS + ' taxes.');
+  var out = [], seen = {};
+  arr.forEach(function (t) {
+    if (!t || typeof t !== 'object') return;
+    var rate = Math.round((Number(t.rate) || 0) * 1000) / 1000;
+    if (!(rate > 0)) return;
+    if (rate > 100) fail('invalid', 'A tax cannot be more than 100%.');
+    var name = String(t.name == null ? '' : t.name).replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!name) fail('invalid', 'Give each tax its name, such as VAT or NHIL.');
+    if (seen[name.toLowerCase()]) fail('invalid', name + ' is on this document twice.');
+    seen[name.toLowerCase()] = true;
+    var c = { name: name, rate: rate };
+    if (/^[A-Za-z0-9_-]{1,40}$/.test(String(t.id || ''))) c.id = String(t.id);
+    out.push(c);
+  });
+  return out;
+}
+
+// A document's tax as it is saved: { rate, components }. With taxes by name
+// the rate is their sum (whatever plain rate came with them); without, the
+// plain rate as before.
+function docTaxOf(p) {
+  var components = cleanTaxComponents(p && p.taxComponents);
+  if (components.length) {
+    var sum = components.reduce(function (s, t) { return s + t.rate; }, 0);
+    return { rate: Math.round(sum * 1000) / 1000, components: components };
+  }
+  return { rate: Math.max(0, Number(p && p.taxRate) || 0), components: [] };
+}
+
+// The tax lines a printed document shows, from what it stores (its totals,
+// its tax rate and its taxes by name): the tax its lines carry, if any, then
+// the tax on the whole amount — one line per tax by name ("VAT (15%)",
+// "NHIL (2.5%)", "GETFund (2.5%)"), or one "Tax (20%)". Each tax is its rate
+// of the amount after discounts; the last takes the odd cent, so the lines
+// always add up to the document's own tax total. The same arithmetic as the
+// frontend's lib/docItems.js taxBreakdown. Returns [{ label, rate, amount,
+// onItems }].
+function taxLines(doc) {
+  var taxTotal = roundMoney(doc.taxTotal);
+  if (!(taxTotal > 0.005)) return [];
+  var rate = Number(doc.taxRate) || 0;
+  var base = Math.max(0, (Number(doc.subtotal) || 0) - (Number(doc.discountTotal) || 0));
+  var whole = rate > 0 ? Math.min(taxTotal, roundMoney(base * rate / 100)) : 0;
+  var onItems = roundMoney(taxTotal - whole);
+  // A cent's difference is the rounding of the stored totals, not a tax.
+  if (whole > 0 && onItems <= 0.01) { whole = taxTotal; onItems = 0; }
+  var out = [];
+  if (onItems > 0) out.push({ label: whole > 0 ? 'Tax on items' : 'Tax', rate: null, amount: onItems, onItems: true });
+  if (whole > 0) {
+    var comps = (doc.taxComponents || []).filter(function (t) { return Number(t.rate) > 0; });
+    if (!comps.length) {
+      out.push({ label: 'Tax (' + rate + '%)', name: 'Tax', rate: rate, amount: whole, onItems: false });
+    } else {
+      var sum = comps.reduce(function (s, t) { return s + Number(t.rate); }, 0), given = 0;
+      comps.forEach(function (t, i) {
+        var amt = i === comps.length - 1 ? roundMoney(whole - given) : roundMoney(whole * Number(t.rate) / sum);
+        given = roundMoney(given + amt);
+        out.push({ label: t.name + ' (' + Number(t.rate) + '%)', name: t.name, rate: Number(t.rate), amount: amt, onItems: false });
+      });
+    }
+  }
+  return out;
+}
+
 // Ported from kernel.js's nextDocNumber(kind), adapted to be transaction-safe:
 // locks the settings row, reads+increments commercial.numbering[kind] in one
 // statement. `client` must be inside an open transaction (kernel's in-memory
@@ -160,5 +234,5 @@ module.exports = {
   buildLineItems: buildLineItems, computeDocTotals: computeDocTotals, nextDocNumber: nextDocNumber, addDays: addDays,
   todayISO: todayISO, insertLineItems: insertLineItems, loadLineItems: loadLineItems, resolveCurrency: resolveCurrency,
   buildPaymentSchedule: buildPaymentSchedule, roundMoney: roundMoney, bplScopeClause: bplScopeClause,
-  MAX_LINE_ITEMS: MAX_LINE_ITEMS
+  MAX_LINE_ITEMS: MAX_LINE_ITEMS, cleanTaxComponents: cleanTaxComponents, docTaxOf: docTaxOf, taxLines: taxLines
 };

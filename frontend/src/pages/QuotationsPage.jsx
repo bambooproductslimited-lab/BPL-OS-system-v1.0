@@ -103,6 +103,8 @@ export default function QuotationsPage() {
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
   const [docTaxRate, setDocTaxRate] = useState(0);
+  // Its taxes by name — VAT, NHIL, GETFund — each a line on the document.
+  const [docTaxComponents, setDocTaxComponents] = useState([]);
   const [paymentSchedule, setPaymentSchedule] = useState([]);
   const [options, setOptions] = useState([]); // two or three for the customer to pick from, or none
   const [dialogError, setDialogError] = useState(null);
@@ -159,6 +161,7 @@ export default function QuotationsPage() {
     setItems([blankDocItem()]);
     setDocDiscount({ value: 0, type: 'fixed' });
     setDocTaxRate(0);
+    setDocTaxComponents([]);
     setPaymentSchedule([]);
     setOptions([]);
     setDialogOpen(true);
@@ -173,6 +176,7 @@ export default function QuotationsPage() {
     setItems(q.items.map((it) => ({ ...it, optionKey: offered.length ? it.optionKey || '' : '' })));
     setDocDiscount(q.discount || { value: 0, type: 'fixed' });
     setDocTaxRate(q.taxRate || 0);
+    setDocTaxComponents(q.taxComponents || []);
     setPaymentSchedule((q.paymentSchedule || []).map((r) => ({ label: r.label, type: r.type, value: r.value, dueDate: r.dueDate || '' })));
     closeDetail();
     setDialogOpen(true);
@@ -184,7 +188,7 @@ export default function QuotationsPage() {
     try {
       const payload = {
         customerId: form.customerId, title: form.title, items, validUntil: form.validUntil, notes: form.notes,
-        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, paymentSchedule, options
+        currency: form.currency || undefined, discount: docDiscount, taxRate: docTaxRate, taxComponents: docTaxComponents, paymentSchedule, options
       };
       if (editId) await api.put('/quotations/' + editId, payload);
       else await api.post('/quotations', payload);
@@ -529,6 +533,7 @@ export default function QuotationsPage() {
           currency={form.currency || (customers.find((c) => c.id === form.customerId) || {}).preferredCurrency || 'GHS'}
           docDiscount={docDiscount} onDocDiscountChange={setDocDiscount}
           docTaxRate={docTaxRate} onDocTaxRateChange={setDocTaxRate}
+          docTaxComponents={docTaxComponents} onDocTaxComponentsChange={setDocTaxComponents}
           paymentSchedule={paymentSchedule} onPaymentScheduleChange={setPaymentSchedule}
           options={options} onOptionsChange={setOptions}
           recapBlocks={[

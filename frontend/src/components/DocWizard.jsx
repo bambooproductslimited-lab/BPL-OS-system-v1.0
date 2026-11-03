@@ -2,6 +2,7 @@ import { useState } from 'react';
 import DocItemsEditor from './DocItemsEditor';
 import DocPreview from './DocPreview';
 import { money } from '../lib/currency';
+import { adjustmentRows, taxBreakdown, taxLabel } from '../lib/docItems';
 import { groupPackageItems } from '../lib/packages';
 import { tr, docTr, msg } from '../lib/i18n.jsx';
 import './DocWizard.css';
@@ -25,7 +26,7 @@ const STEPS = [msg('Details'), msg('Items & pricing'), msg('Finish')];
 export default function DocWizard({
   title, docKind, detailsSlot, message, onMessageChange, messageLabel,
   items, onItemsChange, catalogOptions, stockProducts, currency,
-  docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange,
+  docDiscount, onDocDiscountChange, docTaxRate, onDocTaxRateChange, docTaxComponents, onDocTaxComponentsChange,
   paymentSchedule, onPaymentScheduleChange, options, onOptionsChange,
   recapBlocks, submitLabel, saving, error, onSubmit, onClose
 }) {
@@ -36,6 +37,11 @@ export default function DocWizard({
   const opts = options || [];
   const optName = (o) => o.name || tr('Option {letter}', { letter: optionLetter(o.key) });
   const totals = computeRecapTotals(opts.length ? linesForOption(items, opts[0].key) : items, docDiscount, docTaxRate);
+  // The document's figures as the server will keep them, for its tax lines
+  // (VAT, NHIL, GETFund each on its own) on the recap and the preview.
+  const asSaved = { ...totals, taxRate: docTaxRate, taxComponents: docTaxComponents || [], discount: docDiscount };
+  const taxes = taxBreakdown(asSaved);
+  const adjust = adjustmentRows(asSaved, currency);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -92,6 +98,7 @@ export default function DocWizard({
               stockProducts={stockProducts} stockMode={docKind === 'invoice' ? 'invoice' : 'plan'}
               docDiscount={docDiscount} onDocDiscountChange={onDocDiscountChange}
               docTaxRate={docTaxRate} onDocTaxRateChange={onDocTaxRateChange}
+              docTaxComponents={docTaxComponents} onDocTaxComponentsChange={onDocTaxComponentsChange}
               paymentSchedule={paymentSchedule} onPaymentScheduleChange={onPaymentScheduleChange}
               options={options} onOptionsChange={onOptionsChange}
             />
@@ -107,7 +114,9 @@ export default function DocWizard({
               <div className="docwizard-recap-row"><span>{tr('Items')}</span><span>{items.length}</span></div>
               <div className="docwizard-recap-row"><span>{tr('Subtotal')}</span><span>{money(totals.subtotal, currency)}</span></div>
               <div className="docwizard-recap-row"><span>{tr('Discount')}</span><span>{money(totals.discountTotal, currency)}</span></div>
-              <div className="docwizard-recap-row"><span>{tr('Tax')}</span><span>{money(totals.taxTotal, currency)}</span></div>
+              {taxes.length ? taxes.map((t, i) => (
+                <div className="docwizard-recap-row" key={'tax' + i}><span>{taxLabel(t)}</span><span>{money(t.amount, currency)}</span></div>
+              )) : <div className="docwizard-recap-row"><span>{tr('Tax')}</span><span>{money(totals.taxTotal, currency)}</span></div>}
               {opts.length ? opts.map((o) => (
                 <div className="docwizard-recap-row docwizard-recap-total" key={o.key}><span>{optionLetter(o.key)} · {optName(o)}</span><span>{money(computeRecapTotals(linesForOption(items, o.key), docDiscount, docTaxRate).grandTotal, currency)}</span></div>
               )) : <div className="docwizard-recap-row docwizard-recap-total"><span>{tr('Total')}</span><span>{money(totals.grandTotal, currency)}</span></div>}
@@ -153,6 +162,8 @@ export default function DocWizard({
         ]}
         items={previewItems}
         subtotal={money(totals.subtotal, currency)}
+        discountRows={opts.length ? [] : adjust.discountRows}
+        taxRows={opts.length ? [] : adjust.taxRows}
         totalLabel={docTr('Grand Total')}
         total={money(totals.grandTotal, currency)}
         notesLabel={messageLabel || docTr('Message to customer')}

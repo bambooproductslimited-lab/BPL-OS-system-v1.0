@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause, docTaxOf } = require('../utils/documents');
 
 async function rowToEstimate(db, r, extra) {
   var items = await loadLineItems(db, 'estimate', r.id);
@@ -13,7 +13,7 @@ async function rowToEstimate(db, r, extra) {
     internalNotes: r.internal_notes, clientNotes: r.client_notes, terms: r.terms,
     clientAnswer: r.client_answer || null, clientAnsweredAt: r.client_answered_at || null, viewedAt: r.viewed_at || null,
     source: r.source || 'manual', squareNo: r.external_id && r.external_id.indexOf('square-estimate:') === 0 ? r.external_id.slice(16) : null,
-    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || []
+    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), taxComponents: r.tax_components || [], paymentSchedule: r.payment_schedule || []
   }, extra || {});
 }
 
@@ -49,7 +49,8 @@ async function create(ctx, p) {
   var cust = custRes.rows[0];
   if (!cust) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
-  var totals = computeDocTotals(items, p.discount, p.taxRate);
+  var tax = docTaxOf(p);
+  var totals = computeDocTotals(items, p.discount, tax.rate);
 
   var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
   var commercial = settingsRes.rows[0].commercial;
@@ -58,15 +59,15 @@ async function create(ctx, p) {
 
   var docDiscountValue = Number((p.discount && p.discount.value) || 0);
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
-  var docTaxRate = Number(p.taxRate) || 0;
+  var docTaxRate = tax.rate;
   var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
 
   var newId = await withTransaction(async function (client) {
     var estimateNo = await nextDocNumber(client, 'estimate');
     var res = await client.query(
-      "INSERT INTO estimates (estimate_no, customer_id, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, internal_notes, client_notes, terms, currency, discount_value, discount_type, tax_rate, payment_schedule) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *",
-      [estimateNo, cust.id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule)]
+      "INSERT INTO estimates (estimate_no, customer_id, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, internal_notes, client_notes, terms, currency, discount_value, discount_type, tax_rate, payment_schedule, tax_components) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
+      [estimateNo, cust.id, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), JSON.stringify(tax.components)]
     );
     var es = res.rows[0];
     await insertLineItems(client, 'estimate', es.id, items);
@@ -104,20 +105,21 @@ async function update(ctx, id, p) {
   var custRes = await pool.query('SELECT * FROM customers WHERE id = $1', [p.customerId]);
   if (!custRes.rows[0]) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
-  var totals = computeDocTotals(items, p.discount, p.taxRate);
+  var tax = docTaxOf(p);
+  var totals = computeDocTotals(items, p.discount, tax.rate);
   var validUntil = p.validUntil ? V.date(p.validUntil, 'Valid until') : existing.valid_until;
   var settingsRes2 = await pool.query('SELECT commercial FROM settings WHERE id = 1');
   var currency = p.currency !== undefined ? resolveCurrency(settingsRes2.rows[0].commercial, p.currency, custRes.rows[0].preferred_currency) : existing.currency;
 
   var docDiscountValue = Number((p.discount && p.discount.value) || 0);
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
-  var docTaxRate = Number(p.taxRate) || 0;
+  var docTaxRate = tax.rate;
   var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
 
   await withTransaction(async function (client) {
     await client.query(
-      'UPDATE estimates SET customer_id = $1, subtotal = $2, discount_total = $3, tax_total = $4, grand_total = $5, valid_until = $6, internal_notes = $7, client_notes = $8, currency = $9, discount_value = $10, discount_type = $11, tax_rate = $12, payment_schedule = $13 WHERE id = $14',
-      [p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), id]
+      'UPDATE estimates SET customer_id = $1, subtotal = $2, discount_total = $3, tax_total = $4, grand_total = $5, valid_until = $6, internal_notes = $7, client_notes = $8, currency = $9, discount_value = $10, discount_type = $11, tax_rate = $12, payment_schedule = $13, tax_components = $15 WHERE id = $14',
+      [p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.internalNotes || '').trim(), (p.clientNotes || '').trim(), currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), id, JSON.stringify(tax.components)]
     );
     await client.query('DELETE FROM document_line_items WHERE document_type = $1 AND document_id = $2', ['estimate', id]);
     await insertLineItems(client, 'estimate', id, items);
@@ -159,9 +161,9 @@ async function convertToQuotation(ctx, id) {
   var newQuoteId = await withTransaction(async function (client) {
     var quoteNo = await nextDocNumber(client, 'quotation');
     var insertRes = await client.query(
-      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, from_estimate_id, currency, discount_value, discount_type, tax_rate, payment_schedule) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
-      [quoteNo, es.customer_id, 'Quotation for ' + (custRes.rows[0] ? custRes.rows[0].name : ''), es.subtotal, es.discount_total, es.tax_total, es.grand_total, ctx.employee.id, es.valid_until, es.client_notes, es.terms, es.id, es.currency, es.discount_value, es.discount_type, es.tax_rate, JSON.stringify(es.payment_schedule || [])]
+      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, from_estimate_id, currency, discount_value, discount_type, tax_rate, payment_schedule, tax_components) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *",
+      [quoteNo, es.customer_id, 'Quotation for ' + (custRes.rows[0] ? custRes.rows[0].name : ''), es.subtotal, es.discount_total, es.tax_total, es.grand_total, ctx.employee.id, es.valid_until, es.client_notes, es.terms, es.id, es.currency, es.discount_value, es.discount_type, es.tax_rate, JSON.stringify(es.payment_schedule || []), JSON.stringify(es.tax_components || [])]
     );
     var q = insertRes.rows[0];
     await insertLineItems(client, 'quotation', q.id, items);

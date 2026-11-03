@@ -2,7 +2,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause, docTaxOf } = require('../utils/documents');
 
 // Options (migration 0193; Square's estimate packages): a quotation may
 // offer two or three options (Standard, Premium…), each made of the lines
@@ -70,7 +70,7 @@ async function rowToQuotation(db, r, extra) {
     createdAt: r.created_at, validUntil: r.valid_until, notes: r.notes, terms: r.terms, fromEstimateId: r.from_estimate_id,
     sentAt: r.sent_at || null, answeredAt: r.answered_at || null,
     clientAnswer: r.client_answer || null, clientAnsweredAt: r.client_answered_at || null, viewedAt: r.viewed_at || null,
-    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || [],
+    discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), taxComponents: r.tax_components || [], paymentSchedule: r.payment_schedule || [],
     options: optionsOut(r, items), optionChosen: r.option_chosen || null
   }, extra || {});
 }
@@ -114,7 +114,8 @@ async function create(ctx, p) {
   var rawItems = (p.items && p.items.length) ? p.items : (p.description ? [{ description: p.description, qty: p.qty, unitPrice: p.unitPrice }] : []);
   var items = buildLineItems(rawItems);
   var options = cleanOptions(p.options, items);
-  var totals = computeDocTotals(options.length ? linesOf(items, options[0].key) : items, p.discount, p.taxRate);
+  var tax = docTaxOf(p);
+  var totals = computeDocTotals(options.length ? linesOf(items, options[0].key) : items, p.discount, tax.rate);
   var title = V.text(p.title || 'Quotation for ' + cust.name, 'Title', 120);
 
   var settingsRes = await pool.query('SELECT commercial FROM settings WHERE id = 1');
@@ -124,15 +125,15 @@ async function create(ctx, p) {
 
   var docDiscountValue = Number((p.discount && p.discount.value) || 0);
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
-  var docTaxRate = Number(p.taxRate) || 0;
+  var docTaxRate = tax.rate;
   var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
 
   var newId = await withTransaction(async function (client) {
     var quoteNo = await nextDocNumber(client, 'quotation');
     var res = await client.query(
-      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency, discount_value, discount_type, tax_rate, payment_schedule, options) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *",
-      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), JSON.stringify(options)]
+      "INSERT INTO quotations (quote_no, customer_id, title, subtotal, discount_total, tax_total, grand_total, status, created_by, valid_until, notes, terms, currency, discount_value, discount_type, tax_rate, payment_schedule, options, tax_components) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,'draft',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *",
+      [quoteNo, cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, ctx.employee.id, validUntil, (p.notes || '').trim(), p.terms || commercial.templates.termsAndConditions, currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), JSON.stringify(options), JSON.stringify(tax.components)]
     );
     var q = res.rows[0];
     await insertLineItems(client, 'quotation', q.id, items);
@@ -176,20 +177,21 @@ async function update(ctx, id, p) {
   if (!cust) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
   var options = cleanOptions(p.options, items);
-  var totals = computeDocTotals(options.length ? linesOf(items, options[0].key) : items, p.discount, p.taxRate);
+  var tax = docTaxOf(p);
+  var totals = computeDocTotals(options.length ? linesOf(items, options[0].key) : items, p.discount, tax.rate);
   var title = V.text(p.title || 'Quotation for ' + cust.name, 'Title', 120);
   var commercial = (await pool.query('SELECT commercial FROM settings WHERE id = 1')).rows[0].commercial;
   var validUntil = p.validUntil ? V.date(p.validUntil, 'Valid until') : existing.valid_until;
   var currency = p.currency !== undefined ? resolveCurrency(commercial, p.currency, cust.preferred_currency) : existing.currency;
   var docDiscountValue = Number((p.discount && p.discount.value) || 0);
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
-  var docTaxRate = Number(p.taxRate) || 0;
+  var docTaxRate = tax.rate;
   var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
 
   await withTransaction(async function (client) {
     await client.query(
-      'UPDATE quotations SET customer_id = $1, title = $2, subtotal = $3, discount_total = $4, tax_total = $5, grand_total = $6, valid_until = $7, notes = $8, currency = $9, discount_value = $10, discount_type = $11, tax_rate = $12, payment_schedule = $13, options = $15, option_chosen = NULL WHERE id = $14',
-      [cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.notes || '').trim(), currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), id, JSON.stringify(options)]
+      'UPDATE quotations SET customer_id = $1, title = $2, subtotal = $3, discount_total = $4, tax_total = $5, grand_total = $6, valid_until = $7, notes = $8, currency = $9, discount_value = $10, discount_type = $11, tax_rate = $12, payment_schedule = $13, options = $15, option_chosen = NULL, tax_components = $16 WHERE id = $14',
+      [cust.id, title, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, validUntil, (p.notes || '').trim(), currency, docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule), id, JSON.stringify(options), JSON.stringify(tax.components)]
     );
     await client.query('DELETE FROM document_line_items WHERE document_type = $1 AND document_id = $2', ['quotation', id]);
     await insertLineItems(client, 'quotation', id, items);

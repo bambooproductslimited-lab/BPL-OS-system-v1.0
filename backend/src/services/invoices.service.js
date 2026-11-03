@@ -3,7 +3,7 @@ var { pool, withTransaction } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
-var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause } = require('../utils/documents');
+var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insertLineItems, loadLineItems, resolveCurrency, buildPaymentSchedule, bplScopeClause, docTaxOf } = require('../utils/documents');
 
 // Every payment recorded against an invoice, oldest first — the receipt
 // history that belongs on the document itself. A customer holding an invoice
@@ -37,7 +37,7 @@ async function rowToInvoice(db, r, extra) {
     creditTotal: Number(r.credit_total || 0),
     poReference: r.po_reference, bankInstructions: r.bank_instructions, status: r.status, issuedAt: r.issued_at, dueDate: r.due_date, paidAt: r.paid_at,
     viewedAt: r.viewed_at || null, seriesId: r.series_id || null, seriesPeriod: r.series_period || null,
-    notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), paymentSchedule: r.payment_schedule || [],
+    notes: r.notes, terms: r.terms, discount: { value: Number(r.discount_value), type: r.discount_type }, taxRate: Number(r.tax_rate), taxComponents: r.tax_components || [], paymentSchedule: r.payment_schedule || [],
     payments: payments
   }, extra || {});
 }
@@ -151,9 +151,9 @@ async function createFromQuotation(ctx, quotationId, poReference) {
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, quotation_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *",
-      [invoiceNo, q.id, q.customer_id, q.subtotal, q.discount_total, q.tax_total, q.grand_total, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), (poReference || '').trim(), commercial.paymentDetails.instructions, q.currency, q.notes, q.terms, q.discount_value, q.discount_type, q.tax_rate, JSON.stringify(q.payment_schedule || [])]
+      "INSERT INTO invoices (invoice_no, quotation_id, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule, tax_components) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,$7,0,$7,'unpaid',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *",
+      [invoiceNo, q.id, q.customer_id, q.subtotal, q.discount_total, q.tax_total, q.grand_total, todayISO(), addDays(todayISO(), commercial.templates.invoiceDueDays), (poReference || '').trim(), commercial.paymentDetails.instructions, q.currency, q.notes, q.terms, q.discount_value, q.discount_type, q.tax_rate, JSON.stringify(q.payment_schedule || []), JSON.stringify(q.tax_components || [])]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);
@@ -177,13 +177,14 @@ async function createManual(ctx, p, opts) {
   var custRes = await pool.query('SELECT * FROM customers WHERE id = $1', [p.customerId]);
   if (!custRes.rows[0]) fail('invalid', 'Choose a customer.');
   var items = buildLineItems(p.items);
-  var totals = computeDocTotals(items, p.discount, p.taxRate);
+  var tax = docTaxOf(p);
+  var totals = computeDocTotals(items, p.discount, tax.rate);
   var commercial = await getPaymentDetails();
   var dueDate = V.date(p.dueDate || addDays(todayISO(), commercial.templates.invoiceDueDays), 'Due date');
   var currency = resolveCurrency(commercial, p.currency, custRes.rows[0].preferred_currency);
   var docDiscountValue = Number((p.discount && p.discount.value) || 0);
   var docDiscountType = (p.discount && p.discount.type === 'percent') ? 'percent' : 'fixed';
-  var docTaxRate = Number(p.taxRate) || 0;
+  var docTaxRate = tax.rate;
   var paymentSchedule = buildPaymentSchedule(p.paymentSchedule, totals.grandTotal);
   // Over the customer's credit limit (migration 0197, statements.service.js):
   // made only when someone says yes a second time, and the audit says so.
@@ -200,10 +201,10 @@ async function createManual(ctx, p, opts) {
   var newId = await withTransaction(async function (client) {
     var invoiceNo = await nextDocNumber(client, 'invoice');
     var res = await client.query(
-      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule, series_id, series_period) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *",
+      "INSERT INTO invoices (invoice_no, customer_id, subtotal, discount_total, tax_total, grand_total, amount_paid, balance_due, status, issued_at, due_date, po_reference, bank_instructions, currency, notes, terms, discount_value, discount_type, tax_rate, payment_schedule, series_id, series_period, tax_components) " +
+      "VALUES ($1,$2,$3,$4,$5,$6,0,$6,'unpaid',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *",
       [invoiceNo, p.customerId, totals.subtotal, totals.discountTotal, totals.taxTotal, totals.grandTotal, opts.seriesPeriod || todayISO(), dueDate, (p.poReference || '').trim(), commercial.paymentDetails.instructions, currency, (p.notes || '').trim(), (p.terms || '').trim(), docDiscountValue, docDiscountType, docTaxRate, JSON.stringify(paymentSchedule),
-        opts.seriesId || null, opts.seriesPeriod || null]
+        opts.seriesId || null, opts.seriesPeriod || null, JSON.stringify(tax.components)]
     );
     var i = res.rows[0];
     await insertLineItems(client, 'invoice', i.id, items);

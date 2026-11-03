@@ -1015,11 +1015,13 @@ async function expenseDetail(ctx, params) {
 // kernel.js: handlers['reports.taxSummary']
 // Tax is recorded as a plain percentage — on each line (document_line_items.
 // tax_rate) and, since the document editor gained one, on the whole
-// document (invoices.tax_rate, applied after discounts). Neither links back
-// to a named tax (VAT/NHIL/GETFund/WHT), so this groups by the exact rate
-// and labels it with whichever configured tax(es) share that percentage —
-// ambiguous when two share a rate (NHIL and GETFund both default to 2.5%),
-// which the label says rather than guessing. Whole-document tax is worked
+// document (invoices.tax_rate, applied after discounts). The whole-document
+// taxes an invoice names (VAT, NHIL, GETFund; tax_components, migration
+// 0212) are reported under those names. A plain rate does not link back to
+// a named tax, so it is grouped by the exact rate and labelled with
+// whichever configured tax(es) share that percentage — ambiguous when two
+// share a rate (NHIL and GETFund both default to 2.5%), which the label says
+// rather than guessing. Whole-document tax is worked
 // out per invoice as what its recorded tax_total holds beyond its lines'
 // tax, so the two together reconcile to the invoices' own totals; any gap
 // left is shown as a difference to look into.
@@ -1039,15 +1041,15 @@ async function taxSummary(ctx, params) {
 
   var P = [co.id, base, period.from, period.to];
   var invRes = await pool.query(
-    "SELECT i.id, i.tax_rate, i.tax_total FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $2 AND i.issued_at BETWEEN $3 AND $4 AND " + scopes(co).inv, P);
+    "SELECT i.id, i.tax_rate, i.tax_total, i.tax_components FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE i.status != 'void' AND i.currency = $2 AND i.issued_at BETWEEN $3 AND $4 AND " + scopes(co).inv, P);
   var ids = invRes.rows.map(function (r) { return r.id; });
   var linesRes = ids.length ? await pool.query(
     "SELECT li.tax_rate, li.qty, li.unit_price, li.discount, li.discount_type, li.document_id AS invoice_id FROM document_line_items li WHERE li.document_type = 'invoice' AND li.document_id = ANY($1::uuid[])", [ids]) : { rows: [] };
 
   var byRate = {};
-  function add(rate, baseAmt, tax, invoiceId, whole) {
-    var key = Number(rate).toFixed(3) + (whole ? 'd' : '');
-    if (!byRate[key]) byRate[key] = { rate: Number(rate), whole: !!whole, taxableBase: 0, taxCollected: 0, invoiceIds: {} };
+  function add(rate, baseAmt, tax, invoiceId, whole, name) {
+    var key = (name ? 'n:' + name.toLowerCase() + '|' : '') + Number(rate).toFixed(3) + (whole ? 'd' : '');
+    if (!byRate[key]) byRate[key] = { rate: Number(rate), whole: !!whole, name: name || '', taxableBase: 0, taxCollected: 0, invoiceIds: {} };
     byRate[key].taxableBase += baseAmt;
     byRate[key].taxCollected += tax;
     byRate[key].invoiceIds[invoiceId] = true;
@@ -1071,7 +1073,21 @@ async function taxSummary(ctx, params) {
     var rest = Math.round((recorded - (lineTaxByInvoice[r.id] || 0)) * 100) / 100;
     var rate = Number(r.tax_rate) || 0;
     if (rate > 0 && rest > 0.005) {
-      add(rate, (rest * 100) / rate, rest, r.id, true);
+      // Taxes by name on the invoice (VAT, NHIL, GETFund; migration 0212):
+      // what it charged on its whole amount, shared out by their rates and
+      // reported under each one's own name — no guessing from the rate.
+      var comps = (r.tax_components || []).filter(function (t) { return Number(t.rate) > 0; });
+      var sum = comps.reduce(function (s, t) { return s + Number(t.rate); }, 0);
+      if (comps.length && sum > 0) {
+        var given = 0;
+        comps.forEach(function (t, i) {
+          var part = i === comps.length - 1 ? Math.round((rest - given) * 100) / 100 : Math.round(rest * Number(t.rate) / sum * 100) / 100;
+          given += part;
+          add(Number(t.rate), (rest * 100) / sum, part, r.id, true, t.name);
+        });
+      } else {
+        add(rate, (rest * 100) / rate, rest, r.id, true);
+      }
       docTaxTotal += rest;
     }
   });
@@ -1084,7 +1100,7 @@ async function taxSummary(ctx, params) {
       var nameKey = r.rate.toFixed(3);
       return {
         rate: r.rate, onWholeDocument: r.whole,
-        label: nameByRate[nameKey] || (r.rate === 0 ? 'Zero-rated / no tax' : 'Custom (' + r.rate + '%)'),
+        label: r.name || nameByRate[nameKey] || (r.rate === 0 ? 'Zero-rated / no tax' : 'Custom (' + r.rate + '%)'),
         taxableBase: r2(r.taxableBase), taxCollected: r2(r.taxCollected),
         invoiceCount: Object.keys(r.invoiceIds).length
       };

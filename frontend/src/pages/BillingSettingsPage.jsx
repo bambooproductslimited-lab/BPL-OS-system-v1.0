@@ -275,7 +275,7 @@ export default function BillingSettingsPage() {
         </div>
       </form>
 
-      <Section id="bs-tax" title={tr('Tax rates')} sub={tr('Picked per catalogue item. A rate can be removed once no item uses it; the zero rate always stays.')} card>
+      <Section id="bs-tax" title={tr('Tax rates')} sub={tr('Picked per catalogue item, and charged by name on quotations, estimates and invoices — VAT, NHIL and GETFund each print on their own line. A rate can be removed once no item uses it; the zero rate always stays.')} card>
         <ul className="rs-list bs2-taxes">
           {taxRates.map((t) => (
             <li key={t.id} className="rs-row">

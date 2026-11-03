@@ -1,0 +1,63 @@
+/* The taxes on a quotation, estimate or invoice (DocTaxes.jsx): a card of
+   switches, one per company tax, the three together as one bright chip, and
+   the amounts as they are chosen. */
+.doc-tax {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px; border-radius: 14px;
+  border: 1px dashed var(--color-divider);
+  background: var(--color-bg-subtle);
+  transition: background .2s, border-color .2s;
+}
+.doc-tax.is-on {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-divider));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 9%, var(--color-bg)), var(--color-bg) 70%);
+}
+.doc-tax-head { display: flex; align-items: center; gap: 10px; }
+.doc-tax-head > span:last-child { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.doc-tax-head strong { font-size: 14px; }
+.doc-tax-head small { font-size: 12px; color: var(--color-text-muted); }
+.doc-tax-ico {
+  width: 34px; height: 34px; flex: none; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px;
+  background: linear-gradient(135deg, #ffd56b, #ff9f5a); box-shadow: 0 4px 12px rgba(255, 140, 60, .25);
+}
+.doc-tax-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.doc-tax-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 6px 13px; border-radius: 999px;
+  border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text);
+  font: inherit; font-size: 13px; cursor: pointer; transition: transform .12s, background .15s, border-color .15s, box-shadow .15s;
+}
+.doc-tax-chip:hover { transform: translateY(-1px); border-color: var(--color-accent); }
+.doc-tax-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.doc-tax-chip b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.doc-tax-tick {
+  width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+  background: var(--color-bg-subtle); color: var(--color-text-muted);
+}
+.doc-tax-chip.is-on { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg)); font-weight: 600; }
+.doc-tax-chip.is-on .doc-tax-tick { background: var(--color-accent); color: #fff; }
+.doc-tax-chip.is-quick {
+  border: none; color: #fff; font-weight: 600;
+  background: linear-gradient(120deg, #0f9d58, #1fb978 55%, #f4b400);
+  box-shadow: 0 6px 16px rgba(15, 157, 88, .28);
+}
+.doc-tax-chip.is-quick.is-on { box-shadow: 0 0 0 3px color-mix(in srgb, #0f9d58 30%, transparent), 0 6px 16px rgba(15, 157, 88, .28); }
+.doc-tax-chip.is-other { border-style: dashed; color: var(--color-text-muted); }
+.doc-tax-other {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 12px; border-radius: 999px;
+  border: 1px solid var(--color-accent); background: var(--color-bg); font-size: 13px;
+}
+.doc-tax-other .input { width: 64px; padding: 4px 6px; height: auto; text-align: right; }
+.doc-tax-x { border: none; background: none; color: var(--color-text-muted); cursor: pointer; font-size: 13px; padding: 4px 6px; border-radius: 50%; }
+.doc-tax-x:hover { color: var(--color-danger); }
+.doc-tax-hint { margin: 0; font-size: 12px; color: var(--color-text-muted); }
+.doc-tax-lines {
+  list-style: none; margin: 0; padding: 8px 12px; border-radius: 10px; display: flex; flex-direction: column; gap: 4px;
+  background: var(--color-bg); border: 1px solid var(--color-divider); font-size: 13px; max-width: 360px;
+}
+.doc-tax-lines li { display: flex; justify-content: space-between; gap: 16px; }
+.doc-tax-lines b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.doc-tax-lines li.is-total { border-top: 1px dashed var(--color-divider); padding-top: 4px; margin-top: 2px; font-weight: 700; }
+@media (max-width: 560px) {
+  .doc-tax-lines { max-width: none; }
+}

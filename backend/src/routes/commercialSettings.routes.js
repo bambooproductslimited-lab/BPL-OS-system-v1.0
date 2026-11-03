@@ -11,6 +11,9 @@ router.get('/', async function (req, res, next) {
 router.patch('/', async function (req, res, next) {
   try { res.json(await commercialSettingsService.save(req.ctx, req.body)); } catch (e) { next(e); }
 });
+router.get('/tax-rates', async function (req, res, next) {
+  try { res.json(await commercialSettingsService.taxRates(req.ctx)); } catch (e) { next(e); }
+});
 router.post('/tax-rates', async function (req, res, next) {
   try { res.status(201).json(await commercialSettingsService.addTaxRate(req.ctx, req.body)); } catch (e) { next(e); }
 });
