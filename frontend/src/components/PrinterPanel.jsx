@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { tr } from '../lib/i18n.jsx';
 import {
-  bluetoothSupported, buildTestBytes, kitchenAddressOk, kitchenPrinterFor, passPrntPrinter, requestBluetoothPrinter, requestUsbPrinter, saveNetworkPrinter, savePassPrnt, saveSystemPrinter, systemPrinter, usbSupported
+  bluetoothSupported, buildTestBytes, deviceModel, iminTill, kitchenAddressOk, kitchenPrinterFor, passPrntPrinter, rawBtPrinter, requestBluetoothPrinter, requestUsbPrinter,
+  saveNetworkPrinter, savePassPrnt, saveRawBt, saveSystemPrinter, systemPrinter, usbSupported
 } from '../lib/thermalPrinter';
 import './PrinterPanel.css';
 
@@ -26,6 +27,9 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
   const [own, setOwn] = useState(!!(kitchen && kitchen.address));
   const [address, setAddress] = useState(kitchen ? kitchen.address : '');
   const [help, setHelp] = useState(!printer && !(typeof navigator !== 'undefined' && /Android|iPad|iPhone/i.test(navigator.userAgent || '')));
+  // An iMin till with its own printer (the Swan 2), found by its model.
+  const [till, setTill] = useState(null);
+  useEffect(() => { let live = true; deviceModel().then((m) => { if (live) setTill(iminTill(m)); }); return () => { live = false; }; }, []);
   // arg: the paper (58/80) for this computer's printer and PassPRNT, the
   // printer itself for one on the network.
   async function choose(kind, arg) {
@@ -35,9 +39,11 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
       if (kind === 'network') next = onNetwork(arg);
       else if (kind === 'system') next = systemPrinter(arg);
       else if (kind === 'passprnt') next = passPrntPrinter(arg);
+      else if (kind === 'rawbt') next = rawBtPrinter(arg);
       else next = kind === 'usb' ? await requestUsbPrinter() : await requestBluetoothPrinter();
       saveSystemPrinter(kind === 'system' ? arg : null);
       savePassPrnt(kind === 'passprnt' ? arg : null);
+      saveRawBt(kind === 'rawbt' ? arg : null);
       saveNetworkPrinter(kind === 'network' ? arg : null);
       onPrinter(next);
     } catch (e) {
@@ -69,6 +75,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
     if (printer.forget) await printer.forget();
     saveSystemPrinter(null);
     savePassPrnt(null);
+    saveRawBt(null);
     saveNetworkPrinter(null);
     onPrinter(null);
   }
@@ -128,6 +135,55 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
       </div>
     </div>
   );
+  // Any ESC/POS printer on an Android till — Bluetooth, USB, or one built
+  // in — through the RawBT app.
+  const rawPaper = (
+    <div className="prp-way-acts">
+      {[80, 58].map((mm) => (
+        <button key={mm} type="button" className={'prp-chip' + (printer && printer.kind === 'rawbt' && printer.paper === mm ? ' is-on' : '')} disabled={!!busy} onClick={() => choose('rawbt', mm)}>{tr('{n} mm', { n: mm })}</button>
+      ))}
+    </div>
+  );
+  const rawWay = (
+    <div key="raw" className={'prp-way' + (printer && printer.kind === 'rawbt' ? ' is-on' : '')}>
+      <span className="prp-way-ico" aria-hidden="true">🤖</span>
+      <div className="prp-way-txt">
+        <strong>{tr('Any receipt printer, through the RawBT app')}</strong>
+        <small>{tr('Epson and other receipt printers on Bluetooth or USB, and a printer built into the till: the free RawBT app prints each receipt and comes back. Install it and choose the printer in it first.')}</small>
+      </div>
+      {rawPaper}
+    </div>
+  );
+  // This till's own printer (an iMin Swan 2): straight from Chrome over its
+  // inside USB link, or through RawBT as the Bluetooth printer
+  // "BluetoothPrinter" the till offers.
+  const swan = till && android && (
+    <section className="prp-swan" aria-labelledby="prp-swan-title">
+      <div className="prp-swan-head">
+        <span className="prp-swan-ico" aria-hidden="true">🧾</span>
+        <div>
+          <h3 id="prp-swan-title">{tr('This till\'s own printer')}</h3>
+          <p>{tr('{name} ({model}): the receipt printer built into this till.', { name: till.name, model: till.model })}</p>
+        </div>
+      </div>
+      <div className={'prp-way is-main' + (printer && printer.kind === 'usb' ? ' is-on' : '')}>
+        <span className="prp-way-ico" aria-hidden="true">⚡</span>
+        <div className="prp-way-txt">
+          <strong>{tr('Straight from the till')}<em className="prp-best">{tr('Try first')}</em></strong>
+          <small>{tr('No app: press Connect and pick the printer in the list (it may be called USB Printer). Allow Chrome to use it when Android asks.')}</small>
+        </div>
+        <div className="prp-way-acts"><button type="button" className="prp-chip" disabled={!!busy || !usbSupported()} onClick={() => choose('usb')}>{busy === 'usb' ? tr('Connecting…') : tr('Connect')}</button></div>
+      </div>
+      <div className={'prp-way' + (printer && printer.kind === 'rawbt' ? ' is-on' : '')}>
+        <span className="prp-way-ico" aria-hidden="true">🤖</span>
+        <div className="prp-way-txt">
+          <strong>{tr('Through the RawBT app')}</strong>
+          <small>{tr('Not in the list? Install RawBT from Google Play. In RawBT, choose Bluetooth and the printer called BluetoothPrinter (the built-in one), then pick the paper here.')}</small>
+        </div>
+        {rawPaper}
+      </div>
+    </section>
+  );
   const nets = network || [];
   const netWays = nets.length > 0 && (
     <div key="net" className="prp-net">
@@ -149,6 +205,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
   );
   const kindText = !printer ? '' : printer.kind === 'network' ? tr('On the restaurant\'s network · {n} mm paper', { n: printer.paper }) : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
     : printer.kind === 'passprnt' ? tr('Through PassPRNT · {n} mm paper', { n: printer.paper })
+    : printer.kind === 'rawbt' ? tr('Through RawBT · {n} mm paper', { n: printer.paper })
     : printer.kind === 'usb' ? (printer.star ? tr('USB · Star, printed as a picture') : tr('USB')) : tr('Bluetooth');
   return (
     <div className="dialog-backdrop" onClick={onClose}>
@@ -170,8 +227,9 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
         {done && <p className="prp-ok" role="status">✅ {done}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
 
+        {swan}
         {netWays}
-        <div className="prp-ways">{android || ios ? [passWay, usbWay, systemWay, btWay] : [systemWay, usbWay, passWay, btWay]}</div>
+        <div className="prp-ways">{android ? [passWay, rawWay, usbWay, systemWay, btWay] : ios ? [passWay, usbWay, systemWay, btWay] : [systemWay, usbWay, passWay, btWay]}</div>
 
         {!ios && (
           <details className="prp-help" open={help} onToggle={(e) => setHelp(e.currentTarget.open)}>

@@ -4,6 +4,7 @@ var { fail } = require('../utils/errors');
 var access = require('./restaurantTillAccess.service');
 var activity = require('./restaurantActivity.service');
 var ticketImage = require('../lib/ticketImage');
+var printerBytes = require('../lib/printerBytes');
 
 // The restaurant's printers on its network, as on Square: printers in the
 // kitchens, at the bar and at the counter, each with a profile —
@@ -128,7 +129,13 @@ function testDoc(printer, companyName, stationNames) {
   var lines = [L('TEST PRINT', { align: 'center', bold: true, scale: 2 }), L(String(printer.name || 'New printer').toUpperCase(), { align: 'center', bold: true }),
     L(String(companyName || '').slice(0, cols), { align: 'center' }), L(rule)];
   (does.length ? does : ['Nothing set up yet: choose what it prints in Till settings -> Printers.']).forEach(function (d) { wrap(d, cols - 2, '  ').forEach(function (x) { lines.push(L(x)); }); });
-  lines.push(L(rule), L('Printer ' + printer.mac), L('Printed ' + hhmm() + ' UTC'));
+  // What it is and where: found by the print hub, its model and address;
+  // a printer asking by itself, its MAC.
+  var which = printer.via === 'hub' ? [printer.model || ({ epson: 'Epson', star: 'Star' })[printer.make] || 'Printer', printer.last_ip + (printer.port && printer.port !== 9100 ? ':' + printer.port : '')].filter(Boolean).join(' at ') : 'Printer ' + printer.mac;
+  lines.push(L(rule));
+  wrap(which, cols, '').forEach(function (x) { lines.push(L(x)); });
+  if (printer.via === 'hub') lines.push(L('Through the Bamboo print hub'));
+  lines.push(L('Printed ' + hhmm() + ' UTC'));
   return { cols: cols, pages: [lines] };
 }
 
@@ -265,8 +272,8 @@ async function poll(token, body, ip) {
   if (!mac) fail('invalid', 'The printer did not say its MAC address.');
   var code = statusText(body.statusCode);
   var pr = (await pool.query(
-    'INSERT INTO restaurant_printers (company_id, mac, status_code, last_seen_at, last_ip) VALUES ($1,$2,$3,now(),$4) ' +
-    'ON CONFLICT (company_id, mac) DO UPDATE SET status_code = EXCLUDED.status_code, last_seen_at = now(), last_ip = EXCLUDED.last_ip RETURNING *',
+    "INSERT INTO restaurant_printers (company_id, mac, status_code, last_seen_at, last_ip, via, cloud_seen_at) VALUES ($1,$2,$3,now(),$4,'cloudprnt',now()) " +
+    "ON CONFLICT (company_id, mac) DO UPDATE SET status_code = EXCLUDED.status_code, last_seen_at = now(), last_ip = EXCLUDED.last_ip, via = 'cloudprnt', cloud_seen_at = now() RETURNING *",
     [companyId, mac, code, String(ip || '').slice(0, 60)])).rows[0];
   var job = /^2/.test(code) || !code ? await nextJob(pool, pr.id) : null;
   return job ? { jobReady: true, mediaTypes: ['image/png'], jobToken: job.id } : { jobReady: false };
@@ -327,11 +334,15 @@ function printerOut(p, stations, counts) {
   return {
     id: p.id, name: p.name, mac: p.mac, isNew: !p.name, paper: p.paper_mm, stationIds: p.station_ids || [], stations: (p.station_ids || []).map(function (id) { return stations.get(id); }).filter(Boolean),
     stubs: p.stubs, receipts: p.receipts, voids: p.voids, copies: p.copies, lastSeenAt: p.last_seen_at, ip: p.last_ip, statusText: p.status_code || '',
+    // How it is reached: asking by itself (CloudPRNT) or through the print
+    // hub (restaurantPrintHub.service.js), and what it is.
+    via: p.via || 'cloudprnt', make: p.make || '', model: p.model || '', port: p.port || null, hubId: p.hub_id || null,
+    commandSet: p.command_set || '', language: p.via === 'hub' ? printerBytes.languageOf(p) : 'png',
     problem: problemOf(p), online: problemOf(p) !== 'offline', waiting: c.waiting, failed: c.failed
   };
 }
 async function listFor(companyId, includeNew) {
-  var rows = (await pool.query('SELECT * FROM restaurant_printers WHERE company_id = $1' + (includeNew ? '' : " AND name <> ''") + " ORDER BY name = '' DESC, name", [companyId])).rows;
+  var rows = (await pool.query('SELECT * FROM restaurant_printers WHERE company_id = $1 AND NOT ignored' + (includeNew ? '' : " AND name <> ''") + " ORDER BY name = '' DESC, name", [companyId])).rows;
   if (!rows.length) return [];
   var stations = new Map((await pool.query('SELECT id, name FROM restaurant_kds_stations WHERE company_id = $1', [companyId])).rows.map(function (s) { return [s.id, s.name]; }));
   var counts = new Map((await pool.query(
@@ -439,28 +450,45 @@ async function manage(token, p, ip, origin) {
     var clash = (await pool.query('SELECT 1 FROM restaurant_printers WHERE company_id = $1 AND lower(name) = lower($2) AND id <> $3', [company, name, pr.id])).rows[0];
     if (clash) fail('conflict', 'Another printer is called ' + name + ' already.');
     var ids = Array.isArray(p.stationIds) ? p.stationIds.filter(function (id) { return stations.some(function (s) { return s.id === id; }); }) : pr.station_ids;
-    await pool.query('UPDATE restaurant_printers SET name = $2, paper_mm = $3, station_ids = $4, stubs = $5, receipts = $6, voids = $7, copies = $8, updated_at = now() WHERE id = $1',
-      [pr.id, name, Number(p.paper) === 58 ? 58 : 80, ids, !!p.stubs, !!p.receipts, p.voids !== false, Math.max(1, Math.min(3, Math.round(Number(p.copies) || 1)))]);
+    // The printer language (a printer found by the hub): as its make says,
+    // or Star raster / ESC/POS when a test print comes out wrong.
+    var lang = p.commandSet === undefined ? pr.command_set : ['star', 'escpos'].indexOf(p.commandSet) >= 0 ? p.commandSet : '';
+    await pool.query('UPDATE restaurant_printers SET name = $2, paper_mm = $3, station_ids = $4, stubs = $5, receipts = $6, voids = $7, copies = $8, command_set = $9, updated_at = now() WHERE id = $1',
+      [pr.id, name, Number(p.paper) === 58 ? 58 : 80, ids, !!p.stubs, !!p.receipts, p.voids !== false, Math.max(1, Math.min(3, Math.round(Number(p.copies) || 1))), lang]);
     await log('settings.printer', (pr.name ? 'Changed the printer ' : 'Set up a new printer as ') + name + ': ' +
       [ids.length ? 'kitchen tickets for ' + stations.filter(function (s) { return ids.indexOf(s.id) >= 0; }).map(function (s) { return s.name; }).join(', ') : '', p.stubs ? 'the order summary' : '', p.receipts ? 'receipts and bills' : '']
         .filter(Boolean).join('; ') + '.', pr.id);
   } else if (p.action === 'remove') {
     var gone = await mine(p.id);
-    await pool.query('DELETE FROM restaurant_printers WHERE id = $1', [gone.id]);
-    await log('settings.printer', 'Took off the printer ' + (gone.name || gone.mac) + '.', gone.id);
+    // One the print hub found would be found again: it is hidden instead
+    // (an office printer on the network, say), until shown again.
+    if (gone.via === 'hub') {
+      await pool.query("UPDATE restaurant_printers SET ignored = true, name = '', station_ids = '{}', stubs = false, receipts = false, updated_at = now() WHERE id = $1", [gone.id]);
+      await pool.query("UPDATE restaurant_print_jobs SET status = 'cancelled', done_at = now() WHERE printer_id = $1 AND status IN ('queued', 'printing')", [gone.id]);
+    } else {
+      await pool.query('DELETE FROM restaurant_printers WHERE id = $1', [gone.id]);
+    }
+    await log('settings.printer', 'Took off the printer ' + (gone.name || gone.model || gone.mac) + '.', gone.id);
+  } else if (p.action === 'unhide') {
+    var back = await pool.query('UPDATE restaurant_printers SET ignored = false WHERE company_id = $1 AND ignored RETURNING id', [company]);
+    if (back.rows.length) await log('settings.printer', 'Showed again ' + back.rows.length + ' printer(s) taken off before.', null);
   } else if (p.action === 'test') {
     var tp = await mine(p.id);
     var co = (await pool.query('SELECT name FROM companies WHERE id = $1', [company])).rows[0];
     await addJob(pool, tp, 'test', 'Test print', testDoc(tp, co && co.name, stations.filter(function (s) { return (tp.station_ids || []).indexOf(s.id) >= 0; }).map(function (s) { return s.name; })), { by: m.manager.id });
   }
+  var hubs = require('./restaurantPrintHub.service');
   return {
     link: String(origin || '').replace(/\/$/, '') + '/api/cloudprnt/' + await linkOf(company),
-    printers: await listFor(company, true), stations: stations.map(function (s) { return { id: s.id, name: s.name }; })
+    printers: await listFor(company, true), stations: stations.map(function (s) { return { id: s.id, name: s.name }; }),
+    // The print hubs looking for printers, and those taken off (hidden).
+    hubs: await hubs.hubsOf(company), hubVersion: hubs.HUB_VERSION,
+    hidden: (await pool.query('SELECT count(*)::int AS n FROM restaurant_printers WHERE company_id = $1 AND ignored', [company])).rows[0].n
   };
 }
 
 module.exports = {
   poll: poll, fetchJob: fetchJob, finishJob: finishJob, sendKitchen: sendKitchen, sendVoids: sendVoids, summary: summary, sentByOthers: sentByOthers,
-  tillStatus: tillStatus, tillPrint: tillPrint, printAgain: printAgain, cancelJob: cancelJob, manage: manage, linkOf: linkOf,
+  tillStatus: tillStatus, tillPrint: tillPrint, printAgain: printAgain, cancelJob: cancelJob, manage: manage, linkOf: linkOf, linkCompany: linkCompany,
   kitchenDoc: kitchenDoc, cleanDoc: cleanDoc
 };

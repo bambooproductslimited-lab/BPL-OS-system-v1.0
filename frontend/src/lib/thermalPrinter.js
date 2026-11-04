@@ -571,6 +571,63 @@ export function reconnectPassPrnt() {
   try { mm = localStorage.getItem(PASSPRNT_KEY); } catch { mm = null; }
   return mm ? passPrntPrinter(mm) : null;
 }
+// ── An Android till's own printer, through the RawBT app ────────────────
+// The receipt printer built into an Android till (the iMin Swan 2's, which
+// the till reaches as the Bluetooth printer "BluetoothPrinter") and other
+// ESC/POS printers on Bluetooth or USB: the free RawBT app (Google Play)
+// prints the receipt's own bytes. The till hands them over in a rawbt link;
+// RawBT not installed, Android opens its page on Google Play.
+var RAWBT_KEY = 'bamboo.printer.rawbt';
+var RAWBT_PLAY = 'https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter';
+function toBase64(byteArray) {
+  var s = '';
+  for (var i = 0; i < byteArray.length; i++) s += String.fromCharCode(byteArray[i]);
+  return btoa(s);
+}
+export function rawBtLink(byteArray) {
+  return 'intent:base64,' + toBase64(byteArray) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=' + encodeURIComponent(RAWBT_PLAY) + ';end;';
+}
+export function rawBtPrinter(paperMm) {
+  var mm = Number(paperMm) === 58 ? 58 : 80;
+  return {
+    kind: 'rawbt',
+    paper: mm,
+    lineWidth: mm === 80 ? 42 : LINE_WIDTH_58MM,
+    name: tr('Built-in printer (RawBT)'),
+    write: async function (byteArray) { launchApp(rawBtLink(byteArray)); },
+    forget: async function () { saveRawBt(null); }
+  };
+}
+export function saveRawBt(paperMm) {
+  try { if (paperMm) localStorage.setItem(RAWBT_KEY, String(paperMm)); else localStorage.removeItem(RAWBT_KEY); } catch { /* kept for this visit only */ }
+}
+export function reconnectRawBt() {
+  var mm = null;
+  try { mm = localStorage.getItem(RAWBT_KEY); } catch { mm = null; }
+  return mm ? rawBtPrinter(mm) : null;
+}
+
+// Which device this is: Chrome on Android says its model when asked
+// (I24D03: an iMin Swan 2). '' when it will not say.
+export async function deviceModel() {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+      var v = await navigator.userAgentData.getHighEntropyValues(['model']);
+      if (v && v.model) return String(v.model);
+    }
+  } catch { /* not said */ }
+  var m = /Android [\d.]+; ([^;)]+?)(?: Build|\))/.exec((typeof navigator !== 'undefined' && navigator.userAgent) || '');
+  return m && m[1] !== 'K' ? m[1].trim() : '';
+}
+// An iMin till, by its model: iMin names them I + year + kind + number
+// (I24D03: the Swan 2, a counter till with a printer built in).
+export function iminTill(model) {
+  var m = String(model || '').trim();
+  if (/^I2[0-9]D0[1-9]$/i.test(m) || /\bswan\b/i.test(m)) return { name: /^I24D/i.test(m) || /swan ?2/i.test(m) ? 'iMin Swan 2' : /^I23D/i.test(m) || /swan ?1/i.test(m) ? 'iMin Swan 1' : 'iMin', model: m };
+  if (/^I2[0-9][A-Z]\d{2}$/i.test(m) || /\bimin\b/i.test(m)) return { name: 'iMin', model: m };
+  return null;
+}
+
 // ── A printer on the restaurant's network ───────────────────────────────
 // A Star printer plugged into the router, set up once for the whole
 // restaurant in Till settings → Printers (backend restaurantPrinters

@@ -47,8 +47,9 @@ function drawGlyph(px, W, f, cp, left, top, mult) {
   }
 }
 
-// One page of lines -> PNG.
-async function renderPage(lines, opts) {
+// One page of lines drawn: { width, height, px } — one byte a dot, 0 black,
+// 255 white.
+function drawPage(lines, opts) {
   var W = widthOf(opts.paperMm);
   var cols = Math.max(16, Math.min(Number(opts.cols) || (W === 576 ? 42 : 32), Math.floor(W / 12)));
   var left = Math.floor((W - cols * 12) / 2);
@@ -86,7 +87,32 @@ async function renderPage(lines, opts) {
     }
     top += h;
   });
-  return sharp(Buffer.from(px.buffer), { raw: { width: W, height: H, channels: 1 } }).png({ compressionLevel: 9 }).toBuffer();
+  return { width: W, height: H, px: px };
+}
+
+// One page of lines -> PNG.
+async function renderPage(lines, opts) {
+  var d = drawPage(lines, opts);
+  return sharp(Buffer.from(d.px.buffer), { raw: { width: d.width, height: d.height, channels: 1 } }).png({ compressionLevel: 9 }).toBuffer();
+}
+
+// One page as printer dots: each row packed 8 dots a byte, the leftmost the
+// top bit, 1 for black — what a receipt printer's raster commands take
+// (lib/printerBytes.js). { width, height, rowBytes, bits }.
+function rasterPage(lines, opts) {
+  var d = drawPage(lines, opts);
+  var rowBytes = Math.ceil(d.width / 8);
+  var bits = Buffer.alloc(rowBytes * d.height);
+  for (var y = 0; y < d.height; y++) {
+    for (var x = 0; x < d.width; x++) {
+      if (d.px[y * d.width + x] < 128) bits[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  }
+  return { width: d.width, height: d.height, rowBytes: rowBytes, bits: bits };
+}
+function rasterDoc(doc, opts) {
+  opts = Object.assign({ cols: doc && doc.cols }, opts || {});
+  return ((doc && doc.pages) || []).filter(function (p) { return p && p.length; }).map(function (p) { return rasterPage(p, opts); });
 }
 
 // Every page of a ticket, each a PNG.
@@ -98,4 +124,4 @@ async function renderDoc(doc, opts) {
   return out;
 }
 
-module.exports = { renderPage: renderPage, renderDoc: renderDoc, widthOf: widthOf };
+module.exports = { renderPage: renderPage, renderDoc: renderDoc, rasterPage: rasterPage, rasterDoc: rasterDoc, widthOf: widthOf };

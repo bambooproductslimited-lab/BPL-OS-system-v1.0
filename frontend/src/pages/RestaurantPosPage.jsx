@@ -7,7 +7,7 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import {
   buildReceiptBytes, buildDrawerReportBytes, buildKitchenChitBytes, reconnectUsbPrinter, reconnectBluetoothPrinter, reconnectSystemPrinter,
-  reconnectPassPrnt, readPassPrntReply, kitchenSetup, saveKitchenSetup, kitchenPrinterFor, networkPrinter, savedNetworkPrinter
+  reconnectPassPrnt, reconnectRawBt, readPassPrntReply, kitchenSetup, saveKitchenSetup, kitchenPrinterFor, networkPrinter, savedNetworkPrinter
 } from '../lib/thermalPrinter';
 import PrinterPanel from '../components/PrinterPanel';
 import PrinterStatus from './till/PrinterStatus';
@@ -624,7 +624,7 @@ export default function RestaurantPosPage() {
       // A printer on the restaurant's network, chosen on this till before.
       const net = savedNetworkPrinter();
       if (net) { setPrinter(networkPrinter(net, () => tokenRef.current)); return; }
-      const sys = reconnectSystemPrinter() || reconnectPassPrnt();
+      const sys = reconnectSystemPrinter() || reconnectPassPrnt() || reconnectRawBt();
       if (sys) { setPrinter(sys); return; }
       const usb = await reconnectUsbPrinter();
       if (usb) { setPrinter(usb); return; }

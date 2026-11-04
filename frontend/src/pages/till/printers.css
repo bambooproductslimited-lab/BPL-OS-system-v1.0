@@ -73,3 +73,25 @@
 .tpr-alert-x { flex: none; width: 30px; height: 30px; padding: 0; font: inherit; color: var(--color-text-muted); border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
 @keyframes tpr-in { from { opacity: 0; transform: translateX(30px) scale(.96); } }
 @media (prefers-reduced-motion: reduce) { .tpr-alert { animation: none; } }
+
+/* The print hub: printers found by themselves. */
+.tpr-hubbox { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 20px;
+  border: 1px solid color-mix(in srgb, #8b5cf6 32%, var(--pos-line));
+  background: linear-gradient(150deg, color-mix(in srgb, #8b5cf6 11%, var(--pos-card)), color-mix(in srgb, #06b6d4 7%, var(--pos-card)) 60%, var(--pos-card)); }
+.tpr-hubbox.is-on { border-color: color-mix(in srgb, #22c55e 40%, var(--pos-line)); }
+.tpr-hubbox-head { display: flex; align-items: center; gap: 12px; }
+.tpr-hubbox-head > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.tpr-hubbox-head strong { font-size: 15.5px; }
+.tpr-hubbox-head small { font-size: 12.5px; color: var(--color-text-muted); line-height: 1.45; }
+.tpr-hub-ico { flex: none; display: grid; place-items: center; width: 44px; height: 44px; font-size: 22px; border-radius: 14px;
+  background: linear-gradient(135deg, #a78bfa, #22d3ee); box-shadow: 0 6px 18px rgba(139, 92, 246, .3); }
+.tpr-hubbox ol { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 7px; font-size: 13.5px; line-height: 1.5; }
+.tpr-hub { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; background: var(--pos-card); border: 1px solid var(--pos-line); }
+.tpr-hub-pulse { position: relative; flex: none; width: 12px; height: 12px; border-radius: 50%; background: #94a3b8; margin: 0 4px; }
+.tpr-hub.is-on .tpr-hub-pulse { background: #22c55e; }
+.tpr-hub.is-on .tpr-hub-pulse::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid #22c55e; animation: tpr-ping 1.8s ease-out infinite; }
+@keyframes tpr-ping { from { transform: scale(.5); opacity: .9; } to { transform: scale(1.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tpr-hub.is-on .tpr-hub-pulse::after { animation: none; opacity: .4; } }
+.tpr-dl { display: flex; flex-wrap: wrap; gap: 8px; }
+.tpr-dl .btn { text-decoration: none; }
+.tpr-pill.is-warn { color: #b45309; border-color: color-mix(in srgb, #f59e0b 45%, var(--pos-line)); background: color-mix(in srgb, #f59e0b 12%, var(--pos-card)); }

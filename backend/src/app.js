@@ -42,6 +42,7 @@ var toolRoomRoutes = require('./routes/toolRoom.routes');
 var restaurantRoutes = require('./routes/restaurant.routes');
 var restaurantPosRoutes = require('./routes/restaurantPos.routes');
 var cloudprntRoutes = require('./routes/cloudprnt.routes');
+var printHubRoutes = require('./routes/printHub.routes');
 var restaurantDeliveryRoutes = require('./routes/restaurantDelivery.routes');
 var restaurantFrontRoutes = require('./routes/restaurantFront.routes');
 var menuPhotosRoutes = require('./routes/menuPhotos.routes');
@@ -138,7 +139,7 @@ var apiLimiter = rateLimit({
   skip: function (req) {
     var path = apiPath(req);
     return config.nodeEnv === 'test' || path === '/api/health' || path === '/api/marketing/whatsapp/webhook' || path === '/api/marketing/meta/webhook' ||
-      path.indexOf('/api/menu-photos/') === 0 || path.indexOf('/api/cloudprnt/') === 0;
+      path.indexOf('/api/menu-photos/') === 0 || path.indexOf('/api/cloudprnt/') === 0 || path.indexOf('/api/print-hub/') === 0;
   },
   message: { error: { code: 'rate_limited', message: 'Too many requests. Please slow down and try again shortly.' } }
 });
@@ -162,6 +163,7 @@ var printerLimiter = rateLimit({
   message: { error: { code: 'rate_limited', message: 'Too many requests.' } }
 });
 app.use('/api/cloudprnt', printerLimiter, cloudprntRoutes);
+app.use('/api/print-hub', printerLimiter, printHubRoutes);
 app.use('/api', apiLimiter);
 // Is the file storage working (every photo comes through it)? The state
 // and what to do, for anyone to open — no numbers, no settings.

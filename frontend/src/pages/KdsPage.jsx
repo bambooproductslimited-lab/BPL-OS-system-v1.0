@@ -7,7 +7,7 @@ import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
 import { modsWords } from './till/tillBill';
-import { buildKitchenChitBytes, buildRunnerTicketBytes, readPassPrntReply, reconnectBluetoothPrinter, reconnectPassPrnt, reconnectSystemPrinter, reconnectUsbPrinter } from '../lib/thermalPrinter';
+import { buildKitchenChitBytes, buildRunnerTicketBytes, readPassPrntReply, reconnectBluetoothPrinter, reconnectPassPrnt, reconnectRawBt, reconnectSystemPrinter, reconnectUsbPrinter } from '../lib/thermalPrinter';
 import PrinterPanel from '../components/PrinterPanel';
 import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
@@ -166,7 +166,7 @@ export default function KdsPage() {
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
   useEffect(() => {
     (async () => {
-      const sys = reconnectSystemPrinter() || reconnectPassPrnt();
+      const sys = reconnectSystemPrinter() || reconnectPassPrnt() || reconnectRawBt();
       if (sys) { setPrinter(sys); return; }
       const usb = await reconnectUsbPrinter();
       if (usb) { setPrinter(usb); return; }
