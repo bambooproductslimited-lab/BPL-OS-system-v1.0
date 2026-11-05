@@ -16,6 +16,7 @@ import {
   addDays, dueInfo, forName, isoDay, pmOf
 } from './WorkOrdersFun.jsx';
 import WorkOrdersPresent from './WorkOrdersPresent';
+import MaintenanceOrders from './MaintenanceOrders';
 import './EmployeesPage.css';
 import './WorkOrdersPage.css';
 
@@ -269,7 +270,7 @@ function payload(form, options) {
   };
 }
 
-export default function WorkOrdersPage() {
+function WorkshopOrders() {
   const { session, can } = useAuth();
   const canManage = can('task.manage');
   const myId = session && session.employee ? session.employee.id : null;
@@ -1150,6 +1151,35 @@ function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelet
           <div className="wo wo-print-copy"><WoSheet d={d} today={today} myId={null} printOnly /></div>
         </PrintLayer>
       )}
+    </>
+  );
+}
+
+// Two kinds of work order, side by side: the workshop's (what is made, the
+// WO form and sheet) and Maintenance & IT (the jobs around our places, the
+// IT work order tracker). ?side=maint opens the second, as a notification
+// about a maintenance job does; the last one picked is remembered.
+export default function WorkOrdersPage() {
+  const { session } = useAuth();
+  const myId = session && session.employee ? session.employee.id : null;
+  const [side, setSide] = useState(() => {
+    const asked = new URLSearchParams(window.location.search).get('side');
+    return asked === 'maint' || asked === 'workshop' ? asked : readPref('bos.tasksSide', 'workshop');
+  });
+  function pick(s) { setSide(s); writePref('bos.tasksSide', s); }
+  return (
+    <>
+      <div className="wo-sides" role="tablist" aria-label={tr('Kind of work order')}>
+        <button type="button" role="tab" aria-selected={side === 'workshop'} className={'wo-side' + (side === 'workshop' ? ' is-on' : '')} onClick={() => pick('workshop')}>
+          <span className="wo-side-ico" aria-hidden="true">🪚</span>
+          <span><strong>{tr('Workshop')}</strong><small>{tr('What is made: the WO form and sheet')}</small></span>
+        </button>
+        <button type="button" role="tab" aria-selected={side === 'maint'} className={'wo-side is-maint' + (side === 'maint' ? ' is-on' : '')} onClick={() => pick('maint')}>
+          <span className="wo-side-ico" aria-hidden="true">🛠️</span>
+          <span><strong>{tr('Maintenance & IT')}</strong><small>{tr('Jobs around our places: IT, electrical, plumbing, A/C')}</small></span>
+        </button>
+      </div>
+      {side === 'maint' ? <MaintenanceOrders myId={myId} /> : <WorkshopOrders />}
     </>
   );
 }

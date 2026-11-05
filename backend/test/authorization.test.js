@@ -156,6 +156,7 @@ var ALLOWED = {
   'GET /api/advances/mine': 'a member of staff\'s own salary advances and what they may ask for, keyed on the caller only (sixteenth.test.js)',
   'GET /api/vehicles/': 'without vehicle.read, only the vehicles the caller drives (none for anyone else); keyed on the caller (sixteenth.test.js)',
   'GET /api/maintenance/report': 'any member of staff reports a broken machine: what can be reported on (number, name, place) and their own reports, no costs (fifteenth.test.js)',
+  'GET /api/maint-work-orders/': 'any member of staff asks for a maintenance job: only the jobs they asked for or were given, and routines given to them (maintenanceWorkOrders.test.js)',
   'GET /api/pos/online/gift/:token': 'a gift card\'s own page: the long random link is the card, as on a printed card',
   'POST /api/pos/online/:code/gift': 'a guest buys a gift card on the website: only when the restaurant sells them there, paid through Paystack before any card is made, limited per address',
   'GET /api/book': 'the booking page: what can be booked and the free times, public by design, only while it is on',

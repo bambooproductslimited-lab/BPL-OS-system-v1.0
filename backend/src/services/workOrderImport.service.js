@@ -515,4 +515,4 @@ async function run(ctx, file, body) {
   return Object.assign(s, { added: added.n, updated: added.updated });
 }
 
-module.exports = { preview: preview, run: run, _merge: merge, _statusOf: statusOf };
+module.exports = { preview: preview, run: run, staffMatcher: staffMatcher, readAliases: readAliases, _merge: merge, _statusOf: statusOf };
