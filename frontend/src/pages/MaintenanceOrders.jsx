@@ -4,7 +4,9 @@ import Photo from '../components/Photo';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { Insights, Section, fmtDate } from '../components/DashKit';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
+import { KINDS, PRIORITIES, STATUSES, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance.js';
 import { WoBanner } from './WorkOrdersFun.jsx';
+import MaintenancePresent from './MaintenancePresent';
 import './MaintenanceOrders.css';
 
 // Maintenance and IT work orders — the jobs the maintenance team does
@@ -16,19 +18,7 @@ import './MaintenanceOrders.css';
 // managers plan it, give it to someone and import the sheet; whoever a job
 // is given to moves it along.
 
-const KINDS = ['electrical', 'plumbing', 'hvac', 'facilities', 'it', 'mason', 'other'];
-const KIND = {
-  electrical: ['⚡', () => tr('Electrical')], plumbing: ['🚰', () => tr('Plumbing')], hvac: ['❄️', () => tr('A/C')], facilities: ['🏢', () => tr('Facilities')],
-  it: ['💻', () => tr('IT')], mason: ['🧱', () => tr('Mason')], other: ['🔧', () => tr('Other')]
-};
-const PRIORITIES = ['low', 'medium', 'high', 'urgent'];
-const PRIORITY = { low: () => tr('Low'), medium: () => tr('Medium'), high: () => tr('High'), urgent: () => tr('Urgent') };
-const STATUSES = ['new', 'scheduled', 'in_progress', 'on_hold', 'completed', 'cancelled'];
 const FLOW = ['new', 'scheduled', 'in_progress', 'on_hold', 'completed'];
-const STATUS = {
-  new: () => tr('New'), scheduled: () => tr('Scheduled'), in_progress: () => tr('In progress'), on_hold: () => tr('On hold'),
-  completed: () => tr('Completed'), cancelled: () => tr('Cancelled')
-};
 const TABS = [
   ['dash', () => tr('Dashboard')], ['open', () => tr('Jobs to do')], ['week', () => tr('Last 7 days')],
   ['all', () => tr('Every job')], ['routines', () => tr('Routine jobs')], ['billing', () => tr('Billing')]
@@ -38,8 +28,6 @@ const CURRENCIES = ['GHS', 'USD', 'EUR', 'GBP', 'CNY'];
 
 function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
 function writePref(key, value) { try { localStorage.setItem(key, value); } catch { /* remembered for this visit only */ } }
-function kindIcon(k) { return (KIND[k] || KIND.other)[0]; }
-function kindName(k) { return (KIND[k] || KIND.other)[1](); }
 function money(n, currency) {
   if (n === null || n === undefined) return '';
   try { return new Intl.NumberFormat(activeIntlLocale(), { style: 'currency', currency: currency || 'GHS', maximumFractionDigits: 2 }).format(n); } catch { return (currency || '') + ' ' + n; }
@@ -60,8 +48,8 @@ function dueWords(r) {
   return tr('In {n} days', { n: r.dueIn });
 }
 
-function StatusPill({ status }) { return <span className={'mw-pill is-' + status}><i aria-hidden="true" />{(STATUS[status] || (() => status))()}</span>; }
-function PriorityPill({ priority }) { return <span className={'mw-prio is-' + priority}>{(PRIORITY[priority] || (() => priority))()}</span>; }
+function StatusPill({ status }) { return <span className={'mw-pill is-' + status}><i aria-hidden="true" />{statusName(status)}</span>; }
+function PriorityPill({ priority }) { return <span className={'mw-prio is-' + priority}>{priorityName(priority)}</span>; }
 function Kind({ k }) { return <span className="mw-kind"><span aria-hidden="true">{kindIcon(k)}</span>{kindName(k)}</span>; }
 function Person({ p, size }) {
   if (!p) return <span className="dk-muted">{tr('Nobody yet')}</span>;
@@ -72,7 +60,7 @@ function downloadCsv(rows, name) {
   const head = [tr('Work order'), tr('Request date'), tr('Requested by'), tr('Place'), tr('Kind of job'), tr('Description'), tr('Priority'), tr('Status'),
     tr('Given to'), tr('Scheduled'), tr('Completed'), tr('Days taken'), tr('Currency'), tr('Estimated cost'), tr('Actual cost'), tr('Days open'), tr('Notes'), tr('Checked for billing')];
   const cell = (v) => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
-  const lines = rows.map((o) => [o.ref, o.requestedOn, whoName(o.requestedBy), o.location, kindName(o.category), o.description, PRIORITY[o.priority](), STATUS[o.status](),
+  const lines = rows.map((o) => [o.ref, o.requestedOn, whoName(o.requestedBy), o.location, kindName(o.category), o.description, priorityName(o.priority), statusName(o.status),
     whoName(o.assignedTo), o.scheduledOn, o.completedOn, o.daysTaken, o.currency, o.estimatedCost, o.actualCost, o.daysOpen, o.notes, o.audited ? '✓' : ''].map(cell).join(','));
   const blob = new Blob(['﻿' + [head.map(cell).join(',')].concat(lines).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -131,7 +119,7 @@ function JobPanel({ job, can, myId, busy, onAct, onEdit, onDelete, onClose }) {
           <div><dt>{tr('Given to')}</dt><dd><Person p={job.assignedTo} /></dd></div>
           <div><dt>{tr('Scheduled')}</dt><dd className={job.overdue ? 'is-late' : ''}>{job.scheduledOn ? fmtDate(job.scheduledOn) : '—'}</dd></div>
           <div><dt>{tr('Completed')}</dt><dd>{job.completedOn ? fmtDate(job.completedOn) : '—'}</dd></div>
-          <div><dt>{tr('Days open')}</dt><dd>{job.daysOpen === null ? '—' : job.daysOpen}{job.daysTaken !== null && <small> · {tr('{n} days from its planned day', { n: job.daysTaken })}</small>}</dd></div>
+          <div><dt>{tr('Days open')}</dt><dd>{job.daysOpen === null ? '—' : job.daysOpen}{job.daysTaken !== null && <small> · {job.daysTaken === 0 ? tr('done on its planned day') : tr('{n} days from its planned day', { n: job.daysTaken })}</small>}</dd></div>
           {(job.estimatedCost !== null || job.actualCost !== null) && <div><dt>{tr('Cost')}</dt><dd>{job.estimatedCost !== null && <span>{tr('Estimated')} {money(job.estimatedCost, job.currency)}</span>}{job.actualCost !== null && <strong> {tr('Actual')} {money(job.actualCost, job.currency)}</strong>}</dd></div>}
           {job.routineName && <div><dt>{tr('Routine')}</dt><dd>🔁 {job.routineName}</dd></div>}
         </dl>
@@ -233,7 +221,7 @@ function JobForm({ job, can, employees, places, busy, onSave, onClose }) {
           <div className="mw-chips">{KINDS.map((k) => <button key={k} type="button" className={'mw-chip' + (f.category === k ? ' is-on' : '')} onClick={() => set('category', k)}><span aria-hidden="true">{kindIcon(k)}</span> {kindName(k)}</button>)}</div>
         </div>
         <div className="mw-field"><span>{tr('How urgent?')}</span>
-          <div className="mw-chips">{PRIORITIES.map((p) => <button key={p} type="button" className={'mw-chip is-prio-' + p + (f.priority === p ? ' is-on' : '')} onClick={() => set('priority', p)}>{PRIORITY[p]()}</button>)}</div>
+          <div className="mw-chips">{PRIORITIES.map((p) => <button key={p} type="button" className={'mw-chip is-prio-' + p + (f.priority === p ? ' is-on' : '')} onClick={() => set('priority', p)}>{priorityName(p)}</button>)}</div>
         </div>
         {full && <>
           <div className="mw-two">
@@ -248,7 +236,7 @@ function JobForm({ job, can, employees, places, busy, onSave, onClose }) {
             <label className="mw-field"><span>{tr('Status')}</span>
               <select className="input" value={f.status} onChange={(e) => set('status', e.target.value)}>
                 <option value="">{tr('As planned (new, or scheduled with a day)')}</option>
-                {STATUSES.map((s) => <option key={s} value={s}>{STATUS[s]()}</option>)}
+                {STATUSES.map((s) => <option key={s} value={s}>{statusName(s)}</option>)}
               </select>
             </label>
             {f.status === 'completed' && <label className="mw-field"><span>{tr('Completed on')}</span><input type="date" className="input" value={f.completedOn} onChange={(e) => set('completedOn', e.target.value)} /></label>}
@@ -429,6 +417,7 @@ export default function MaintenanceOrders({ myId }) {
   const [form, setForm] = useState(null); // { job? }
   const [routineForm, setRoutineForm] = useState(null); // { routine? }
   const [importing, setImporting] = useState(false);
+  const [presenting, setPresenting] = useState(false);
   // All jobs: the filters.
   const [q, setQ] = useState('');
   const [fStatus, setFStatus] = useState('');
@@ -448,7 +437,7 @@ export default function MaintenanceOrders({ myId }) {
     setBusy(true); setError(null);
     try { const out = await fn(); await load(); if (text) say(text); return out; } catch (e) { setError(e.message); throw e; } finally { setBusy(false); }
   }
-  const moveJob = (job, body) => act(() => api.post('/maint-work-orders/' + job.id + '/status', body), tr('{ref} is now {status}.', { ref: job.ref, status: STATUS[body.status]().toLowerCase() })).catch(() => {});
+  const moveJob = (job, body) => act(() => api.post('/maint-work-orders/' + job.id + '/status', body), tr('{ref} is now {status}.', { ref: job.ref, status: statusName(body.status).toLowerCase() })).catch(() => {});
   const saveJob = (body) => act(() => (form.job ? api.patch('/maint-work-orders/' + form.job.id, body) : api.post('/maint-work-orders', body)),
     form.job ? tr('{ref} saved.', { ref: form.job.ref }) : data.can.manage ? tr('Job added.') : tr('Your request is in: the maintenance team has been told.'))
     .then((o) => { setForm(null); if (o && o.id) setOpenId(o.id); }).catch(() => {});
@@ -544,6 +533,10 @@ export default function MaintenanceOrders({ myId }) {
           <button type="button" className="btn btn-primary" onClick={() => setForm({})}>{can.manage ? tr('+ New job') : tr('+ Ask for a job')}</button>
           {can.manage && <button type="button" className="btn btn-secondary" onClick={() => setRoutineForm({})}>{tr('+ New routine')}</button>}
           {can.manage && <button type="button" className="btn btn-secondary" onClick={() => setImporting(true)}>{tr('Import from the sheet')}</button>}
+          <button type="button" className="btn btn-secondary wo-present-btn" onClick={() => setPresenting(true)} title={tr('This week’s jobs done, still open and coming up, as slides for the Saturday meeting')}>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" /></svg>
+            {tr('Saturday review')}
+          </button>
         </>}
         tiles={tiles} />
 
@@ -565,7 +558,7 @@ export default function MaintenanceOrders({ myId }) {
               <Fragment key={st}>
                 <button type="button" className={'mw-flow-node is-' + st + (s.byStatus[st] ? '' : ' is-zero')} onClick={() => showAll({ status: st })}>
                   <span className="mw-flow-n">{s.byStatus[st] || 0}</span>
-                  <span className="mw-flow-label">{STATUS[st]()}</span>
+                  <span className="mw-flow-label">{statusName(st)}</span>
                 </button>
                 {i < FLOW.length - 1 && <span className="mw-flow-arrow" aria-hidden="true">→</span>}
               </Fragment>
@@ -616,7 +609,7 @@ export default function MaintenanceOrders({ myId }) {
       {tab === 'open' && (
         <Section title={tr('Jobs to do')} sub={tr('Everything not done yet, oldest request first, as the sheet’s Incomplete tab. Press a job to move it along.')}
           action={<div className="wo-seg" role="radiogroup" aria-label={tr('Show')}>
-            {[['all', tr('All')], ['late', tr('Overdue')], ['urgent', tr('Urgent and high')], ['nobody', tr('Not given to anyone')], ['new', STATUS.new()], ['scheduled', STATUS.scheduled()], ['in_progress', STATUS.in_progress()], ['on_hold', STATUS.on_hold()]].map(([k, label]) => (
+            {[['all', tr('All')], ['late', tr('Overdue')], ['urgent', tr('Urgent and high')], ['nobody', tr('Not given to anyone')], ['new', statusName('new')], ['scheduled', statusName('scheduled')], ['in_progress', statusName('in_progress')], ['on_hold', statusName('on_hold')]].map(([k, label]) => (
               <button key={k} type="button" role="radio" aria-checked={openChip === k} className={openChip === k ? 'is-on' : ''} onClick={() => setOpenChip(k)}>{label}</button>
             ))}
           </div>}>
@@ -672,7 +665,7 @@ export default function MaintenanceOrders({ myId }) {
             <SearchInput value={q} onChange={(v) => { setQ(v); setShown(PAGE); }} placeholder={tr('Search jobs, places, people…')} />
             <select className="input" value={fStatus} onChange={(e) => { setFStatus(e.target.value); setShown(PAGE); }} aria-label={tr('Status')}>
               <option value="">{tr('Every status')}</option><option value="open">{tr('Open (not done)')}</option>
-              {STATUSES.map((st) => <option key={st} value={st}>{STATUS[st]()}</option>)}
+              {STATUSES.map((st) => <option key={st} value={st}>{statusName(st)}</option>)}
             </select>
             <select className="input" value={fKind} onChange={(e) => { setFKind(e.target.value); setShown(PAGE); }} aria-label={tr('Kind of job')}>
               <option value="">{tr('Every kind')}</option>{KINDS.map((k) => <option key={k} value={k}>{kindIcon(k)} {kindName(k)}</option>)}
@@ -802,6 +795,8 @@ export default function MaintenanceOrders({ myId }) {
         </Section>
       )}
 
+      {presenting && <MaintenancePresent orders={orders} routines={data.routines} today={today} scopeName={can.seeAll ? tr('All places') : tr('My jobs')}
+        onClose={() => setPresenting(false)} onOpen={(o) => setOpenId(o.id)} paused={!!job || !!form || !!routineForm || importing} />}
       {job && <JobPanel key={job.id + job.status} job={job} can={can} myId={myId} busy={busy} onAct={moveJob} onDelete={deleteJob} onEdit={(j) => { setOpenId(null); setForm({ job: j }); }} onClose={() => setOpenId(null)} />}
       {form && <JobForm job={form.job} can={can} employees={employees} places={places} busy={busy} onSave={saveJob} onClose={() => setForm(null)} />}
       {routineForm && <RoutineForm routine={routineForm.routine} employees={employees} places={places} busy={busy} onSave={saveRoutine} onClose={() => setRoutineForm(null)} />}
