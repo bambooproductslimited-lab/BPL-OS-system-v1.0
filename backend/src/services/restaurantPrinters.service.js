@@ -428,12 +428,108 @@ async function linkOf(companyId) {
   await pool.query('INSERT INTO restaurant_print_links (company_id, token) VALUES ($1, $2) ON CONFLICT (company_id) DO NOTHING', [companyId, token]);
   return (await pool.query('SELECT token FROM restaurant_print_links WHERE company_id = $1', [companyId])).rows[0].token;
 }
-// POST /api/pos/settings/printers { managerPin, action: 'list'|'save'|'remove'|'test', … }
+// The kitchens, on the till, as Square's printer profiles: each kitchen (a
+// kitchen station, restaurantKitchen.service.js) with its name, the menu
+// categories it makes and the printers its tickets print on, set up from
+// any till — an iPad, a phone — with no need for the app. A category taken
+// from another kitchen moves here (a dish goes to one kitchen); one kitchen
+// may also take everything else. { kitchenId?, name, categories,
+// everythingElse, printerIds }. Returns what to say.
+function normCat(c) { return String(c == null ? '' : c).trim().toLowerCase(); }
+async function saveKitchen(company, manager, p) {
+  var name = String(p.name || '').trim().slice(0, 40);
+  if (!name) fail('invalid', 'Give the kitchen a name, such as Kitchen, Grill or Bar.');
+  if (p.categories != null && !Array.isArray(p.categories)) fail('invalid', 'Categories must be a list.');
+  var seen = new Set(), cats = [];
+  (p.categories || []).forEach(function (c) {
+    var v = String(c == null ? '' : c).trim().slice(0, 120);
+    if (v && !seen.has(normCat(v))) { seen.add(normCat(v)); cats.push(v); }
+  });
+  if (cats.length > 200) fail('invalid', 'Too many categories for one kitchen.');
+  return withTransaction(async function (client) {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('kds:' || $1))", [company]);
+    var old = null;
+    if (p.kitchenId) {
+      old = (await client.query('SELECT * FROM restaurant_kds_stations WHERE id = $1 AND company_id = $2', [p.kitchenId, company])).rows[0];
+      if (!old) fail('notfound', 'That kitchen is not set up any more.');
+    }
+    var none = '00000000-0000-0000-0000-000000000000';
+    if ((await client.query('SELECT 1 FROM restaurant_kds_stations WHERE company_id = $1 AND lower(name) = lower($2) AND id <> $3', [company, name, old ? old.id : none])).rows[0]) {
+      fail('conflict', 'Another kitchen is called ' + name + ' already.');
+    }
+    // Taken from the kitchens that made them.
+    var moved = [];
+    var others = (await client.query('SELECT id, name, categories FROM restaurant_kds_stations WHERE company_id = $1 AND active AND id <> $2', [company, old ? old.id : none])).rows;
+    for (var i = 0; i < others.length; i++) {
+      var o = others[i], keep = (o.categories || []).filter(function (x) { return !seen.has(normCat(x)); });
+      if (keep.length === (o.categories || []).length) continue;
+      (o.categories || []).filter(function (x) { return seen.has(normCat(x)); }).forEach(function (x) { moved.push(x + ' from ' + o.name); });
+      await client.query('UPDATE restaurant_kds_stations SET categories = $2, updated_at = now() WHERE id = $1', [o.id, keep]);
+    }
+    var everythingElse = p.everythingElse === undefined ? !!(old && old.everything_else) : p.everythingElse === true;
+    if (everythingElse) await client.query('UPDATE restaurant_kds_stations SET everything_else = false WHERE company_id = $1 AND id <> $2', [company, old ? old.id : none]);
+    var k;
+    if (old) {
+      k = (await client.query('UPDATE restaurant_kds_stations SET name = $2, categories = $3, everything_else = $4, updated_at = now() WHERE id = $1 RETURNING *', [old.id, name, cats, everythingElse])).rows[0];
+    } else {
+      var order = (await client.query('SELECT coalesce(max(sort_order), 0) + 1 AS n FROM restaurant_kds_stations WHERE company_id = $1', [company])).rows[0].n;
+      k = (await client.query('INSERT INTO restaurant_kds_stations (company_id, name, categories, everything_else, sort_order) VALUES ($1,$2,$3,$4,$5) RETURNING *', [company, name, cats, everythingElse, order])).rows[0];
+    }
+    // Its printers: the ones chosen print its tickets, the others not.
+    var at = [];
+    if (Array.isArray(p.printerIds)) {
+      var want = (await client.query("SELECT id, name FROM restaurant_printers WHERE company_id = $1 AND NOT ignored AND name <> '' AND id = ANY($2::uuid[])",
+        [company, p.printerIds.filter(function (x) { return typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x); })])).rows;
+      var wantIds = want.map(function (r) { return r.id; });
+      await client.query('UPDATE restaurant_printers SET station_ids = array_append(array_remove(station_ids, $2::uuid), $2::uuid), updated_at = now() WHERE company_id = $1 AND id = ANY($3::uuid[])', [company, k.id, wantIds]);
+      await client.query('UPDATE restaurant_printers SET station_ids = array_remove(station_ids, $2::uuid), updated_at = now() WHERE company_id = $1 AND $2::uuid = ANY(station_ids) AND NOT (id = ANY($3::uuid[]))', [company, k.id, wantIds]);
+      at = want.map(function (r) { return r.name; });
+    }
+    var summary = (old ? 'Changed the kitchen ' : 'Set up the kitchen ') + name + ': ' +
+      [cats.length ? cats.join(', ') : 'no categories', everythingElse ? 'everything else' : '', Array.isArray(p.printerIds) ? (at.length ? 'prints at ' + at.join(', ') : 'no printer') : '']
+        .filter(Boolean).join('; ') + (moved.length ? ' (moved: ' + moved.join(', ') + ')' : '') + '.';
+    await activity.log(client, { companyId: company, employeeId: manager.id, app: 'settings', action: 'settings.kitchen', summary: summary.slice(0, 500), refType: 'station', refId: k.id });
+    return { id: k.id, name: name, moved: moved.length };
+  });
+}
+// Taken off: its dishes go to the kitchen taking everything else, or nowhere;
+// its screens wait for another kitchen.
+async function removeKitchen(company, manager, id) {
+  return withTransaction(async function (client) {
+    var k = (await client.query('DELETE FROM restaurant_kds_stations WHERE id = $1 AND company_id = $2 RETURNING id, name', [id, company])).rows[0];
+    if (!k) fail('notfound', 'That kitchen is not set up any more.');
+    await client.query('UPDATE restaurant_printers SET station_ids = array_remove(station_ids, $2::uuid), updated_at = now() WHERE company_id = $1 AND $2::uuid = ANY(station_ids)', [company, k.id]);
+    await activity.log(client, { companyId: company, employeeId: manager.id, app: 'settings', action: 'settings.kitchen', summary: 'Took off the kitchen ' + k.name + '.', refType: 'station', refId: k.id });
+    return k;
+  });
+}
+// The kitchens and the menu's categories, with where each goes.
+async function kitchensOf(company) {
+  var all = (await pool.query('SELECT * FROM restaurant_kds_stations WHERE company_id = $1 ORDER BY sort_order, name', [company])).rows;
+  var prs = (await pool.query("SELECT id, station_ids FROM restaurant_printers WHERE company_id = $1 AND NOT ignored AND name <> ''", [company])).rows;
+  var screens = new Map((await pool.query("SELECT station_id, count(*)::int AS n FROM restaurant_kds_screens WHERE company_id = $1 AND status = 'active' AND station_id IS NOT NULL GROUP BY 1", [company])).rows
+    .map(function (r) { return [r.station_id, r.n]; }));
+  var cats = (await pool.query("SELECT coalesce(category, '') AS name, count(*)::int AS n FROM restaurant_menu_items WHERE company_id = $1 AND active GROUP BY 1 ORDER BY 1", [company])).rows;
+  var active = all.filter(function (s) { return s.active; });
+  var kitchen = require('./restaurantKitchen.service');
+  return {
+    kitchens: all.map(function (s) {
+      return { id: s.id, name: s.name, categories: s.categories || [], everythingElse: s.everything_else, active: s.active, printTickets: !!s.print_tickets,
+        screens: screens.get(s.id) || 0, printerIds: prs.filter(function (r) { return (r.station_ids || []).indexOf(s.id) >= 0; }).map(function (r) { return r.id; }) };
+    }),
+    categories: cats.map(function (c) { var s = kitchen._stationFor(active, c.name); return { name: c.name, items: c.n, kitchenId: s ? s.id : null }; })
+  };
+}
+
+// POST /api/pos/settings/printers { managerPin, action: 'list'|'save'|'remove'|'test'|'kitchen'|'removeKitchen', … }
 // origin: this server's own address, for the printer link.
 async function manage(token, p, ip, origin) {
   p = p || {};
   var m = await access.settingsManager(token, p.managerPin, ip);
   var company = m.session.posCompanyId;
+  var said = null;
+  if (p.action === 'kitchen') said = await saveKitchen(company, m.manager, p);
+  else if (p.action === 'removeKitchen') said = await removeKitchen(company, m.manager, p.kitchenId);
   var stations = (await pool.query('SELECT id, name FROM restaurant_kds_stations WHERE company_id = $1 AND active ORDER BY sort_order, name', [company])).rows;
   var mine = async function (id) {
     var pr = (await pool.query('SELECT * FROM restaurant_printers WHERE id = $1 AND company_id = $2', [id, company])).rows[0];
@@ -478,9 +574,13 @@ async function manage(token, p, ip, origin) {
     await addJob(pool, tp, 'test', 'Test print', testDoc(tp, co && co.name, stations.filter(function (s) { return (tp.station_ids || []).indexOf(s.id) >= 0; }).map(function (s) { return s.name; })), { by: m.manager.id });
   }
   var hubs = require('./restaurantPrintHub.service');
+  var ks = await kitchensOf(company);
   return {
     link: String(origin || '').replace(/\/$/, '') + '/api/cloudprnt/' + await linkOf(company),
     printers: await listFor(company, true), stations: stations.map(function (s) { return { id: s.id, name: s.name }; }),
+    // The kitchens with their categories and printers, and the menu's
+    // categories with the kitchen each goes to (none: not sent).
+    kitchens: ks.kitchens, categories: ks.categories, kitchenSaved: said ? { id: said.id, name: said.name, moved: said.moved || 0 } : null,
     // The print hubs looking for printers, and those taken off (hidden).
     hubs: await hubs.hubsOf(company), hubVersion: hubs.HUB_VERSION,
     hidden: (await pool.query('SELECT count(*)::int AS n FROM restaurant_printers WHERE company_id = $1 AND ignored', [company])).rows[0].n
