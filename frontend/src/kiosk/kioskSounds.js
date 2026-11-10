@@ -19,6 +19,10 @@ function getContext() {
   return audioCtx;
 }
 
+// The same context for the kitchen screen's tones (kiosk/kitchenTones.js),
+// so one unlock serves both.
+export function audioContext() { return getContext(); }
+
 export function unlockAudio() {
   const ctx = getContext();
   if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});

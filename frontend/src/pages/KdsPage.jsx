@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { posFetch } from '../lib/posApi';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import DeviceLanguage from '../components/DeviceLanguage';
-import { unlockAudio, playNewTicket, playOrderReady } from '../kiosk/kioskSounds';
+import { unlockAudio } from '../kiosk/kioskSounds';
+import { loadSounds, playTone, saveSounds } from '../kiosk/kitchenTones';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { applyTheme, clearTheme, getInitialTheme, saveTheme } from '../lib/theme';
 import ThemeSwitch from '../components/ThemeSwitch';
@@ -13,6 +14,7 @@ import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
 import { allergenWords, clashes } from './till/tillService';
 import PrepDialog from './till/Prep';
+import KdsSounds from './till/KdsSounds';
 // The kitchen's reports, loaded when opened (till/KdsReports.jsx).
 const KdsReports = lazy(() => import('./till/KdsReports'));
 import { hubFetch } from './till/outage';
@@ -60,7 +62,8 @@ import './KdsPage.css';
 const SESSION_KEY = 'bamboo.kds.session';
 const SCREEN_KEY = 'bamboo.kds.screen';
 const SETUP_POLL_MS = 4000;
-const SOUND_KEY = 'bamboo.kds.sound';
+// A new ticket rung again (keep ringing until someone taps) at most this many times.
+const MAX_RINGS = 40;
 const PIN_LENGTH = 4;
 const POLL_MS = 4000;
 // Outage mode (pages/till/outage.js): what this screen keeps for when the
@@ -157,7 +160,13 @@ export default function KdsPage() {
   const [problem, setProblem] = useState(null);
   const [offset, setOffset] = useState(0); // the server's clock minus this screen's
   const [tick, setTick] = useState(() => Date.now());
-  const [sound, setSound] = useState(() => readKey(SOUND_KEY, 'on') === 'on');
+  // This screen's sounds (kiosk/kitchenTones.js, till/KdsSounds.jsx), and a
+  // new ticket still ringing until someone touches the screen.
+  const [sounds, setSounds] = useState(loadSounds);
+  const sound = sounds.on;
+  const [soundsOpen, setSoundsOpen] = useState(false);
+  const [ringing, setRinging] = useState(false);
+  const ringRef = useRef(null); // { last, count } while a new ticket keeps ringing
   const [fresh, setFresh] = useState(() => new Set());
   const [busy, setBusy] = useState(() => new Set());
   const [showRecent, setShowRecent] = useState(false);
@@ -174,8 +183,28 @@ export default function KdsPage() {
   // Each new ticket printed as it comes, on this screen's printer (kept on this device).
   const [autoPrint, setAutoPrint] = useState(() => { try { return localStorage.getItem('bamboo.kds.autoprint') === '1'; } catch { return false; } });
   const autoRef = useRef({ on: autoPrint, printer: null, company: '' });
-  const soundRef = useRef(sound);
-  useEffect(() => { soundRef.current = sound; }, [sound]);
+  const soundRef = useRef(sounds);
+  useEffect(() => { soundRef.current = sounds; }, [sounds]);
+  // A new ticket: its tone, and again every so often until someone touches the screen.
+  const ring = useCallback(() => {
+    const s = soundRef.current;
+    if (!s.on) return;
+    playTone(s.newTone, s.volume);
+    if (s.repeat > 0) { ringRef.current = { last: Date.now(), count: 0 }; setRinging(true); }
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      const r = ringRef.current, s = soundRef.current;
+      if (!r) return;
+      if (!s.on || !s.repeat || r.count >= MAX_RINGS) { ringRef.current = null; setRinging(false); return; }
+      if (Date.now() - r.last >= s.repeat * 1000) { playTone(s.newTone, s.volume); r.last = Date.now(); r.count += 1; }
+    }, 1000);
+    const heard = () => { if (ringRef.current) { ringRef.current = null; setRinging(false); } };
+    window.addEventListener('pointerdown', heard, true);
+    window.addEventListener('keydown', heard, true);
+    return () => { clearInterval(t); window.removeEventListener('pointerdown', heard, true); window.removeEventListener('keydown', heard, true); };
+  }, []);
+  function changeSounds(s) { setSounds(s); saveSounds(s); if (!s.on || !s.repeat) { ringRef.current = null; setRinging(false); } }
   const expoRef = useRef(false);
   useEffect(() => { autoRef.current = { on: autoPrint, printer, company: session ? session.companyName : '' }; }, [autoPrint, printer, session]);
 
@@ -281,7 +310,7 @@ export default function KdsPage() {
       if (seenRef.current) {
         const added = ids.filter((id) => !seenRef.current.has(id));
         if (added.length) {
-          if (soundRef.current) playNewTicket();
+          ring();
           printNew(b.cooking.filter((t) => added.includes(t.id) && t.status === 'cooking'), b.courses || []);
           setFresh((f) => new Set([...f, ...added]));
           setTimeout(() => setFresh((f) => { const n = new Set(f); added.forEach((id) => n.delete(id)); return n; }), 8000);
@@ -290,7 +319,7 @@ export default function KdsPage() {
       } else seenRef.current = new Set(ids);
       // In the Expo view: a ding-dong when an order is all ready.
       const readyIds = b.ready.filter((t) => t.status !== 'cooking').map((t) => t.id);
-      if (readySeen.current && expoRef.current && soundRef.current && readyIds.some((id) => !readySeen.current.has(id))) playOrderReady();
+      if (readySeen.current && expoRef.current && soundRef.current.on && readyIds.some((id) => !readySeen.current.has(id))) playTone(soundRef.current.readyTone, soundRef.current.volume);
       readySeen.current = new Set(readyIds);
       setBoard(b);
       writeKey(BOARD_KEY, JSON.stringify(b));
@@ -310,7 +339,7 @@ export default function KdsPage() {
       }
       return false;
     }
-  }, [signOut]);
+  }, [signOut, ring]);
 
   // Outage mode: the tickets the tills sent the print hub with no internet,
   // asked for every few seconds while there is a hub (new ones ding).
@@ -331,7 +360,7 @@ export default function KdsPage() {
         list.forEach((t) => hubSeen.current.add(t.id));
         setHubTickets((m) => { const n = new Map(m); list.forEach((t) => n.set(t.id, t)); return n; });
         if (added.length) {
-          if (soundRef.current) playNewTicket();
+          ring();
           setFresh((f) => new Set([...f, ...added.map((t) => t.id)]));
           setTimeout(() => setFresh((f) => { const n = new Set(f); added.forEach((t) => n.delete(t.id)); return n; }), 8000);
         }
@@ -340,7 +369,7 @@ export default function KdsPage() {
     ask();
     const t = setInterval(ask, HUB_POLL_MS);
     return () => { stop = true; clearInterval(t); };
-  }, [session, outage]);
+  }, [session, outage, ring]);
   async function hubDone(t, done) {
     unlockAudio();
     setBusy((b) => new Set(b).add(t.id));
@@ -445,7 +474,7 @@ export default function KdsPage() {
   }
   const serve = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/served', { from: 'kds' });
   const recall = (t) => act(t.id, 'POST', '/pos/kds/tickets/' + t.id + '/recall');
-  function toggleSound() { const on = !sound; setSound(on); writeKey(SOUND_KEY, on ? 'on' : 'off'); if (on) { unlockAudio(); playNewTicket(); } }
+  function openSounds() { unlockAudio(); setSoundsOpen(true); }
   function toggleAutoPrint() {
     const on = !autoPrint;
     setAutoPrint(on);
@@ -573,7 +602,7 @@ export default function KdsPage() {
         </div>
         <div className="kds-tools">
           <span className="kds-clock">{clock}</span>
-          <button type="button" className={'kds-tool' + (sound ? ' is-on' : '')} onClick={toggleSound} aria-pressed={sound} title={sound ? tr('Sound on: a ding for each new ticket') : tr('Sound off')}>{sound ? '🔔' : '🔕'}</button>
+          <button type="button" className={'kds-tool' + (sound ? ' is-on' : '')} onClick={openSounds} aria-haspopup="dialog" title={sound ? tr('Sounds: a tone for each new ticket. Tap to choose') : tr('Sound off. Tap to turn it on')}>{sound ? '🔔' : '🔕'}</button>
           <button type="button" className="kds-tool" onClick={fullScreen} title={tr('Full screen')} aria-label={tr('Full screen')}>⛶</button>
           {station === 'all' && (
             <button type="button" className={'kds-tool is-text' + (expoOn ? ' is-on' : '')} aria-pressed={expoOn} title={tr('Each order with every station\'s part, to hand over when all of it is ready')}
@@ -592,6 +621,8 @@ export default function KdsPage() {
         </div>
       </header>
       {prepOpen && session && <PrepDialog token={session.token} onClose={() => setPrepOpen(false)} />}
+      {soundsOpen && <KdsSounds sounds={sounds} onChange={changeSounds} onClose={() => setSoundsOpen(false)} />}
+      {ringing && <div className="kds-ringing" role="status"><span aria-hidden="true">🔔</span>{tr('New ticket: tap anywhere on the screen to stop the ringing')}</div>}
       {reportsOpen && session && (
         <Suspense fallback={null}>
           <KdsReports token={session.token} companyName={session.companyName} printer={printer} onClose={() => setReportsOpen(false)} onSignedOut={() => { setReportsOpen(false); signOut(); }} />
