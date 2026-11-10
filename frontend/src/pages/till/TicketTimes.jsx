@@ -12,6 +12,11 @@ import './tenth.css';
 // by order type; the slowest dishes and tickets. Colour says on time, slow
 // or late (status colours, always with their sign and a legend); the
 // slowest tenth is the grey tick.
+//
+// The kitchen screen shows the same (till/KdsReports.jsx): its own fetcher
+// (fetcher(range) → the report), a station to reload for (reloadKey), what
+// it adds before and after the charts (before(data), after(data)), and the
+// report as it comes (onData), starting on today.
 
 const STATE = { ok: ['✓', () => tr('On time')], slow: ['⚠', () => tr('Slow')], late: ['⏰', () => tr('Late')] };
 const KIND = { dine_in: ['🍽️', () => tr('Dine in')], togo: ['🥤', () => tr('To go')], pickup: ['🛍️', () => tr('Pickup')], delivery: ['🛵', () => tr('Delivery')], takeaway: ['🥡', () => tr('Takeaway')] };
@@ -39,8 +44,8 @@ function Row({ label, s, t, max, tipOn, sub }) {
   );
 }
 
-export default function TicketTimes({ token, pin, onFail }) {
-  const [range, setRange] = useState('7');
+export default function TicketTimes({ token, pin, onFail, fetcher, reloadKey, before, after, onData, initialRange }) {
+  const [range, setRange] = useState(initialRange || '7');
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [asTable, setAsTable] = useState(false);
@@ -48,9 +53,9 @@ export default function TicketTimes({ token, pin, onFail }) {
   const r = rangeOf(range);
   useEffect(() => {
     setBusy(true);
-    posFetch('POST', '/pos/settings/tickettimes', token, { managerPin: pin || undefined, from: r.from, to: r.to })
-      .then(setData).catch(onFail).finally(() => setBusy(false));
-  }, [range, token, pin]); // eslint-disable-line react-hooks/exhaustive-deps
+    (fetcher ? fetcher(r) : posFetch('POST', '/pos/settings/tickettimes', token, { managerPin: pin || undefined, from: r.from, to: r.to }))
+      .then((d) => { setData(d); if (onData) onData(d, range); }).catch(onFail).finally(() => setBusy(false));
+  }, [range, token, pin, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!data) return <section className="ts-sec"><p className="dk-muted">{busy ? tr('Loading…') : ''}</p></section>;
   const t = data.targets, T = data.totals, B = data.before;
@@ -66,6 +71,7 @@ export default function TicketTimes({ token, pin, onFail }) {
         </div>
         <button type="button" className="btn btn-secondary in-table-btn" onClick={() => setAsTable(!asTable)}>{asTable ? tr('Show charts') : tr('Show as a table')}</button>
       </div>
+      {before && before(data)}
 
       <div className={'tt-hero is-' + st}>
         <span className="tt-clock" aria-hidden="true"><i style={{ '--turn': Math.min(1, (T.median || 0) / (t.lateAfter * 1.5)) }} /></span>
@@ -100,7 +106,7 @@ export default function TicketTimes({ token, pin, onFail }) {
             {['ok', 'slow', 'late'].map((k) => <span key={k}><i className={'in-key tt-key is-' + k} aria-hidden="true" />{STATE[k][0]} {STATE[k][1]()}</span>)}
             <span><i className="in-key is-before" aria-hidden="true" />{tr('Slowest tenth')}</span>
           </p>
-          <div className="in-card">
+          {data.byDay.length > 1 && <div className="in-card">
             <h3>{tr('Each day')}<small>{tr('The median ticket; the dashed lines are slow and late')}</small></h3>
             <div className="tt-days">
               <span className="tt-line is-slow" style={{ bottom: (t.warnAfter / dayMax * 100) + '%' }}><em>{tr('{n} min', { n: t.warnAfter })}</em></span>
@@ -118,7 +124,7 @@ export default function TicketTimes({ token, pin, onFail }) {
                 );
               })}
             </div>
-          </div>
+          </div>}
 
           <div className="in-grid">
             <article className="in-card">
@@ -163,6 +169,7 @@ export default function TicketTimes({ token, pin, onFail }) {
           </div>
         </>
       )}
+      {after && after(data, tipOn)}
       {tipNode}
     </section>
   );

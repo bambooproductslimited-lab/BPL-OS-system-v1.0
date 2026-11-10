@@ -1,0 +1,65 @@
+/* The kitchen screen's reports (till/KdsReports.jsx), over the kitchen
+   screen: the back office's report styles (growth.css, tenth.css) on the
+   kitchen's own colours, big enough to read standing at the pass. No
+   color-mix() here: a kitchen tablet's browser may be old. */
+.kdr {
+  --pos-card: var(--kd-card); --pos-soft: var(--kd-soft); --pos-line: var(--kd-line);
+  --color-border: var(--kd-line);
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; flex-direction: column;
+  overflow-y: auto; overscroll-behavior: contain;
+  background:
+    radial-gradient(60% 40% at 0% 0%, rgba(var(--kd-a-rgb), .12), rgba(var(--kd-a-rgb), 0) 70%),
+    radial-gradient(50% 40% at 100% 100%, rgba(var(--kd-b-rgb), .09), rgba(var(--kd-b-rgb), 0) 70%),
+    var(--kd-bg);
+  -webkit-user-select: text; user-select: text;
+  animation: kdr-in .22s cubic-bezier(.2, .8, .2, 1) both;
+}
+@keyframes kdr-in { from { opacity: 0; transform: translateY(10px); } }
+.kdr-head { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 18px; background: var(--kd-card); border-bottom: 1px solid var(--kd-line); box-shadow: var(--kd-shadow); }
+.kdr-head::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: linear-gradient(90deg, rgb(var(--kd-a-rgb)), rgb(var(--kd-b-rgb)), rgba(var(--kd-b-rgb), 0) 70%); }
+.kdr-ico { flex: none; display: grid; place-items: center; width: 44px; height: 44px; font-size: 22px; border-radius: 14px; background: linear-gradient(135deg, rgb(var(--kd-a-rgb)), rgb(var(--kd-b-rgb))); box-shadow: 0 8px 20px -8px rgba(var(--kd-a-rgb), .7); }
+.kdr-title { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kdr-title strong { font-family: var(--font-heading); font-size: 21px; line-height: 1.15; }
+.kdr-title small { font-size: 13px; color: var(--color-text-muted); }
+.kdr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kdr-said { padding: 6px 12px; font-size: 13px; font-weight: 700; border-radius: 999px; color: rgb(var(--kd-ok-rgb)); background: rgba(var(--kd-ok-rgb), .12); }
+.kdr-close { font-weight: 800; }
+.kdr-stations { margin: 0 0 12px; }
+.kdr-stations button { font-size: 14px; padding: 10px 16px; }
+.kdr-stations button.is-on { background: linear-gradient(135deg, rgb(var(--kd-a-rgb)), rgb(var(--kd-b-rgb))); }
+.kdr-err { margin: 0 0 12px; padding: 11px 14px; font-weight: 700; border-radius: 12px; background: rgba(var(--kd-late-rgb), .1); border: 1px solid rgba(var(--kd-late-rgb), .3); border-left: 5px solid rgb(var(--kd-late-rgb)); }
+.kdr-body { width: 100%; max-width: 1280px; margin: 0 auto; padding: 14px 18px 40px; }
+
+/* Right now: what is on the screens. */
+.kdr-now { display: grid; grid-template-columns: auto repeat(4, minmax(0, 1fr)); align-items: stretch; gap: 10px; }
+.kdr-now-h { display: flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 13px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); }
+.kdr-now-h i { width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--kd-ok-rgb)); box-shadow: 0 0 0 4px rgba(var(--kd-ok-rgb), .2); animation: kdr-pulse 1.8s ease-in-out infinite; }
+@keyframes kdr-pulse { 50% { box-shadow: 0 0 0 8px rgba(var(--kd-ok-rgb), 0); } }
+.kdr-now-tile { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 16px; background: var(--kd-card); border: 1px solid var(--kd-line); box-shadow: var(--kd-shadow); border-top: 4px solid rgba(var(--kd-ink-rgb), .18); }
+.kdr-now-tile b { font-family: var(--font-heading); font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kdr-now-tile small { font-size: 12.5px; font-weight: 700; color: var(--color-text-muted); }
+.kdr-now-tile.is-ok { border-top-color: rgb(var(--kd-ok-rgb)); }
+.kdr-now-tile.is-slow { border-top-color: rgb(var(--kd-warn-rgb)); }
+.kdr-now-tile.is-late { border-top-color: rgb(var(--kd-late-rgb)); background: rgba(var(--kd-late-rgb), .07); }
+
+/* What the kitchen made; taken off. */
+.kdr-extras { margin-top: 12px; }
+.kdr-made .in-bars { gap: 6px; }
+.kdr-made .in-bar-name { display: flex; flex-direction: column; }
+.kdr-made .in-bar-name small { font-size: 11px; font-weight: 600; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; }
+.kdr-bar { background: linear-gradient(90deg, rgb(var(--kd-b-rgb)), rgb(var(--kd-a-rgb))); border-radius: 0 4px 4px 0; }
+.kdr-off-total { margin: 0 0 8px; font-size: 14px; }
+.kdr-off-total b { font-family: var(--font-heading); font-size: 24px; color: rgb(var(--kd-late-rgb)); margin-right: 4px; }
+.kdr-off .tt-rank.is-ico { color: rgb(var(--kd-late-rgb)); font-weight: 800; }
+.kdr-off .tt-pill { background: rgba(var(--kd-late-rgb), .1); color: rgb(var(--kd-late-rgb)); }
+.kdr-good { margin: 0; padding: 12px 14px; border-radius: 14px; font-weight: 700; color: rgb(var(--kd-ok-rgb)); background: rgba(var(--kd-ok-rgb), .1); }
+.kdr-offline { margin: 12px 0 0; padding: 10px 12px; border-radius: 14px; font-size: 13px; font-weight: 600; background: rgba(var(--kd-warn-rgb), .12); border: 1px solid rgba(var(--kd-warn-rgb), .3); }
+
+@media (max-width: 760px) {
+  .kdr-now { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kdr-now-h { grid-column: 1 / -1; }
+  .kdr-head, .kdr-body { padding-left: 12px; padding-right: 12px; }
+  .kdr-body .in-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .kdr, .kdr-now-h i { animation: none; } }

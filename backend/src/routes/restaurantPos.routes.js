@@ -297,6 +297,10 @@ router.post('/tabs/:id/fire', posAuth, async function (req, res, next) {
 router.get('/kds', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.board(req.posToken, req.query)); } catch (e) { next(e); }
 });
+// The kitchen screen's reports (restaurantTicketTimes.service.js kdsReport).
+router.get('/kds/reports', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantTicketTimes.service').kdsReport(req.posToken, req.query)); } catch (e) { next(e); }
+});
 router.post('/kds/items/:id', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.setItemDone(req.posToken, req.params.id, req.body && req.body.done !== false)); } catch (e) { next(e); }
 });

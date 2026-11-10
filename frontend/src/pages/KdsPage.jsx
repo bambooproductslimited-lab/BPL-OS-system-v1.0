@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { posFetch } from '../lib/posApi';
 import { restaurantLogoUrl } from '../lib/restaurantLogos';
 import DeviceLanguage from '../components/DeviceLanguage';
@@ -13,6 +13,8 @@ import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
 import { allergenWords, clashes } from './till/tillService';
 import PrepDialog from './till/Prep';
+// The kitchen's reports, loaded when opened (till/KdsReports.jsx).
+const KdsReports = lazy(() => import('./till/KdsReports'));
 import { hubFetch } from './till/outage';
 import { SITE } from '../lib/site';
 import './till/till.css';
@@ -136,6 +138,7 @@ function whereOf(t) {
 export default function KdsPage() {
   const [session, setSession] = useState(null);
   const [prepOpen, setPrepOpen] = useState(false); // the prep list (till/Prep.jsx)
+  const [reportsOpen, setReportsOpen] = useState(false); // the kitchen's reports (till/KdsReports.jsx)
   const [checked, setChecked] = useState(false);
   const [pin, setPin] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
@@ -582,12 +585,18 @@ export default function KdsPage() {
             ? <button type="button" className="kds-tool is-text kds-printer" title={printer.name} onClick={() => setPrinterOpen(true)}>🖨 {tr('Printer ready')}</button>
             : <button type="button" className="kds-tool is-text" onClick={() => setPrinterOpen(true)} title={tr('Tickets print through the print dialog until a printer is connected.')}>🖨 {tr('Connect printer')}</button>)}
           <button type="button" className="kds-tool is-text" onClick={() => setPrepOpen(true)}>🔪 {tr('Prep list')}</button>
+          <button type="button" className="kds-tool is-text" onClick={() => setReportsOpen(true)}>📊 {tr('Reports')}</button>
           <DeviceLanguage className="kds-lang" />
           {themeButton}
           <button type="button" className="kds-tool is-text" onClick={logOut}>{tr('Log out')}</button>
         </div>
       </header>
       {prepOpen && session && <PrepDialog token={session.token} onClose={() => setPrepOpen(false)} />}
+      {reportsOpen && session && (
+        <Suspense fallback={null}>
+          <KdsReports token={session.token} companyName={session.companyName} printer={printer} onClose={() => setReportsOpen(false)} onSignedOut={() => { setReportsOpen(false); signOut(); }} />
+        </Suspense>
+      )}
 
       {offline && (
         <div className={'kds-banner is-offline' + (outage && outage.hub && hubOk ? ' is-hub' : '')} role="status">{outage && outage.hub

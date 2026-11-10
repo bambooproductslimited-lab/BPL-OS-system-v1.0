@@ -276,6 +276,47 @@ export function buildKitchenChitBytes(chit, companyName, opts) {
   return out;
 }
 
+// buildKitchenReportBytes(report, companyName, opts) — the kitchen screen's
+// report on paper (pages/till/KdsReports.jsx): its station, the days, the
+// ticket times, what is on the screens now, what the kitchen made, what was
+// taken off, what was taken with no internet, each station. In English, as
+// the printer has no other letters. opts: { station, lineWidth }.
+export function buildKitchenReportBytes(r, companyName, opts) {
+  opts = opts || {};
+  var width = opts.lineWidth || LINE_WIDTH_58MM;
+  var rule = new Array(width + 1).join('-');
+  var min = function (n) { return n == null ? '-' : (Math.round(n * 10) / 10) + ' min'; };
+  var qty = function (n) { return String(Math.round(Number(n) * 100) / 100); };
+  var day = function (d) { return new Date(d + 'T12:00:00').toLocaleDateString([], { day: 'numeric', month: 'short' }); };
+  var T = r.totals || {};
+  var out = [].concat(INIT, ALIGN_CENTER, BOLD_ON, DOUBLE_ON, line('KITCHEN REPORT'), DOUBLE_OFF, BOLD_OFF);
+  out = out.concat(line(companyName || ''), BOLD_ON, line(String(opts.station || 'All stations').toUpperCase()), BOLD_OFF);
+  out = out.concat(line(r.from === r.to ? day(r.from) : day(r.from) + ' - ' + day(r.to)), line('Printed ' + new Date().toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })));
+  out = out.concat(ALIGN_LEFT, line(rule), BOLD_ON, line('TICKET TIMES'), BOLD_OFF);
+  out = out.concat(line(twoColumn('Tickets', String(T.tickets || 0), width)), line(twoColumn('Half ready within', min(T.median), width)),
+    line(twoColumn('Slowest tenth', min(T.p90), width)), line(twoColumn('On time', T.onTime == null ? '-' : T.onTime + '%', width)),
+    line(twoColumn('Late (over ' + (r.targets ? r.targets.lateAfter : 20) + ' min)', String(T.late || 0), width)));
+  if (r.now) {
+    out = out.concat(line(rule), BOLD_ON, line('RIGHT NOW'), BOLD_OFF, line(twoColumn('Cooking', String(r.now.cooking), width)), line(twoColumn('Ready to serve', String(r.now.ready), width)));
+    if (r.now.held) out = out.concat(line(twoColumn('Coming up (courses)', String(r.now.held), width)));
+    if (r.now.oldestMinutes != null) out = out.concat(line(twoColumn('Oldest waiting', min(r.now.oldestMinutes), width)));
+  }
+  out = out.concat(line(rule), BOLD_ON, line('MADE: ' + qty(r.madeTotal || 0) + ' DISHES'), BOLD_OFF);
+  (r.made || []).slice(0, 15).forEach(function (d) { out = out.concat(line(twoColumn(d.name, qty(d.qty), width))); });
+  if ((r.made || []).length > 15) out = out.concat(line('...and ' + (r.made.length - 15) + ' more'));
+  if (r.takenOffTotal > 0) {
+    out = out.concat(line(rule), BOLD_ON, line('TAKEN OFF: ' + qty(r.takenOffTotal)), BOLD_OFF);
+    (r.takenOff || []).forEach(function (d) { out = out.concat(line(twoColumn(d.name, qty(d.qty), width))); });
+  }
+  if (r.offline && r.offline.tickets > 0) out = out.concat(line(rule), line('No internet: ' + r.offline.tickets + ' ticket(s), ' + qty(r.offline.dishes) + ' dish(es)'), line('made, not timed'));
+  if ((r.byStation || []).length > 1) {
+    out = out.concat(line(rule), BOLD_ON, line('EACH STATION (MEDIAN)'), BOLD_OFF);
+    r.byStation.forEach(function (st) { out = out.concat(line(twoColumn(st.station + ' (' + st.tickets + ')', min(st.median), width))); });
+  }
+  out = out.concat(line(rule), FEED(3), CUT);
+  return out;
+}
+
 // buildDrawerReportBytes(report, companyName, cashierName) -> same shape
 // as the reference "Drawer Report" receipt this was built to match:
 // header, Starting/Cash Sales/Refunds/Paid In-Out/Expected/Actual/
