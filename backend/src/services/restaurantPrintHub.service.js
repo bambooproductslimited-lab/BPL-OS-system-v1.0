@@ -2,6 +2,7 @@ var { pool } = require('../db/pool');
 var { fail } = require('../utils/errors');
 var printers = require('./restaurantPrinters.service');
 var printerBytes = require('../lib/printerBytes');
+var access = require('./restaurantTillAccess.service');
 
 // The Bamboo print hub (tools/print-hub): a small program on one computer
 // that stays on at the restaurant. It looks through the restaurant's
@@ -13,13 +14,14 @@ var printerBytes = require('../lib/printerBytes');
 //       printers: [{ mac, ip, port, make, model, state }],
 //       done: [{ id, ok, error }] }
 //   -> { hubId, jobs: [{ id, mac, ip, port, language, title, data }], pollMs, scanMs }
+//     (hub.lan: where it answers on the restaurant's network — outage below)
 // Each printer it finds shows up in Till settings → Printers as a new
 // printer, to be named and given its work, as Square does; its tickets go
 // back to the hub as the printer's own bytes (lib/printerBytes.js), base64.
 // Nothing is set on the printers. A printer that also asks by itself
 // (CloudPRNT) keeps doing so: the hub does not take its tickets.
 
-var HUB_VERSION = '1.0.0';
+var HUB_VERSION = '1.1.0';
 var POLL_MS = 3000, SCAN_MS = 60000;
 var HUB_ONLINE_SECONDS = 30;
 var MAX_ATTEMPTS = 5;
@@ -33,15 +35,33 @@ function macOf(v) {
   return /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(m) && m !== '00:00:00:00:00:00' ? m : '';
 }
 
+// An address on a restaurant's own network (10.x, 172.16–31.x, 192.168.x).
+function privateIp(ip) { return /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip); }
+function portOf(v) { var n = Math.round(Number(v)); return n >= 1024 && n <= 65535 ? n : null; }
+// Where the hub answers on the restaurant's network, for outage mode
+// (migration 0216): its addresses there, its port for the tills (HTTPS),
+// its setup page's, the key the tills give it, and the SHA-256 of the
+// certificate authority each till trusts. A hub before 1.1 says nothing.
+function lanOf(l) {
+  l = l || {};
+  var ips = (Array.isArray(l.ips) ? l.ips : []).map(ipOf).filter(privateIp).slice(0, 4);
+  var port = portOf(l.port), key = String(l.key || '');
+  if (!ips.length || !port || !/^[A-Za-z0-9_-]{24,64}$/.test(key)) return { ips: [], port: null, setupPort: null, key: '', ca: '' };
+  return { ips: ips, port: port, setupPort: portOf(l.setupPort), key: key, ca: /^[0-9a-f]{64}$/i.test(String(l.ca || '')) ? String(l.ca).toLowerCase() : '' };
+}
+
 async function recordHub(companyId, h, ip) {
   h = h || {};
   var key = str(h.key, 64);
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(key)) fail('invalid', 'The print hub did not say who it is.');
+  var lan = lanOf(h.lan);
   return (await pool.query(
-    'INSERT INTO restaurant_print_hubs (company_id, hub_key, name, platform, version, networks, last_seen_at, last_scan_at, last_ip) VALUES ($1,$2,$3,$4,$5,$6,now(),CASE WHEN $7 THEN now() END,$8) ' +
+    'INSERT INTO restaurant_print_hubs (company_id, hub_key, name, platform, version, networks, last_seen_at, last_scan_at, last_ip, lan_ips, lan_port, lan_setup_port, lan_key, lan_ca) ' +
+    'VALUES ($1,$2,$3,$4,$5,$6,now(),CASE WHEN $7 THEN now() END,$8,$9,$10,$11,$12,$13) ' +
     'ON CONFLICT (company_id, hub_key) DO UPDATE SET name = EXCLUDED.name, platform = EXCLUDED.platform, version = EXCLUDED.version, networks = EXCLUDED.networks, last_seen_at = now(), ' +
-    '  last_scan_at = coalesce(EXCLUDED.last_scan_at, restaurant_print_hubs.last_scan_at), last_ip = EXCLUDED.last_ip RETURNING *',
-    [companyId, key, str(h.name, 60), str(h.platform, 40), str(h.version, 20), str(h.networks, 120), !!h.scanned, str(ip, 60)])).rows[0];
+    '  last_scan_at = coalesce(EXCLUDED.last_scan_at, restaurant_print_hubs.last_scan_at), last_ip = EXCLUDED.last_ip, ' +
+    '  lan_ips = EXCLUDED.lan_ips, lan_port = EXCLUDED.lan_port, lan_setup_port = EXCLUDED.lan_setup_port, lan_key = EXCLUDED.lan_key, lan_ca = EXCLUDED.lan_ca RETURNING *',
+    [companyId, key, str(h.name, 60), str(h.platform, 40), str(h.version, 20), str(h.networks, 120), !!h.scanned, str(ip, 60), lan.ips, lan.port, lan.setupPort, lan.key, lan.ca])).rows[0];
 }
 
 // What the hub found, and how each is. A printer it reaches is seen now;
@@ -136,4 +156,32 @@ async function hubsOf(companyId) {
     });
 }
 
-module.exports = { poll: poll, hubsOf: hubsOf, HUB_VERSION: HUB_VERSION };
+// GET /api/pos/kitchen/outage — what a till or a kitchen screen keeps on
+// the device for when the internet is down (a power cut can keep it down
+// for days): the kitchens and the categories each makes, the printers each
+// prints on (the till draws their tickets itself then: ESC/POS, or Star
+// raster), and where the print hub answers on the restaurant's network,
+// with its key. The till sends the kitchen's tickets there; the hub prints
+// them and the kitchen screens take them from it (tools/print-hub).
+async function outage(token) {
+  var session = await access.need(token, ['till', 'kds']);
+  var company = session.posCompanyId;
+  var stations = (await pool.query('SELECT id, name, categories, everything_else FROM restaurant_kds_stations WHERE company_id = $1 AND active ORDER BY sort_order, name', [company])).rows;
+  var prs = (await pool.query("SELECT * FROM restaurant_printers WHERE company_id = $1 AND NOT ignored AND name <> '' AND cardinality(station_ids) > 0 ORDER BY name", [company])).rows;
+  var hub = (await pool.query(
+    "SELECT * FROM restaurant_print_hubs WHERE company_id = $1 AND lan_key <> '' AND cardinality(lan_ips) > 0 AND last_seen_at > now() - interval '14 days' ORDER BY last_seen_at DESC LIMIT 1", [company])).rows[0];
+  var live = new Set(stations.map(function (s) { return s.id; }));
+  return {
+    stations: stations.map(function (s) { return { id: s.id, name: s.name, categories: s.categories || [], everythingElse: !!s.everything_else }; }),
+    printers: prs.map(function (pr) {
+      return { id: pr.id, name: pr.name, mac: pr.mac, ip: pr.via === 'hub' ? pr.last_ip || '' : '', port: pr.port || 9100, language: printerBytes.languageOf(pr),
+        paper: Number(pr.paper_mm) === 58 ? 58 : 80, stationIds: (pr.station_ids || []).filter(function (id) { return live.has(id); }) };
+    }).filter(function (pr) { return pr.stationIds.length; }),
+    hub: hub ? {
+      name: hub.name || 'Print hub', urls: hub.lan_ips.map(function (ip) { return 'https://' + ip + ':' + hub.lan_port; }),
+      setupUrl: hub.lan_setup_port ? 'http://' + hub.lan_ips[0] + ':' + hub.lan_setup_port + '/' : '', key: hub.lan_key, ca: hub.lan_ca, version: hub.version
+    } : null
+  };
+}
+
+module.exports = { poll: poll, hubsOf: hubsOf, outage: outage, HUB_VERSION: HUB_VERSION };

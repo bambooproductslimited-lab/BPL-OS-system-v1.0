@@ -45,7 +45,7 @@ async function person(key, code, first, dept) {
     [code, first, code.toLowerCase() + '@example.com', dept, pinAuth.hashPin(PINS[key])])).rows[0].id;
 }
 // The hub's side, as tools/print-hub speaks it.
-var HUB = { key: 'zphhub000000000001', name: 'ZPH-OFFICE-PC', platform: 'win32', version: '1.0.0', networks: '192.168.50.0/24' };
+var HUB = { key: 'zphhub000000000001', name: 'ZPH-OFFICE-PC', platform: 'win32', version: '1.1.0', networks: '192.168.50.0/24' };
 async function hub(found, done, url) {
   var r = await fetch(url || hubLink, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub: HUB, printers: found, done: done || [] }) });
   return { status: r.status, body: await r.json() };
@@ -188,4 +188,36 @@ test('a printer that asks by itself stays so; the language can be chosen; one ta
   s = await printers.manage(tok.kojo, { action: 'unhide' }, IP, base);
   assert.equal(s.hidden, 0);
   assert.ok(s.printers.find(function (p) { return p.id === ids.star; }).isNew);
+});
+
+test('outage mode: the hub says where it answers on the restaurant\'s network; tills and kitchen screens get it with the kitchens and printers', async function () {
+  var hubs = require('../src/services/restaurantPrintHub.service');
+  // A hub that does not say where it answers (before 1.1): no outage mode yet.
+  await hub(both());
+  var o = await hubs.outage(tok.ama);
+  assert.equal(o.hub, null);
+  assert.deepEqual(o.stations.map(function (s) { return [s.name, s.everythingElse]; }), [['Zph Kitchen', true]]);
+  // 1.1: its addresses here (only those of a restaurant's own network), its port, its key.
+  var lan = { ips: ['192.168.50.10', '8.8.8.8', 'nonsense'], port: 9443, setupPort: 9180, key: 'zphlankey0000000000000000000000x', ca: 'AB'.repeat(32) };
+  var r = await fetch(hubLink, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub: Object.assign({}, HUB, { version: '1.1.0', lan: lan }), printers: both(), done: [] }) });
+  assert.equal(r.status, 200);
+  o = await hubs.outage(tok.ama);
+  assert.deepEqual(o.hub.urls, ['https://192.168.50.10:9443']);
+  assert.equal(o.hub.setupUrl, 'http://192.168.50.10:9180/');
+  assert.equal(o.hub.key, lan.key);
+  assert.equal(o.hub.ca, 'ab'.repeat(32));
+  // The printers that print a kitchen's tickets, with what the till draws them in.
+  var star = (await pool.query("SELECT id FROM restaurant_printers WHERE company_id = $1 AND mac = $2", [company.id, STAR.mac])).rows[0].id;
+  await printers.manage(tok.kojo, { action: 'save', id: star, name: 'Zph Pass', paper: 80, stationIds: [kitchen], commandSet: '' }, IP, base);
+  o = await hubs.outage(tok.ama);
+  var pr = o.printers.find(function (p) { return p.id === star; });
+  assert.deepEqual([pr.name, pr.mac, pr.ip, pr.port, pr.language, pr.paper, pr.stationIds], ['Zph Pass', STAR.mac, STAR.ip, 9100, 'star', 80, [kitchen]]);
+  // Through the till's own address, signed in.
+  var res = await fetch(base + '/api/pos/kitchen/outage', { headers: { Authorization: 'Bearer ' + tok.ama } });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).hub.key, lan.key);
+  assert.equal((await fetch(base + '/api/pos/kitchen/outage')).status, 401);
+  // A bad key or no address: not kept.
+  await fetch(hubLink, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub: Object.assign({}, HUB, { version: '1.1.0', lan: Object.assign({}, lan, { key: 'short' }) }), printers: both(), done: [] }) });
+  assert.equal((await hubs.outage(tok.ama)).hub, null);
 });

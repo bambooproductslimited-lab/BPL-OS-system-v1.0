@@ -125,13 +125,25 @@ function clientRefOf(p) {
   return r;
 }
 // When an offline sale was taken: the till's time, if it is in the last
-// three days and not ahead of now.
+// fourteen days (an outage can last a week) and not ahead of now.
+var OFFLINE_DAYS = 14;
 function takenAtOf(v) {
   var d = v ? new Date(v) : null;
   if (!d || isNaN(d.getTime())) return null;
   var now = Date.now();
-  if (d.getTime() > now + 5 * 60000 || d.getTime() < now - 3 * 86400000) return null;
+  if (d.getTime() > now + 5 * 60000 || d.getTime() < now - OFFLINE_DAYS * 86400000) return null;
   return new Date(Math.min(d.getTime(), now));
+}
+// An order the till took with no internet (offlineAt on an open order,
+// takenAt on a sale): the kitchen had it then, so its kitchen tickets are
+// kept already served (restaurantKitchen fire). Older than the window it
+// still counts as offline, at the window's edge.
+function offlineAtOf(p) {
+  var v = p.offlineAt || p.takenAt;
+  var d = v ? new Date(v) : null;
+  if (!d || isNaN(d.getTime())) return null;
+  var now = Date.now();
+  return new Date(Math.max(Math.min(d.getTime(), now), now - OFFLINE_DAYS * 86400000));
 }
 // The sale a reference made already, as createOrder returns it; or null.
 async function saleByRef(companyId, clientRef) {
@@ -703,13 +715,17 @@ async function chargeOrder(session, p, clientRef) {
       await client.query('UPDATE restaurant_open_tabs SET items = $2, adjust = $3, updated_at = now() WHERE id = $1', [tab.id, JSON.stringify(rest), JSON.stringify(keptAdjust)]);
     } else ticket = await kitchen.fire(client, session.posCompanyId, Object.assign({
       lines: lines, tabId: tab ? tab.id : null, orderId: order.id, label: tab ? (tab.label || names.tableName || names.guestName || orderNo) : app ? apps().labelOf(app) : (type.customerName || orderNo),
-      note: p.kitchenNote, sentBy: session.posEmployeeId, settings: tillSettings, allergy: allergy, guests: guests, voided: voided
+      note: p.kitchenNote, sentBy: session.posEmployeeId, settings: tillSettings, allergy: allergy, guests: guests, voided: voided,
+      offlineAt: clientRef ? offlineAtOf(p) : null
     }, names));
     // What goes to the cooks now, for the stations that print their tickets.
     var printNow = ticket ? ticket.ids.slice() : [];
     if (tab && !rest) {
-      // Paid: courses still waiting are cooked now (nobody will call them).
-      printNow = printNow.concat(await kitchen.releaseHeld(client, session.posCompanyId, 'tab_id', tab.id));
+      // Paid: courses still waiting are cooked now (nobody will call them) —
+      // or, paid with no internet, the kitchen was told then: kept served.
+      var paidOffline = clientRef ? offlineAtOf(p) : null;
+      if (paidOffline) await kitchen.serveHeldOffline(client, session.posCompanyId, tab.id, paidOffline);
+      else printNow = printNow.concat(await kitchen.releaseHeld(client, session.posCompanyId, 'tab_id', tab.id));
       await client.query('UPDATE restaurant_kitchen_tickets SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
       // Its delivery, or the website order it came from, now goes with the sale.
       await client.query('UPDATE restaurant_deliveries SET order_id = $1 WHERE tab_id = $2 AND company_id = $3', [order.id, tab.id, session.posCompanyId]);
@@ -1003,7 +1019,9 @@ async function keepTab(session, p, clientRef, opts) {
     var voided = [];
     var ticket = await kitchen.fire(client, company, Object.assign({
       lines: priced.lines, tabId: id, label: label || names.tableName || names.guestName || '', note: p.kitchenNote, sentBy: session.posEmployeeId,
-      settings: session.access.settings, hold: hold, firedCourse: stored ? stored.fired_course : 0, allergy: allergy, guests: guests, voided: voided
+      settings: session.access.settings, hold: hold, firedCourse: stored ? stored.fired_course : 0, allergy: allergy, guests: guests, voided: voided,
+      // Sent from a till with no internet: the kitchen had it then.
+      offlineAt: p.offlineAt ? offlineAtOf({ offlineAt: p.offlineAt }) : null
     }, names));
     if (ticket && ticket.firedCourse !== (stored ? stored.fired_course : 0)) await client.query('UPDATE restaurant_open_tabs SET fired_course = $2 WHERE id = $1', [id, ticket.firedCourse]);
     var chits = ticket ? await kitchen.chitsFor(client, ticket.ids) : [];
@@ -1012,7 +1030,8 @@ async function keepTab(session, p, clientRef, opts) {
     if (ticket) await printers().sendKitchen(client, company, ticket.ids);
     await printers().sendVoids(client, company, voided, { by: session.posEmployeeId });
     await activity.log(client, { companyId: company, employeeId: session.posEmployeeId, app: 'till', action: 'till.kitchen',
-      summary: (ticket ? 'Sent to the kitchen as #' + ticket.number + ': ' : 'Kept open (nothing new for the kitchen): ') + (label || names.tableName || names.guestName || 'order') +
+      summary: (ticket && ticket.offline ? 'Taken with no internet at ' + offlineAtOf({ offlineAt: p.offlineAt }).toISOString().slice(11, 16) + ' (the kitchen had it then), kept as #' + ticket.number + ': '
+        : ticket ? 'Sent to the kitchen as #' + ticket.number + ': ' : 'Kept open (nothing new for the kitchen): ') + (label || names.tableName || names.guestName || 'order') +
         (type.fulfillment ? ' · ' + FULFILLMENT_NAME[type.fulfillment] : '') + ' · ' + bill.total.toFixed(2) + '.' + discountWords(bill),
       amount: bill.total, refType: 'tab', refId: id, details: { dishes: ticket ? ticket.dishes : [], fulfillment: type.fulfillment, kitchenTicket: ticket ? ticket.number : null, approvedBy: bill.approvals } });
     return { id: id, ticket: ticket, chits: chits };

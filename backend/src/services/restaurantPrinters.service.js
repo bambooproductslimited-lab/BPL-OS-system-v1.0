@@ -360,7 +360,7 @@ async function sentByOthers(companyId, employeeId) {
     "SELECT t.number, min(t.created_at) AS at, max(t.label) AS label, max(t.table_name) AS table_name, max(t.fulfillment) AS fulfillment, max(t.guest_name) AS guest_name, " +
     "  (array_agg(t.tab_id) FILTER (WHERE t.tab_id IS NOT NULL))[1] AS tab_id, max(e.first_name || ' ' || e.last_name) AS by_name, sum(i.qty)::float AS dishes " +
     "FROM restaurant_kitchen_tickets t JOIN restaurant_kitchen_items i ON i.ticket_id = t.id AND i.status <> 'cancelled' LEFT JOIN employees e ON e.id = t.sent_by " +
-    "WHERE t.company_id = $1 AND t.created_at > now() - interval '10 minutes' AND t.status <> 'held' AND (t.sent_by IS NULL OR t.sent_by <> $2) " +
+    "WHERE t.company_id = $1 AND t.created_at > now() - interval '10 minutes' AND t.status <> 'held' AND t.offline_at IS NULL AND (t.sent_by IS NULL OR t.sent_by <> $2) " +
     'GROUP BY t.number, date_trunc(\'second\', t.created_at) ORDER BY min(t.created_at)', [companyId, employeeId || '00000000-0000-0000-0000-000000000000'])).rows
     .map(function (r) {
       return { key: r.number + ':' + new Date(r.at).getTime(), number: r.number, at: r.at, where: r.fulfillment && r.fulfillment !== 'dine_in' ? r.fulfillment : 'dine_in',

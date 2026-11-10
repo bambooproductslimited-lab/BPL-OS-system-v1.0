@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { tr } from '../../lib/i18n.jsx';
+import { tr, activeIntlLocale } from '../../lib/i18n.jsx';
 import { modsWords } from './tillBill';
 import { ALLERGENS, allergenWords, clashes, courseName } from './tillService';
 
@@ -65,6 +65,8 @@ function chitHtml(c, settings) {
   }).join('');
   return '<section><h1>' + esc(c.station) + '</h1><h2>#' + esc(c.number) + ' · ' + esc(where) + '</h2>' +
     (c.course ? '<h3>' + esc(courseName(settings, c.course, tr)) + '</h3>' : '') +
+    (c.offline ? '<p class="al">' + esc(tr('No internet: taken at {time}', { time: new Date(c.sentAt || Date.now()).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })) + '</p>' : '') +
+    (c.waits ? '<p class="al">' + esc(tr('Wait: cook it when it is called')) + '</p>' : '') +
     ((c.allergens || []).length || c.allergy ? '<p class="al">⚠ ' + esc((c.allergens || []).map((k) => allergenWords(k, tr)).join(', ')) + (c.allergy ? '<br>' + esc(c.allergy) : '') + '</p>' : '') +
     (c.guests ? '<p>' + esc(tr('{n} guests', { n: c.guests })) + '</p>' : '') + '<ul>' + items + '</ul>' + (c.note ? '<p>✎ ' + esc(c.note) + '</p>' : '') + '</section>';
 }
@@ -89,12 +91,15 @@ export function KitchenChits({ chits, settings, onClose }) {
       <div className="dialog tl-dialog tl-chits" role="dialog" aria-modal="true" aria-labelledby="tl-chits-title" onClick={(e) => e.stopPropagation()}>
         <span className="tl-dialog-ico is-chits" aria-hidden="true">🖨</span>
         <h2 id="tl-chits-title">{chits.length === 1 ? tr('A kitchen ticket to print') : tr('{n} kitchen tickets to print', { n: chits.length })}</h2>
-        <p className="dk-muted">{tr('These stations have no screen: print their tickets and take them over. Connect a receipt printer and they print by themselves.')}</p>
+        <p className="dk-muted">{chits.some((c) => c.offline)
+          ? tr('No internet: print these and take them to the kitchen. The order reaches the kitchen screens when the internet is back, already done.')
+          : tr('These stations have no screen: print their tickets and take them over. Connect a receipt printer and they print by themselves.')}</p>
         <div className="tl-chit-list">
           {chits.map((c, i) => (
             <article key={i} className="tl-chit">
               <header><small>{c.station}</small><strong>#{c.number}</strong><span>{c.fulfillment === 'togo' ? tr('To go') : c.fulfillment === 'pickup' ? tr('Counter') : c.fulfillment === 'delivery' ? tr('Delivery') : (c.tableName || c.label)}</span></header>
-              {c.course > 0 && <p className="tl-chit-course">{courseName(settings, c.course, tr)}</p>}
+              {c.course > 0 && <p className="tl-chit-course">{courseName(settings, c.course, tr)}{c.waits ? ' · ' + tr('Wait: cook it when it is called') : ''}</p>}
+              {c.offline && <p className="tl-chit-offline">📶 {tr('No internet: taken at {time}', { time: new Date(c.sentAt || Date.now()).toLocaleTimeString(activeIntlLocale(), { hour: '2-digit', minute: '2-digit' }) })}</p>}
               <AllergyStrip allergy={(c.allergens || []).length || c.allergy ? { list: c.allergens, note: c.allergy } : null} />
               <ul className="is-plain">
                 {c.items.map((it, j) => {

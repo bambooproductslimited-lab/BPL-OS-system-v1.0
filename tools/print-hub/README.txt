@@ -33,6 +33,26 @@ To have it start by itself on Linux or a Raspberry Pi, after step 3:
    sudo ./install-linux.sh
 
 
+OUTAGE MODE: WHEN THE INTERNET IS DOWN
+--------------------------------------
+With no internet the tills keep selling. With this hub running, their
+orders still print on each kitchen's printers and show on the kitchen
+screens: the tills and kitchen screens reach this computer over the
+restaurant's own network. Keep the router and this computer on the
+generator or a UPS.
+
+Set up each till and kitchen screen ONCE, while the internet is on:
+1. On the till: Till settings > Printers > Outage mode > "Set up this device"
+   (or open http://<this computer's address>:9180 on the device).
+2. Download the hub's certificate and trust it; the page shows how on an
+   iPad or iPhone, Android, Windows and Mac.
+3. Back on the till, press "Check again": it says "This device is ready".
+Windows may ask whether to let the print hub on the network: choose
+"Private networks" and Allow.
+When the internet is back, what was taken reaches Bamboo OS by itself and
+is not printed again.
+
+
 GOOD TO KNOW
 ------------
 - One hub per restaurant is enough. It looks for new printers every minute.
@@ -40,6 +60,8 @@ GOOD TO KNOW
   (a "reserved address"); the hub finds a printer that moved anyway.
 - A printer on another network: add its address in bamboo-print-hub.json,
   for example  "extraHosts": ["192.168.2.50"]  and start the hub again.
-- To see what the hub sees, open http://localhost:9180 on that computer.
+- To see what the hub sees, open http://localhost:9180/status on that computer.
+- Keep the files next to it (bamboo-print-hub-ca.json above all): they are
+  the hub's certificate, which every till and kitchen screen trusts.
 - An office printer it found (it should leave HP, Canon, Brother and the like
   alone): in Till settings > Printers, "Not a printer for tickets: take it off".

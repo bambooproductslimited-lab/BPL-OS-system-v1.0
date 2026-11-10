@@ -3,6 +3,7 @@ import { posFetch } from '../../lib/posApi';
 import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import { matchesQuery } from '../../components/SearchInput';
 import { printerState } from './printerState';
+import OutageBox from './OutageBox';
 import './printers.css';
 
 // Till settings → Printers, as on Square: the restaurant's printers on its
@@ -246,6 +247,8 @@ export default function PrintersTab({ token, pin, onFail }) {
         </div>
         <p className="tpr-hint">{tr('Keep this link to yourselves: any printer or hub given it prints this restaurant\'s tickets. Ask the router to keep each printer\'s address the same (a reserved address), so it is always found.')}</p>
       </section>
+
+      <OutageBox token={token} />
 
       <details className="tpr-connect">
         <summary><span className="tpr-connect-ico" aria-hidden="true">🔌</span><span><strong>{tr('Or: a Star printer that asks by itself (CloudPRNT)')}</strong><small>{tr('Without a computer: Star printers with CloudPRNT, on an Ethernet cable: mC-Print3, TSP100IV, TSP143IIILAN…')}</small></span></summary>

@@ -166,6 +166,13 @@ async function fire(client, companyId, o) {
   }).filter(function (s) { return s.station; });
   if (!routed.length) return null;
 
+  // Taken while the till had no internet (o.offlineAt): the kitchen has had
+  // it already — told by word of mouth, on a ticket the till printed, or
+  // through the print hub on the restaurant's network. Kept for the record,
+  // already served: no course waits, nothing is printed again, nothing new
+  // shows on the kitchen screens.
+  var offlineAt = o.offlineAt instanceof Date && !isNaN(o.offlineAt.getTime()) ? o.offlineAt : null;
+  if (offlineAt) o.hold = false;
   // What is cooked now, and the courses that wait to be called.
   var firedCourse = Number(o.firedCourse) || 0;
   if (o.hold) {
@@ -200,16 +207,22 @@ async function fire(client, companyId, o) {
         'INSERT INTO restaurant_kitchen_items (ticket_id, station_id, menu_item_id, variation_id, name, category, qty, note, mods, seat, course, allergens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
         [ticket.id, r.station.id, r.line.menuItemId || null, r.line.variationId || null, r.line.name, r.category, r.qty, String(r.line.note || '').slice(0, 140), modsKey(r.line), r.line.seat || null, r.course, r.allergens]);
     }
+    if (offlineAt) {
+      await client.query("UPDATE restaurant_kitchen_items SET status = 'done', done_at = now() WHERE ticket_id = $1", [ticket.id]);
+      await client.query("UPDATE restaurant_kitchen_tickets SET status = 'served', served_at = now(), fired_at = $2, offline_at = $2 WHERE id = $1", [ticket.id, offlineAt]);
+    }
     made.push({ id: ticket.id, held: grp.held, course: grp.course });
   }
   var first0 = made.find(function (m) { return !m.held; }) || made[0];
+  var dishes = routed.map(function (x) {
+    var mods = require('./restaurantTillCheck.service').modsText(x.line.modifiers);
+    return x.qty + '× ' + x.line.name + (x.line.seat ? ' (seat ' + x.line.seat + ')' : '') + (mods ? ' [' + mods + ']' : '') + (x.line.note ? ' (' + x.line.note + ')' : '') +
+      (o.hold && x.course > firedCourse ? ' — waits for course ' + x.course : '');
+  });
+  // Taken offline: nothing to print or tell the kitchen now (ids empty).
+  if (offlineAt) return { id: first0.id, number: number, ids: [], held: [], firedCourse: firedCourse, offline: true, dishes: dishes };
   return { id: first0.id, number: number, ids: made.filter(function (m) { return !m.held; }).map(function (m) { return m.id; }),
-    held: made.filter(function (m) { return m.held; }).map(function (m) { return m.course; }), firedCourse: firedCourse,
-    dishes: routed.map(function (x) {
-      var mods = require('./restaurantTillCheck.service').modsText(x.line.modifiers);
-      return x.qty + '× ' + x.line.name + (x.line.seat ? ' (seat ' + x.line.seat + ')' : '') + (mods ? ' [' + mods + ']' : '') + (x.line.note ? ' (' + x.line.note + ')' : '') +
-        (o.hold && x.course > firedCourse ? ' — waits for course ' + x.course : '');
-    }) };
+    held: made.filter(function (m) { return m.held; }).map(function (m) { return m.course; }), firedCourse: firedCourse, dishes: dishes };
 }
 
 // A later course called (restaurantPos fireCourse): an open order's held
@@ -221,6 +234,16 @@ async function fireCourse(client, companyId, tabId, upTo) {
     [companyId, tabId, upTo])).rows.map(function (r) { return r.id; });
 }
 // Everything an order has waiting goes now (it is paid: nobody will call it).
+// An open order paid on a till with no internet: its courses still waiting
+// were told to the kitchen then (fire, offlineAt) — kept served, not cooked
+// again when the sale reaches the server.
+async function serveHeldOffline(client, companyId, tabId, offlineAt) {
+  var ids = (await client.query(
+    "UPDATE restaurant_kitchen_tickets SET status = 'served', served_at = now(), fired_at = coalesce(fired_at, $3), offline_at = $3 WHERE company_id = $1 AND tab_id = $2 AND status = 'held' RETURNING id",
+    [companyId, tabId, offlineAt])).rows.map(function (r) { return r.id; });
+  if (ids.length) await client.query("UPDATE restaurant_kitchen_items SET status = 'done', done_at = now() WHERE ticket_id = ANY($1::uuid[]) AND status = 'cooking'", [ids]);
+  return ids;
+}
 async function releaseHeld(client, companyId, where, arg) {
   return (await client.query(
     "UPDATE restaurant_kitchen_tickets SET status = 'cooking', fired_at = now() WHERE company_id = $1 AND " + (where === 'order_id' ? 'order_id' : 'tab_id') + " = $2 AND status = 'held' RETURNING id",
@@ -410,7 +433,8 @@ async function board(token, opts) {
   var now = Date.now();
   var tickets = (await pool.query(
     "SELECT * FROM restaurant_kitchen_tickets WHERE company_id = $1 AND created_at > now() - interval '36 hours' " +
-    "AND (served_at IS NULL OR served_at > now() - ($2 || ' minutes')::interval) ORDER BY created_at, number", [company, String(RECALL_MINUTES)])).rows;
+    // Taken while a till had no internet: the kitchen had it then (fire).
+    "AND offline_at IS NULL AND (served_at IS NULL OR served_at > now() - ($2 || ' minutes')::interval) ORDER BY created_at, number", [company, String(RECALL_MINUTES)])).rows;
   var items = tickets.length ? (await pool.query(
     'SELECT i.*, s.name AS station_name FROM restaurant_kitchen_items i LEFT JOIN restaurant_kds_stations s ON s.id = i.station_id ' +
     'WHERE i.ticket_id = ANY($1::uuid[]) ORDER BY i.created_at, i.name', [tickets.map(function (t) { return t.id; })])).rows : [];
@@ -630,7 +654,8 @@ async function tillSummary(token) {
 
 // Where the food of open orders (tabs) or sales stands, for tags on the
 // till: { [id]: { state: cooking|ready|served, tickets, cooking, ready,
-// served } }. by: 'tab_id' or 'order_id'.
+// served } }. by: 'tab_id' or 'order_id'. What was taken with no internet
+// (offline_at) is the kitchen's by word of mouth: no tag of its own.
 async function statusOf(db, companyId, by, ids) {
   var out = {};
   if (!ids.length) return out;
@@ -638,8 +663,8 @@ async function statusOf(db, companyId, by, ids) {
   var rows = (await (db || pool).query(
     'SELECT ' + col + " AS id, count(*)::int AS tickets, count(*) FILTER (WHERE status = 'cooking' AND served_at IS NULL)::int AS cooking, " +
     "array_remove(array_agg(DISTINCT course) FILTER (WHERE status = 'held'), NULL) AS held, " +
-    "count(*) FILTER (WHERE status = 'ready' AND served_at IS NULL)::int AS ready, count(*) FILTER (WHERE status = 'served')::int AS served, " +
-    "max(served_at) AS served_at, max(ready_at) FILTER (WHERE served_at IS NULL) AS ready_at FROM restaurant_kitchen_tickets " +
+    "count(*) FILTER (WHERE status = 'ready' AND served_at IS NULL)::int AS ready, count(*) FILTER (WHERE status = 'served' AND offline_at IS NULL)::int AS served, " +
+    "max(served_at) FILTER (WHERE offline_at IS NULL) AS served_at, max(ready_at) FILTER (WHERE served_at IS NULL) AS ready_at FROM restaurant_kitchen_tickets " +
     'WHERE company_id = $1 AND ' + col + " = ANY($2::uuid[]) AND status <> 'cancelled' GROUP BY 1", [companyId, ids])).rows;
   rows.forEach(function (r) {
     out[r.id] = {
@@ -797,7 +822,7 @@ async function removeStation(ctx, id) {
 }
 
 module.exports = {
-  moveItems: moveItems, retarget: retarget, fireCourse: fireCourse, releaseHeld: releaseHeld, chitsFor: chitsFor, markPrinted: markPrinted, printQueue: printQueue, takePrints: takePrints,
+  moveItems: moveItems, retarget: retarget, fireCourse: fireCourse, releaseHeld: releaseHeld, serveHeldOffline: serveHeldOffline, chitsFor: chitsFor, markPrinted: markPrinted, printQueue: printQueue, takePrints: takePrints,
   fire: fire, cancelForTab: cancelForTab, cancelForOrder: cancelForOrder,
   board: board, setItemDone: setItemDone, finishTicket: finishTicket, serveTicket: serveTicket, recallTicket: recallTicket, printTicket: printTicket, tillSummary: tillSummary,
   statusOf: statusOf,

@@ -46,13 +46,14 @@ const SITES = {
     description: 'Restaurant till for ' + BRAND.full + ': the menu, tables, payments and the kitchen.',
     files: ICONS.concat(['pos-sw.js']),
     env: { VITE_KDS_URL: process.env.KDS_URL || at('kds'), VITE_DELIVERY_URL: process.env.DELIVERY_URL || at('delivery') },
-    map: true // sending a delivery out may need its pin dropped
+    map: true, // sending a delivery out may need its pin dropped
+    hub: true
   },
   kds: {
     name: BRAND.name + ' Kitchen', shortName: 'Kitchen',
     description: 'Kitchen screen: the tickets from the till, station by station.',
-    files: ICONS,
-    env: {}
+    files: ICONS.concat(['kds-sw.js']),
+    env: {}, hub: true
   },
   delivery: {
     name: BRAND.name + ' Delivery', shortName: 'Delivery',
@@ -73,6 +74,9 @@ const TILES = process.env.MAP_TILES || '';
 if (TILES) process.env.VITE_MAP_TILES = TILES;
 const TILE_HOSTS = (TILES ? new URL(TILES.replace(/\{[a-z]\}/g, 'a')).origin : 'https://tile.openstreetmap.org') + ' https://tile.googleapis.com https://developers.google.com';
 const MAP_CALLS = 'https://tile.googleapis.com';
+// Outage mode (pages/till/outage.js): the print hub on the restaurant's own
+// network, at its address there, over HTTPS on its own port only.
+const HUB_CALLS = 'https://*:9443';
 
 const site = process.argv[2];
 const conf = SITES[site];
@@ -150,8 +154,8 @@ ${conf.public ? '' : '  Header always set X-Robots-Tag "noindex, nofollow"\n'}  
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=${conf.where ? '(self)' : '()'}, display-capture=(), payment=(), usb=(self), bluetooth=(self), interest-cohort=()"
   Header always set Cross-Origin-Opener-Policy "same-origin"
   Header always set Cross-Origin-Resource-Policy "same-origin"
-  # The page's own scripts, Google Fonts, and the API (calls and menu photos)${conf.map ? ', and the map\'s streets' : ''}.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: ${api}${conf.map ? ' ' + TILE_HOSTS : ''}; connect-src 'self' ${api}${conf.map ? ' ' + MAP_CALLS : ''}; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  # The page's own scripts, Google Fonts, and the API (calls and menu photos)${conf.map ? ', and the map\'s streets' : ''}${conf.hub ? '; the print hub on the restaurant\'s network (outage mode)' : ''}.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: ${api}${conf.map ? ' ' + TILE_HOSTS : ''}; connect-src 'self' ${api}${conf.map ? ' ' + MAP_CALLS : ''}${conf.hub ? ' ' + HUB_CALLS : ''}; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>
 `);
 

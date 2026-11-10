@@ -252,6 +252,9 @@ export function buildKitchenChitBytes(chit, companyName, opts) {
   var where = chit.fulfillment === 'togo' ? 'TO GO' : chit.fulfillment === 'pickup' ? 'COUNTER' : chit.fulfillment === 'delivery' ? 'DELIVERY' : (chit.tableName || chit.label || 'COUNTER');
   out = out.concat(DOUBLE_ON, line(where.toUpperCase().slice(0, 16)), DOUBLE_OFF, BOLD_OFF);
   if (opts.courseName) out = out.concat(BOLD_ON, line('** ' + opts.courseName.toUpperCase() + ' **'), BOLD_OFF);
+  // Taken with no internet (pages/till/outage.js): the kitchen's only word of it.
+  if (chit.offline) out = out.concat(BOLD_ON, line('NO INTERNET - TAKEN ' + new Date(chit.sentAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })), BOLD_OFF);
+  if (chit.waits) out = out.concat(BOLD_ON, line('WAIT: COOK WHEN IT IS CALLED'), BOLD_OFF);
   out = out.concat(ALIGN_LEFT, line(rule));
   if (chit.allergens && chit.allergens.length || chit.allergy) {
     out = out.concat(BOLD_ON, line('!! ALLERGY: ' + (chit.allergens || []).map(function (a) { return ALLERGEN_EN[a] || a; }).join(', ')), BOLD_OFF);

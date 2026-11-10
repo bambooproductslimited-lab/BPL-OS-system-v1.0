@@ -13,6 +13,8 @@ import { FulfillmentIcon, fulfillmentName } from './till/tillShared';
 import { AllergyStrip } from './till/ServiceParts';
 import { allergenWords, clashes } from './till/tillService';
 import PrepDialog from './till/Prep';
+import { hubFetch } from './till/outage';
+import { SITE } from '../lib/site';
 import './till/till.css';
 import '../components/DashKit.css';
 import './RestaurantPosPage.css';
@@ -59,6 +61,15 @@ const SETUP_POLL_MS = 4000;
 const SOUND_KEY = 'bamboo.kds.sound';
 const PIN_LENGTH = 4;
 const POLL_MS = 4000;
+// Outage mode (pages/till/outage.js): what this screen keeps for when the
+// internet is down — the last board, where the print hub answers on the
+// restaurant's network — and how often it asks the hub for the tickets the
+// tills sent it then.
+const OUTAGE_KEY = 'bamboo.kds.outage';
+const BOARD_KEY = 'bamboo.kds.board';
+const HUB_POLL_MS = 3000;
+const OUTAGE_EVERY_MS = 5 * 60000;
+function readJson(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } }
 
 const EXPO_KEY = 'bamboo.kds.expo';
 
@@ -133,6 +144,13 @@ export default function KdsPage() {
   const [screenProblem, setScreenProblem] = useState(null);
   const [board, setBoard] = useState(null);
   const [offline, setOffline] = useState(false);
+  // Outage mode: the print hub, and the tickets the tills sent it with no internet.
+  const [outage, setOutage] = useState(() => readJson(OUTAGE_KEY));
+  const [hubTickets, setHubTickets] = useState(() => new Map());
+  const [hubOk, setHubOk] = useState(null);
+  const hubSince = useRef(0);
+  const hubSeen = useRef(null);
+  const outageAt = useRef(0);
   const [problem, setProblem] = useState(null);
   const [offset, setOffset] = useState(0); // the server's clock minus this screen's
   const [tick, setTick] = useState(() => Date.now());
@@ -164,6 +182,11 @@ export default function KdsPage() {
   }, [theme]);
   useEffect(() => () => clearTheme(), []);
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 1000); return () => clearInterval(t); }, []);
+  // The screen kept on this device (kds-sw.js): a tablet starting again after
+  // a power cut opens it with the internet still down.
+  useEffect(() => {
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/kds-sw.js', { scope: SITE === 'kds' ? '/' : '/kds' }).catch(() => {});
+  }, []);
   useEffect(() => {
     (async () => {
       const sys = reconnectSystemPrinter() || reconnectPassPrnt() || reconnectRawBt();
@@ -267,13 +290,63 @@ export default function KdsPage() {
       if (readySeen.current && expoRef.current && soundRef.current && readyIds.some((id) => !readySeen.current.has(id))) playOrderReady();
       readySeen.current = new Set(readyIds);
       setBoard(b);
+      writeKey(BOARD_KEY, JSON.stringify(b));
+      // For an outage: where the print hub answers, kept on this device.
+      if (Date.now() - outageAt.current > OUTAGE_EVERY_MS) {
+        outageAt.current = Date.now();
+        posFetch('GET', '/pos/kitchen/outage', s.token).then((o) => { writeKey(OUTAGE_KEY, JSON.stringify(o)); setOutage(o); }).catch(() => { outageAt.current = 0; });
+      }
       return true;
     } catch (err) {
       if (err.status === 401) { signOut(); return 'signed-out'; }
-      if (err.status) setProblem(err.message); else setOffline(true);
+      if (err.status) setProblem(err.message);
+      else {
+        setOffline(true);
+        // Started again with no internet: the last board this screen had.
+        setBoard((cur) => cur || readJson(BOARD_KEY));
+      }
       return false;
     }
   }, [signOut]);
+
+  // Outage mode: the tickets the tills sent the print hub with no internet,
+  // asked for every few seconds while there is a hub (new ones ding).
+  useEffect(() => {
+    const hub = outage && outage.hub;
+    if (!session || !hub) return undefined;
+    let stop = false;
+    async function ask() {
+      try {
+        const r = await hubFetch(hub, 'GET', '/lan/tickets?since=' + hubSince.current, null, 4000);
+        if (stop) return;
+        hubSince.current = Math.max(0, Number(r.now || 0) - 5000);
+        setHubOk(true);
+        const list = r.tickets || [];
+        if (!list.length) return;
+        const added = hubSeen.current ? list.filter((t) => !t.doneAt && !hubSeen.current.has(t.id)) : [];
+        if (!hubSeen.current) hubSeen.current = new Set();
+        list.forEach((t) => hubSeen.current.add(t.id));
+        setHubTickets((m) => { const n = new Map(m); list.forEach((t) => n.set(t.id, t)); return n; });
+        if (added.length) {
+          if (soundRef.current) playNewTicket();
+          setFresh((f) => new Set([...f, ...added.map((t) => t.id)]));
+          setTimeout(() => setFresh((f) => { const n = new Set(f); added.forEach((t) => n.delete(t.id)); return n; }), 8000);
+        }
+      } catch { if (!stop) setHubOk(false); }
+    }
+    ask();
+    const t = setInterval(ask, HUB_POLL_MS);
+    return () => { stop = true; clearInterval(t); };
+  }, [session, outage]);
+  async function hubDone(t, done) {
+    unlockAudio();
+    setBusy((b) => new Set(b).add(t.id));
+    try {
+      const r = await hubFetch(outage.hub, 'POST', '/lan/tickets/' + encodeURIComponent(t.id), { done }, 4000);
+      setHubTickets((m) => new Map(m).set(t.id, r.ticket || { ...t, doneAt: done ? Date.now() : null }));
+    } catch (err) { setProblem(tr('Could not reach the print hub: {message}', { message: err.message })); }
+    finally { setBusy((b) => { const n = new Set(b); n.delete(t.id); return n; }); }
+  }
 
   // A saved session from earlier in the shift.
   useEffect(() => {
@@ -465,6 +538,11 @@ export default function KdsPage() {
   const timing = board ? board.timing : { warnAfter: 10, lateAfter: 20 };
   // The station is the manager's (Till settings → Kitchen screens), not picked here.
   const station = board ? board.station : 'all';
+  // The print hub's tickets for this screen's station: still to cook, and
+  // the last few done (to put one back, done by mistake).
+  const mineOnHub = (t) => station === 'all' || !t.stationId || t.stationId === station;
+  const hubCooking = Array.from(hubTickets.values()).filter((t) => !t.doneAt && mineOnHub(t)).sort((a, b) => a.createdAt - b.createdAt);
+  const hubDoneList = Array.from(hubTickets.values()).filter((t) => t.doneAt && Date.now() - t.doneAt < 15 * 60000 && mineOnHub(t)).sort((a, b) => b.doneAt - a.doneAt).slice(0, 6);
   const here = (board && board.screen) || session.screen || null;
   const expoOn = expo && station === 'all';
   expoRef.current = expoOn;
@@ -511,7 +589,63 @@ export default function KdsPage() {
       </header>
       {prepOpen && session && <PrepDialog token={session.token} onClose={() => setPrepOpen(false)} />}
 
-      {offline && <div className="kds-banner is-offline" role="status">{tr('Cannot reach the server. Showing the last tickets; new ones will come in when it is back.')}</div>}
+      {offline && (
+        <div className={'kds-banner is-offline' + (outage && outage.hub && hubOk ? ' is-hub' : '')} role="status">{outage && outage.hub
+          ? (hubOk ? tr('No internet: new orders come through the print hub on the restaurant\'s network.') : tr('No internet, and the print hub does not answer. Showing the last tickets; ask the till for new ones.'))
+          : tr('Cannot reach the server. Showing the last tickets; new ones will come in when it is back.')}</div>
+      )}
+      {(hubCooking.length > 0 || hubDoneList.length > 0) && (
+        <section className="kds-outage" aria-label={tr('Taken with no internet')}>
+          <h2 className="kds-outage-h"><span aria-hidden="true">📶</span>{tr('Taken with no internet')}<b>{hubCooking.length}</b><small>{tr('Sent through the print hub. Tap Done when it is out.')}</small></h2>
+          {hubCooking.length > 0 && (
+            <div className="kds-outage-list">
+              {hubCooking.map((t, idx) => (
+                <article key={t.id} className={'kds-ticket is-outage' + (fresh.has(t.id) ? ' is-fresh' : '')} style={{ '--d': Math.min(idx, 12) }}>
+                  <header className="kds-ticket-head">
+                    <span className="kds-no">#{String(t.number || '').replace(/^OFF-/, '')}</span>
+                    <span className="kds-where"><strong>{whereOf(t)}</strong><small>{[station === 'all' ? t.station : null, t.waiterName, t.guests ? (t.guests === 1 ? tr('1 guest') : tr('{n} guests', { n: t.guests })) : null,
+                      tr('sent {time}', { time: timeOf(t.sentAt) }), t.from ? tr('from {name}', { name: t.from }) : null].filter(Boolean).join(' · ')}</small></span>
+                    <span className="kds-timer">{mmss(Date.now() - t.sentAt)}</span>
+                  </header>
+                  {t.course && <p className="kds-course">{tr(t.course)}{t.waits ? ' · ' + tr('Wait: cook it when it is called') : ''}</p>}
+                  <AllergyStrip allergy={(t.allergens || []).length || t.allergy ? { list: t.allergens, note: t.allergy } : null} className="kds-allergy" />
+                  {t.fulfillment && t.fulfillment !== 'dine_in' && <p className={'kds-ful is-' + t.fulfillment}><span className={'tl-ful is-' + t.fulfillment}><FulfillmentIcon kind={t.fulfillment} />{fulfillmentName(t.fulfillment)}</span></p>}
+                  {t.note && <p className="kds-note"><span aria-hidden="true">✎</span>{t.note}</p>}
+                  <ul className="kds-items">
+                    {t.items.map((i, k) => {
+                      const bad = clashes(i.allergens, { list: t.allergens });
+                      return (
+                        <li key={k}>
+                          <div className={'kds-item is-cooking' + (bad.length ? ' is-clash' : '')}>
+                            <b>{qtyText(i.qty)}×</b>
+                            <span className="kds-item-name">{i.seat ? <em className="kds-seat">{tr('Seat {n}', { n: i.seat })}</em> : null}{i.name}
+                              {bad.length > 0 && <small className="kds-item-clash">⚠ {tr('Has {allergens}', { allergens: bad.map((x) => allergenWords(x, tr)).join(', ') })}</small>}
+                              {(i.mods || []).length > 0 && <span className="kds-item-mods">{i.mods.map((m, j) => <b key={j} className={'is-' + (m.how || 'add')}>{m.how === 'no' ? tr('No {name}', { name: m.name }) : m.how === 'extra' ? tr('Extra {name}', { name: m.name }) : m.how === 'side' ? tr('{name} on the side', { name: m.name }) : '+ ' + m.name}</b>)}</span>}
+                              {i.note && <small className="kds-item-note">✎ {i.note}</small>}</span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <footer className="kds-ticket-foot">
+                    <button type="button" className="kds-btn is-done" disabled={busy.has(t.id)} onClick={() => hubDone(t, true)}>{tr('Done')} ✓</button>
+                  </footer>
+                </article>
+              ))}
+            </div>
+          )}
+          {hubDoneList.length > 0 && (
+            <p className="kds-outage-done">
+              <span>{tr('Done:')}</span>
+              {hubDoneList.map((t) => (
+                <button key={t.id} type="button" className="kds-outage-back" disabled={busy.has(t.id)} onClick={() => hubDone(t, false)} title={tr('Back to cooking')}>
+                  #{String(t.number || '').replace(/^OFF-/, '')} · {whereOf(t)} <i aria-hidden="true">↺</i>
+                </button>
+              ))}
+            </p>
+          )}
+        </section>
+      )}
       {problem && <div className="kds-banner is-bad" role="alert">{problem}</div>}
       {board && stations.length === 0 && (
         <div className="kds-banner">{tr('No kitchen stations are set up yet, so the till sends nothing here. A manager sets them up in the app: Restaurants → Kitchen.')}</div>
@@ -526,7 +660,7 @@ export default function KdsPage() {
 
       <div className="kds-body">
         <main className={'kds-board' + (expoOn ? ' is-expo' : '')} aria-label={expoOn ? tr('Orders to hand over') : tr('Tickets cooking')}>
-          {!board ? <p className="kds-empty">{tr('Loading…')}</p> : expoOn ? <ExpoBoard board={board} now={now} timing={timing} busy={busy} whereOf={whereOf} onServe={serve} /> : !board.cooking.length ? (
+          {!board ? <p className="kds-empty">{offline ? tr('No internet, and nothing kept on this screen yet.') : tr('Loading…')}</p> : expoOn ? <ExpoBoard board={board} now={now} timing={timing} busy={busy} whereOf={whereOf} onServe={serve} /> : !board.cooking.length ? (
             <div className="kds-empty">
               <span className="kds-empty-art" aria-hidden="true">🍳</span>
               <strong>{tr('Nothing to cook right now')}</strong>

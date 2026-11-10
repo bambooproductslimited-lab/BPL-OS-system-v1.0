@@ -335,6 +335,10 @@ router.post('/settings/printers', posAuth, async function (req, res, next) {
 router.get('/kitchen', posAuth, async function (req, res, next) {
   try { res.json(await kitchen.tillSummary(req.posToken)); } catch (e) { next(e); }
 });
+// What a till or a kitchen screen keeps for an outage (restaurantPrintHub outage).
+router.get('/kitchen/outage', posAuth, async function (req, res, next) {
+  try { res.json(await require('../services/restaurantPrintHub.service').outage(req.posToken)); } catch (e) { next(e); }
+});
 // Kitchen tickets that reached the kitchen with nobody at the till to print
 // them, for the till's kitchen printer; taken by one till as it prints them.
 router.get('/kitchen/to-print', posAuth, async function (req, res, next) {

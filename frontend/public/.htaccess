@@ -102,7 +102,9 @@
   #               connection is wss://, and the client asks https:// for
   #               the nearest region). tile.googleapis.com: the Google
   #               map's session and the copyright of the part in view.
-  #   worker-src  the three service workers (app, POS, kiosk) register from
+  #               https://*:9443: the print hub on the restaurant's own
+  #               network (outage mode, pages/till/outage.js), its port only.
+  #   worker-src  the service workers (app, POS, kitchen, kiosk) register from
   #               same-origin files; blob: covers workers created at runtime.
   #   frame-src   the document viewer shows a PDF in an iframe from a blob:
   #               URL made in the page (DocumentsPage); without blob: here
@@ -111,5 +113,5 @@
   #               another site may be framed.
   #   frame-ancestors  nothing may embed this app — clickjacking on a
   #               payroll and invoicing system is worth closing properly.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://bamboo-os-backend.onrender.com https://*.facebook.com https://*.fbcdn.net https://tile.openstreetmap.org https://tile.googleapis.com https://developers.google.com; connect-src 'self' https://bamboo-os-backend.onrender.com https://*.facebook.com https://graph.facebook.com wss://*.livekit.cloud https://*.livekit.cloud https://tile.googleapis.com blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob: https://*.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://bamboo-os-backend.onrender.com https://*.facebook.com https://*.fbcdn.net https://tile.openstreetmap.org https://tile.googleapis.com https://developers.google.com; connect-src 'self' https://bamboo-os-backend.onrender.com https://*:9443 https://*.facebook.com https://graph.facebook.com wss://*.livekit.cloud https://*.livekit.cloud https://tile.googleapis.com blob: data:; worker-src 'self' blob:; manifest-src 'self'; media-src 'self' blob:; frame-src 'self' blob: https://*.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 </IfModule>

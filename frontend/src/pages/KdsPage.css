@@ -76,6 +76,23 @@
 .kds-banner { margin: 10px 16px 0; padding: 11px 14px; font-weight: 600; border-radius: 12px; background: var(--kd-card); border: 1px solid var(--kd-line); border-left: 5px solid rgb(var(--kd-b-rgb)); }
 .kds-banner.is-offline { border-left-color: rgb(var(--kd-warn-rgb)); background: rgba(var(--kd-warn-rgb), .12); }
 .kds-banner.is-bad { border-left-color: rgb(var(--kd-late-rgb)); background: rgba(var(--kd-late-rgb), .1); }
+.kds-banner.is-offline.is-hub { border-left-color: rgb(var(--kd-ok-rgb)); background: rgba(var(--kd-ok-rgb), .1); }
+/* Outage mode: the tickets the tills sent through the print hub with no internet. */
+.kds-outage { margin: 12px 16px 0; padding: 14px 16px 16px; border-radius: 20px; background: linear-gradient(135deg, rgba(var(--kd-warn-rgb), .16), rgba(var(--kd-warn-rgb), .05)); border: 1px solid rgba(var(--kd-warn-rgb), .35); }
+.kds-outage-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 17px; font-weight: 800; }
+.kds-outage-h b { min-width: 28px; padding: 2px 9px; border-radius: 999px; background: rgb(var(--kd-warn-rgb)); color: #1c1206; font-size: 13px; text-align: center; }
+.kds-outage-h small { flex-basis: 100%; font-size: 13px; font-weight: 600; opacity: .78; }
+.kds-outage-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.kds-ticket.is-outage { --t-rgb: var(--kd-warn-rgb); border-top: 5px solid rgb(var(--kd-warn-rgb)); }
+.kds-ticket.is-outage .kds-item { cursor: default; }
+.kds-outage-done { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0 0; font-size: 13px; font-weight: 700; }
+.kds-outage-back { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; border: 1px solid rgba(var(--kd-warn-rgb), .45); background: var(--kd-card); color: inherit; font: inherit; cursor: pointer; }
+.kds-outage-back:hover { background: rgba(var(--kd-warn-rgb), .14); }
+.kds-outage-back:disabled { opacity: .55; cursor: progress; }
+@media (max-width: 640px) {
+  .kds-outage { margin: 10px 10px 0; padding: 12px; }
+  .kds-outage-list { grid-template-columns: minmax(0, 1fr); }
+}
 
 /* how many of each dish are still to cook */
 .kds-allday { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 10px 40px 2px 16px; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); }

@@ -65,6 +65,7 @@ import {
   OFFLINE_METHODS, cacheLoad, cacheSave, draftClear, draftLoad, draftSave, enqueue, fetchOrGiveUp, flush, isLocal, isNetworkError, newRef, onQueue, queueList,
   resolveIds, serverAnswers
 } from './till/tillOffline';
+import { hubSend, newDishes, offlineChits, outageLoad, outageRefresh } from './till/outage';
 import { playNewTicket } from '../kiosk/kioskSounds';
 import {
   FULFILLMENT, FulfillmentIcon, KitchenTag, fmt, fulfillmentName, lineBody, lineFromTab, lineKey, methodName, moveLabel, round2
@@ -354,6 +355,7 @@ export default function RestaurantPosPage() {
   const [toPrint, setToPrint] = useState([]);
   const [kitchenRetry, setKitchenRetry] = useState(null);
   const takingRef = useRef(false);
+  const outageAtRef = useRef(0); // when what the till keeps for an outage was last fetched (till/outage.js)
   // The restaurant's network printers (Till settings → Printers): their
   // state sheet, and the cashier's alerts of orders others sent to the
   // kitchen. tokenRef: the sign-in a network printer prints with.
@@ -770,6 +772,11 @@ export default function RestaurantPosPage() {
   }
   async function loadKitchen(token) {
     try { setKitchen(await posFetch('GET', '/pos/kitchen', token || session.token)); } catch { /* the kitchen figures just don't show */ }
+    // For an outage: the kitchens, their printers and the print hub, kept on this device.
+    if (Date.now() - outageAtRef.current > 5 * 60000) {
+      outageAtRef.current = Date.now();
+      outageRefresh(coRef.current, token || session.token).catch(() => { outageAtRef.current = 0; });
+    }
   }
   // Sending a delivery out with a rider (delivery/DlDialogs SendDialog), with
   // what the delivery screen knows of it: the customer's pin, what to collect.
@@ -1462,6 +1469,11 @@ export default function RestaurantPosPage() {
     const total = bill.total;
     const label = currentTab ? currentTab.name : pickupLabel() || whereText();
     enqueue({ kind: 'sale', ref: body.clientRef, body: { ...body, takenAt: new Date().toISOString() }, label, total, method: payments.length > 1 ? 'split' : payments[0].method });
+    // The kitchen's tickets for what it had not had yet, through the print hub or printed here.
+    kitchenOffline(newDishes(cart, currentTab ? sentLines : []), {
+      ref: body.clientRef, label, tableName: fulfillment === 'dine_in' && selectedTable ? selectedTable.name : '', waiterName: fulfillment === 'dine_in' && selectedWaiter ? selectedWaiter.name : '',
+      guestName: selectedGuest ? selectedGuest.name : body.customerName || '', fulfillment
+    }).then((how) => { if (how) setToast(offlineWord(how, label)); }).catch(() => {});
     const one = payments.length === 1 ? payments[0] : null;
     const change = one && one.method === 'cash' && one.currency === 'GHS' && one.tendered != null ? round2(one.tendered - total) : null;
     setReceipt({
@@ -1565,20 +1577,56 @@ export default function RestaurantPosPage() {
       fulfillment: body.fulfillment || fulfillment, customerName: body.customerName || '', customerPhone: body.customerPhone || '', deliveryAddress: body.deliveryAddress || '',
       createdAt: currentTab && currentTab.createdAt ? currentTab.createdAt : new Date().toISOString(), lines, total, adjust: { ...billAdjust }, unavailable: 0, kitchen: null
     };
-    enqueue({ kind: 'tab', ref, body: { ...body, clientRef: body.id ? undefined : ref }, localId: body.id ? null : id, label: tabName(snapshot), total, snapshot });
+    // When it was taken: the server keeps it as already told to the kitchen (migration 0215).
+    enqueue({ kind: 'tab', ref, body: { ...body, clientRef: body.id ? undefined : ref, offlineAt: new Date().toISOString() }, localId: body.id ? null : id, label: tabName(snapshot), total, snapshot });
     setTabs((list) => (list.some((t) => t.id === id) ? list.map((t) => (t.id === id ? snapshot : t)) : list.concat([snapshot])));
     setToast(tr('No internet: {name} is kept on this till. Tell the kitchen now; it reaches the kitchen screen when the internet is back.', { name: tabName(snapshot) }));
+    kitchenOffline(newDishes(cart, currentTab ? sentLines : []), {
+      ref, label: snapshot.label, tableName: snapshot.tableName || '', waiterName: snapshot.waiterName || '', guestName: snapshot.guestName || snapshot.customerName || '', fulfillment: snapshot.fulfillment
+    }).then((how) => { if (how) setToast(offlineWord(how, tabName(snapshot))); }).catch(() => {});
     setKeepDialog(null);
     setSendConfirm(false);
     setCartOpen(false);
     clearOrder();
     setSavingTab(false);
   }
+  // An order taken with no internet: one ticket per kitchen for the dishes
+  // it had not had yet, marked so (till/outage.js) — through the print hub
+  // (printed at each kitchen, on its screens), else printed here or shown
+  // to print. → 'hub', { failed }, 'printed', or null (no kitchens set up).
+  async function kitchenOffline(dishes, meta) {
+    const o = outageLoad(coRef.current);
+    if (!o || !dishes.length) return null;
+    const english = (x, v) => (v ? x.replace('{n}', v.n) : x);
+    const categoryOf = (l) => (l.custom ? l.custom.category : l.category || (menuById.get(l.menuItemId) || {}).category || '');
+    const cf = sendCourseFor();
+    const chits = offlineChits(o, dishes, {
+      ...meta, guests, allergy, note: kitchenNote.trim(), categoryOf,
+      allergensOf: (l) => (l.custom ? [] : (menuById.get(l.menuItemId) || {}).allergens || l.allergens || []),
+      courseOf: (l) => {
+        const c = cf && cf(l);
+        const n = c ? courseOf(tillSettings, { course: l.course, category: categoryOf(l) }) : 0;
+        return n > 0 ? { n, label: courseName(tillSettings, n, english), waits: c.waits } : null;
+      }
+    });
+    if (!chits.length) return null;
+    if (o.hub) {
+      const r = await hubSend(o, chits, session.employeeName || '', session.companyName);
+      if (r.ok) return r.failed.length ? { failed: r.failed } : 'hub';
+    }
+    return (await printChits(chits)) ? 'printed' : 'shown';
+  }
+  function offlineWord(how, name) {
+    if (how === 'hub') return tr('No internet: {name} went to the kitchen through the print hub, and is kept on this till until the internet is back.', { name });
+    if (how === 'printed') return tr('No internet: {name} is kept on this till. Its kitchen tickets are printed here: take them to the kitchen.', { name });
+    if (how === 'shown') return tr('No internet: {name} is kept on this till. Print its kitchen tickets and take them to the kitchen.', { name });
+    return tr('No internet: {name} reached the kitchen screens through the print hub, but {printers} did not print it.', { name, printers: how.failed.join(', ') });
+  }
   // The tickets of stations without a screen: printed by themselves on the
   // kitchen's printer (or the till's own) as the order is sent, else shown
   // to print (till/ServiceParts.jsx).
   async function printChits(list) {
-    if (!list || !list.length) return;
+    if (!list || !list.length) return false;
     const kp = kitchenPrinter;
     if (kp) {
       try {
@@ -1590,10 +1638,11 @@ export default function RestaurantPosPage() {
         await kp.write([].concat(...list.map((c) => buildKitchenChitBytes(c, session.companyName, { courseName: c.course ? courseName(tillSettings, c.course, english) : '', lineWidth: kp.lineWidth }))));
         setKitchenRetry(null);
         setToast(list.length === 1 ? tr('{station}\'s ticket printed.', { station: list[0].station }) : tr('{n} kitchen tickets printed.', { n: list.length }));
-        return;
+        return true;
       } catch { /* shown to print instead */ }
     }
     setChits(list);
+    return false;
   }
   // Tickets that reached the kitchen without this till (website, kiosk,
   // table QR), waiting for a kitchen printer: taken off the queue by this
