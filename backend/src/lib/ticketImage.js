@@ -9,15 +9,21 @@
 // on white. One picture per page.
 var sharp = require('sharp');
 var QRCode = require('qrcode');
-var { font } = require('./ticketFont');
+var { font, CODE_POINTS } = require('./ticketFont');
+var { plainLine } = require('./plainText');
 
 var LINE_GAP = 6;     // dots between lines, as a receipt printer spaces them
 var QR_DOT = 5;       // dots per square of a QR code
 
 function widthOf(paperMm) { return Number(paperMm) === 58 ? 384 : 576; }
 
+// The letters of a line as drawn: one the font has no letter for (Chinese,
+// Thai, Japanese, Korean, an emoji) is left out, the English part of a
+// two-language dish name printed (lib/plainText.js).
+var HAS = new Set(CODE_POINTS);
+function hasLetter(cp) { return HAS.has(cp); }
 function chars(text) {
-  return Array.from(String(text == null ? '' : text).replace(/[\u0000-\u001f\u007f]/g, ''));
+  return Array.from(plainLine(String(text == null ? '' : text).replace(/[\u0000-\u001f\u007f]/g, ''), hasLetter));
 }
 
 // The height a line takes, and how to draw it.

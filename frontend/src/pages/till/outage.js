@@ -1,5 +1,5 @@
 import { posFetch } from '../../lib/posApi';
-import { buildKitchenChitBytes, escPosToStarRaster } from '../../lib/thermalPrinter';
+import { buildKitchenChitBytes, escPosToStarRaster, plainEscPos } from '../../lib/thermalPrinter';
 import { cacheLoad, cacheSave } from './tillOffline';
 import { lineKey } from './tillShared';
 
@@ -92,7 +92,7 @@ function base64(bytes) {
 export function chitBytes(chit, printer, companyName) {
   const paper = Number(printer.paper) === 58 ? 58 : 80;
   const bytes = buildKitchenChitBytes(chit, companyName, { lineWidth: paper === 58 ? 32 : 42, courseName: chit.courseLabel || '' });
-  return printer.language === 'star' ? escPosToStarRaster(bytes, paper === 58 ? 384 : 576) : Uint8Array.from(bytes);
+  return printer.language === 'star' ? escPosToStarRaster(bytes, paper === 58 ? 384 : 576) : Uint8Array.from(plainEscPos(bytes));
 }
 
 // A call to the print hub on the restaurant's network, at each of its

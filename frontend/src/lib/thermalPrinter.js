@@ -37,10 +37,35 @@ function bytes() {
 // Plain Latin-1/ASCII bytes — most thermal printers' default codepage
 // doesn't reliably render UTF-8 multi-byte sequences. Typographic quotes,
 // dashes, the cedi sign and odd spaces (a time from toLocaleString has a
-// narrow one) become their plain forms; an accented letter outside Latin-1
-// its plain letter; anything else (other scripts, emoji) a '?'. Never a
-// control byte: cut to one byte, a ” (U+201D) was GS and 一 (U+4E00) was
-// NUL — printer commands in the middle of a receipt's footer or a name.
+// narrow one) become their plain forms. Never a control byte: cut to one
+// byte, a ” (U+201D) was GS and 一 (U+4E00) was NUL — printer commands in
+// the middle of a receipt's footer or a name.
+//
+// Any other letter — Chinese, Thai, Japanese, Korean, an accented letter
+// outside Latin-1, an emoji: a dish "宫保鸡丁 Kung Pao chicken" — is kept as
+// a mark: US (0x1F) and its code point in six hex digits. Printing that
+// draws the page as a picture with the device's own fonts (PassPRNT, the
+// print dialog, a Star printer over USB) gets the letter back (readEscPos)
+// and prints both languages; bytes sent as they are to a printer, which has
+// no such letters, leave it out (plainEscPos: "Kung Pao chicken").
+var MARK = 0x1f;
+function markBytes(cp) {
+  var h = ('000000' + cp.toString(16).toUpperCase()).slice(-6), out = [MARK];
+  for (var k = 0; k < 6; k++) out.push(h.charCodeAt(k));
+  return out;
+}
+// The letter a mark at b[i] stands for, or null when it is not one.
+function markAt(b, i) {
+  if (b[i] !== MARK || i + 6 >= b.length) return null;
+  var cp = 0;
+  for (var k = 1; k <= 6; k++) {
+    var d = b[i + k];
+    var v = d >= 0x30 && d <= 0x39 ? d - 0x30 : d >= 0x41 && d <= 0x46 ? d - 0x37 : -1;
+    if (v < 0) return null;
+    cp = cp * 16 + v;
+  }
+  return cp > 0xff && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? cp : null;
+}
 var PLAIN_TEXT = {
   '‘': "'", '’': "'", '‚': "'", '′': "'", '“': '"', '”': '"', '„': '"', '″': '"',
   '‐': '-', '‑': '-', '‒': '-', '–': '-', '—': '-', '−': '-', '…': '...', '•': '*', '₵': 'GHS ',
@@ -53,11 +78,9 @@ function textBytes(s) {
     var ch = str.charAt(i), c = str.charCodeAt(i);
     if (PLAIN_TEXT[ch] !== undefined) { for (var k = 0; k < PLAIN_TEXT[ch].length; k++) out.push(PLAIN_TEXT[ch].charCodeAt(k)); continue; }
     if (c === 0x0a || (c >= 0x20 && c < 0x7f) || (c >= 0xa0 && c <= 0xff)) { out.push(c); continue; }
-    if (c >= 0xd800 && c <= 0xdbff) { out.push(0x3f); i++; continue; } // an emoji (two halves): one '?'
-    if (c > 0xff) {
-      var base = typeof ch.normalize === 'function' ? ch.normalize('NFD').charCodeAt(0) : 0;
-      out.push(base >= 0x20 && base < 0x7f ? base : 0x3f);
-    }
+    if (c >= 0xd800 && c <= 0xdbff) { var cp = str.codePointAt(i); if (cp > 0xffff) { out.push.apply(out, markBytes(cp)); i++; } continue; } // an emoji: two halves, one letter
+    if (c >= 0xdc00 && c <= 0xdfff) continue; // half a letter on its own
+    if (c > 0xff) out.push.apply(out, markBytes(c));
     // any other control character is left out
   }
   return out;
@@ -79,8 +102,109 @@ var LINE_WIDTH_58MM = 32; // characters per line on a 58mm printer, standard fon
 function twoColumn(left, right, width) {
   width = width || LINE_WIDTH_58MM;
   var l = String(left), r = String(right);
-  var gap = Math.max(1, width - l.length - r.length);
+  var gap = Math.max(1, width - textWidth(l) - textWidth(r));
   return l + new Array(gap + 1).join(' ') + r;
+}
+// How many columns a text takes on paper: Chinese, Japanese and Korean
+// letters two each, marks that sit on a letter (Thai vowels and tones,
+// accents) none, the rest one.
+function letterWidth(cp) {
+  if ((cp >= 0x0300 && cp <= 0x036f) || cp === 0x0e31 || (cp >= 0x0e34 && cp <= 0x0e3a) || (cp >= 0x0e47 && cp <= 0x0e4e) || (cp >= 0x200b && cp <= 0x200f)) return 0;
+  if ((cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6) || (cp >= 0x1f300 && cp <= 0x1faff) || cp >= 0x20000) return 2;
+  return 1;
+}
+function textWidth(s) {
+  var w = 0;
+  for (var ch of String(s == null ? '' : s)) w += letterWidth(ch.codePointAt(0));
+  return w;
+}
+
+// A line for a printer that has only some letters (can(codePoint)): an
+// accented letter it lacks becomes its plain letter; other letters it
+// lacks are left out, with the spaces around them — "1 x 宫保鸡丁 Kung Pao
+// chicken" prints "1 x Kung Pao chicken". Columns (text two or more spaces
+// apart, as twoColumn lays them out) stay where they were. A column left
+// with no word of its own ("1 x 宫保鸡丁") keeps a '?' for each letter it
+// lacks instead, as before, so the line still says something is there.
+function plainColumn(s, can) {
+  var t = Array.from(s).map(function (ch) {
+    var cp = ch.codePointAt(0);
+    if (can(cp)) return { ch: ch, ok: true };
+    var base = typeof ch.normalize === 'function' ? ch.normalize('NFD').charAt(0) : '';
+    var bcp = base ? base.codePointAt(0) : 0;
+    if (bcp >= 0x20 && bcp !== cp && can(bcp)) return { ch: base, ok: true };
+    return { ch: ch, ok: false };
+  });
+  if (t.every(function (x) { return x.ok; })) return t.map(function (x) { return x.ch; }).join('');
+  var out = '';
+  for (var i = 0; i < t.length; i++) {
+    if (t[i].ok) { out += t[i].ch; continue; }
+    // A run of letters it lacks, with the spaces between them.
+    var e = i;
+    for (var k = i + 1; k < t.length; k++) { if (!t[k].ok) e = k; else if (t[k].ch !== ' ') break; }
+    var spaceBefore = out.length === 0 || out.charAt(out.length - 1) === ' ';
+    i = e;
+    if (spaceBefore && i + 1 < t.length && t[i + 1].ch === ' ') i += 1;
+    else if (i + 1 >= t.length && out.charAt(out.length - 1) === ' ') out = out.slice(0, -1);
+  }
+  var words = out.replace(/^\s*(\[[^\]]*\]\s*)?\d+\s*x(\s|$)/i, '').replace(/\b(GHS|USD|RMB|CNY)\b/g, '');
+  if (!/[A-Za-z\u00c0-\u00ff]{2,}/.test(words)) return t.map(function (x) { return x.ok ? x.ch : letterWidth(x.ch.codePointAt(0)) ? '?' : ''; }).join(''); // a mark on a letter (Thai) adds none
+  return out;
+}
+export function plainLine(s, can) {
+  var parts = String(s == null ? '' : s).split(/( {2,})/); // even: columns, odd: the gaps between them
+  for (var p = 0; p < parts.length; p += 2) {
+    var was = parts[p], now = plainColumn(was, can);
+    if (now === was) continue;
+    parts[p] = now;
+    var lost = textWidth(was) - textWidth(now);
+    if (lost <= 0) continue;
+    var pad = new Array(lost + 1).join(' ');
+    // The gap after takes it back (the next column stays put); the last
+    // column of a line takes it from the gap before (it stays at the right edge).
+    if (p + 1 < parts.length && p + 2 < parts.length && parts[p + 2] !== '') parts[p + 1] += pad;
+    else if (p >= 2 && parts[p - 2] !== '') parts[p - 1] += pad;
+  }
+  return parts.join('');
+}
+
+// The bytes for a printer that prints them as they are (over USB or
+// Bluetooth, through RawBT, the print hub's ESC/POS): each line's marked
+// letters (textBytes) made plain for it (plainLine), the commands kept as
+// they are — read as readEscPos reads them.
+function escPosCommandLength(b, i) {
+  var k = b[i + 1];
+  if (b[i] === ESC) return k === 0x40 ? 2 : k === 0x61 || k === 0x45 || k === 0x64 ? 3 : k === 0x70 ? 5 : 2;
+  if (k === 0x21) return 3;
+  if (k === 0x56) return b[i + 2] === 65 || b[i + 2] === 66 ? 4 : 3;
+  if (k === 0x28 && b[i + 2] === 0x6b) return 5 + b[i + 3] + b[i + 4] * 256;
+  return 2;
+}
+function latin1(cp) { return cp >= 0x20 && cp <= 0xff && !(cp >= 0x7f && cp < 0xa0); }
+export function plainEscPos(byteArray) {
+  var b = byteArray || [], out = [], seg = '';
+  function flushSeg() {
+    if (!seg) return;
+    var p = plainLine(seg, latin1);
+    for (var j = 0; j < p.length; j++) out.push(p.charCodeAt(j) & 0xff);
+    seg = '';
+  }
+  for (var i = 0; i < b.length; i++) {
+    var c = b[i];
+    if (c === ESC || c === GS) {
+      flushSeg();
+      var n = escPosCommandLength(b, i);
+      for (var k = 0; k < n && i + k < b.length; k++) out.push(b[i + k]);
+      i += n - 1;
+      continue;
+    }
+    if (c === MARK) { var cp = markAt(b, i); if (cp != null) { seg += String.fromCodePoint(cp); i += 6; } continue; }
+    if (c < 0x20) { flushSeg(); out.push(c); continue; }
+    seg += String.fromCharCode(c);
+  }
+  flushSeg();
+  return out;
 }
 
 // buildReceiptBytes(order, companyName, cashierName, opts) -> plain array
@@ -452,13 +576,14 @@ export function readEscPos(byteArray) {
       } else i += 1;
       continue;
     }
+    if (c === MARK) { var mcp = markAt(b, i); if (mcp != null) { text += String.fromCodePoint(mcp); i += 6; } continue; }
     if (c >= 0x20) text += String.fromCharCode(c);
   }
   flush();
   // What came after the last cut (nothing, or a stray feed) is not a page.
   pages = pages.filter(function (p) { return p.some(function (x) { return x.t !== 'feed'; }); });
   var cols = LINE_WIDTH_58MM;
-  pages.forEach(function (p) { p.forEach(function (x) { if (x.t === 'line') cols = Math.max(cols, x.text.length * x.scale); }); });
+  pages.forEach(function (p) { p.forEach(function (x) { if (x.t === 'line') cols = Math.max(cols, textWidth(x.text) * x.scale); }); });
   return { pages: pages, cols: cols, kick: kick, cut: cutAtEnd };
 }
 
@@ -729,7 +854,7 @@ function toBase64(byteArray) {
   return btoa(s);
 }
 export function rawBtLink(byteArray) {
-  return 'intent:base64,' + toBase64(byteArray) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=' + encodeURIComponent(RAWBT_PLAY) + ';end;';
+  return 'intent:base64,' + toBase64(plainEscPos(byteArray)) + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=' + encodeURIComponent(RAWBT_PLAY) + ';end;';
 }
 export function rawBtPrinter(paperMm) {
   var mm = Number(paperMm) === 58 ? 58 : 80;
@@ -1010,7 +1135,7 @@ async function connectUsbPrinter(device) {
         await device.open();
         await device.claimInterface(picked.iface);
       }
-      var data = star ? escPosToStarRaster(byteArray) : new Uint8Array(byteArray);
+      var data = star ? escPosToStarRaster(byteArray) : new Uint8Array(plainEscPos(byteArray));
       // In pieces: a picture receipt is tens of kilobytes.
       for (var i = 0; i < data.length; i += 16384) await device.transferOut(picked.endpoint, data.slice(i, i + 16384));
     },
@@ -1125,7 +1250,7 @@ async function connectBluetoothPrinter(device) {
         if (!ch) throw new Error(tr(BT_NO_CONNECT));
       }
       var withResponse = !!ch.properties.write;
-      var bytes = new Uint8Array(byteArray);
+      var bytes = new Uint8Array(plainEscPos(byteArray));
       var i = 0;
       while (i < bytes.length) {
         var part = bytes.slice(i, i + size);
