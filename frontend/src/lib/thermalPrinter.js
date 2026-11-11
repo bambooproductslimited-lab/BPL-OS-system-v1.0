@@ -610,15 +610,22 @@ async function passPrntHtml(byteArray) {
 // The link that hands a receipt to PassPRNT. port: one printer by its
 // address (TCP:192.168.1.50, Star's port name), else the one chosen in
 // PassPRNT.
+// Each value in the link encoded as Star asks, to RFC 3986: encodeURIComponent
+// leaves ! ' ( ) * as they are, and PassPRNT then cannot read the page at
+// all ("E009 No print data") — every receipt ends "Thank you!", a dish's
+// note starts "*", an allergy "!!". The test page has none: it printed.
+function rfc3986(s) {
+  return encodeURIComponent(s).replace(/[!'()*]/g, function (c) { return '%' + c.charCodeAt(0).toString(16).toUpperCase(); });
+}
 // drawerOk false: the drawer is not asked for even when the receipt would
 // open it (no drawer plugged into the printer: passPrntDrawer). When it is,
 // it opens once the receipt has printed ('after'), so a drawer that does
 // not answer never keeps the receipt from printing.
 export async function passPrntLink(byteArray, paperMm, backUrl, port, drawerOk) {
   var doc = readEscPos(byteArray);
-  return 'starpassprnt://v1/print/nopreview?html=' + encodeURIComponent(await passPrntHtml(byteArray)) +
+  return 'starpassprnt://v1/print/nopreview?html=' + rfc3986(await passPrntHtml(byteArray)) +
     '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick && drawerOk !== false ? 'after' : 'off') +
-    (port ? '&port=' + encodeURIComponent(port) : '') + '&popup=enable' + (backUrl ? '&back=' + encodeURIComponent(backUrl) : '');
+    (port ? '&port=' + rfc3986(port) : '') + '&popup=enable' + (backUrl ? '&back=' + rfc3986(backUrl) : '');
 }
 
 // The way back from PassPRNT. It comes back by opening the till's web
