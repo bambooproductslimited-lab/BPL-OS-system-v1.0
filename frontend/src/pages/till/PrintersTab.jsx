@@ -24,7 +24,9 @@ import './printers.css';
 
 const NAMES = () => [tr('Kitchen'), tr('Grill'), tr('Bar'), tr('Counter')];
 // The print hub, from the till's own website (put there with the till's files).
-const DOWNLOADS = { windows: '/downloads/bamboo-print-hub-windows.zip', others: '/downloads/bamboo-print-hub.zip' };
+// The print hub (tools/print-hub), on the site this page is opened from: the
+// tills' websites and the OS carry it (frontend/tools/hub-downloads.mjs).
+const DOWNLOADS = { windows:'/downloads/bamboo-print-hub-windows.zip', others: '/downloads/bamboo-print-hub.zip' };
 const MAKE = { epson: () => 'Epson', star: () => 'Star Micronics', escpos: () => tr('Receipt printer') };
 function whatItIs(p) { return [MAKE[p.make] ? MAKE[p.make]() : '', p.model].filter(Boolean).join(' '); }
 

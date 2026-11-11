@@ -26,6 +26,7 @@ import { build, loadEnv } from 'vite';
 import { cpSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { addHubDownloads } from './hub-downloads.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BRANDS = {
@@ -47,7 +48,8 @@ const SITES = {
     files: ICONS.concat(['pos-sw.js']),
     env: { VITE_KDS_URL: process.env.KDS_URL || at('kds'), VITE_DELIVERY_URL: process.env.DELIVERY_URL || at('delivery') },
     map: true, // sending a delivery out may need its pin dropped
-    hub: true
+    hub: true,
+    downloads: true // the print hub, from Till settings → Printers (hub-downloads.mjs)
   },
   kds: {
     name: BRAND.name + ' Kitchen', shortName: 'Kitchen',
@@ -98,6 +100,7 @@ if (BRAND_KEY !== 'starbar') {
   writeFileSync(page, readFileSync(page, 'utf8').replace(/Star Bar Restaurant/g, BRAND.full).replace(/Star Bar/g, BRAND.name).replace(/#0b1220/g, BRAND.color));
 }
 for (const f of conf.files) cpSync(join(ROOT, 'public', f), join(out, f), { recursive: true });
+if (conf.downloads) addHubDownloads(out);
 
 writeFileSync(join(out, 'manifest.webmanifest'), JSON.stringify({
   name: conf.name,
