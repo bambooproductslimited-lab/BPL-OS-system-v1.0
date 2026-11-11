@@ -668,7 +668,8 @@ export default function RestaurantPosPage() {
     setPrinterError(null);
     try {
       const bytes = buildReceiptBytes(order, session.companyName, order.cashierName || session.employeeName, {
-        kickDrawer: order.paymentMethod === 'cash' || (order.payments || []).some((p) => p.method === 'cash'), footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra, lineWidth: printer.lineWidth
+        // The drawer opens for a cash sale, never for a copy printed again.
+        kickDrawer: !order.reprint && (order.paymentMethod === 'cash' || (order.payments || []).some((p) => p.method === 'cash')), footer: tillSettings.receipt.footer, extra: tillSettings.receipt.extra, lineWidth: printer.lineWidth
       });
       await printer.write(bytes);
     } catch (err) {

@@ -116,8 +116,11 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
   if (order.refunds && order.refunds.length) out = out.concat(line(twoColumn('After refunds', money2(order.total - order.refunded), width)));
   if (order.paymentMethod === 'vip') out = out.concat(line('Paid from VIP balance' + (order.guestName ? ': ' + order.guestName : '')));
   else if (order.paymentMethod === 'iou') out = out.concat(line(order.iouPaidAt ? 'IOU, paid ' + new Date(order.iouPaidAt).toLocaleDateString() : 'IOU: owed by ' + (order.guestName || 'the guest')));
+  var paidListed = false;
+  if (order.paymentMethod === 'vip' || order.paymentMethod === 'iou') { /* said above */ }
   else if (order.payments && order.payments.length && (order.payments.length > 1 || order.payments[0].currency !== 'GHS' || order.payments[0].tendered != null)) {
     // Each way it was paid; foreign money with its rate; change in cedis.
+    paidListed = true;
     order.payments.forEach(function (p) {
       out = out.concat(line(twoColumn(METHOD_EN[p.method] || p.method, money2(p.amount), width)));
       if (p.currency !== 'GHS') out = out.concat(line('  ' + (p.currency === 'CNY' ? 'RMB' : p.currency) + ' ' + Number(p.foreignAmount).toFixed(2) + ' @ ' + p.rate));
@@ -126,7 +129,8 @@ export function buildReceiptBytes(order, companyName, cashierName, opts) {
     if (order.change > 0) out = out.concat(line(twoColumn('Change', money2(order.change), width)));
   } else out = out.concat(line('Paid by ' + (METHOD_EN[order.paymentMethod] || String(order.paymentMethod || '').replace('_', ' '))));
   if (order.vipBalance != null) out = out.concat(line(twoColumn('VIP balance left', money2(order.vipBalance), width)));
-  if (order.cashTendered != null && !(order.payments && order.payments.length > 1)) {
+  // The cash received and the change, unless listed with the payments above.
+  if (order.cashTendered != null && !paidListed && !(order.payments && order.payments.length > 1)) {
     out = out.concat(line(twoColumn('Cash', money2(order.cashTendered), width)));
     out = out.concat(line(twoColumn('Change', money2(order.change), width)));
   }
@@ -549,6 +553,12 @@ export function reconnectSystemPrinter() {
 // Several tickets go in one print, a dashed line between them.
 var PASSPRNT_KEY = 'bamboo.printer.passprnt';
 
+// Kept as short as it can be: the whole page travels inside the link, and
+// a long link may not reach PassPRNT whole (Star: keep the data passed
+// between apps as small as possible). Each line is one short element — l
+// left, c centred, r right, e an empty line fed — and the rare big or
+// bold line carries its own style. Phone numbers stay plain text
+// (format-detection, as Star advises).
 async function passPrntHtml(byteArray) {
   var doc = readEscPos(byteArray);
   // The page is drawn at whatever width PassPRNT uses and scaled to the
@@ -556,30 +566,37 @@ async function passPrntHtml(byteArray) {
   var font = 100 / (doc.cols * 0.625);
   var body = '';
   for (var p = 0; p < doc.pages.length; p++) {
-    if (p > 0) body += '<div class="cut">- - - - - - - - - - - - - - - -</div>';
+    if (p > 0) body += '<hr>';
     for (var j = 0; j < doc.pages[p].length; j++) {
       var x = doc.pages[p][j];
-      if (x.t === 'feed') body += '<div style="height:' + (x.n * font * 1.25).toFixed(2) + 'vw"></div>';
+      var tag = x.align === 'center' ? 'c' : x.align === 'right' ? 'r' : 'l';
+      if (x.t === 'feed') body += new Array(x.n + 1).join('<e></e>');
       else if (x.t === 'qr') {
         var pic = await QRCode.toDataURL(x.data, { margin: 1, width: 200, errorCorrectionLevel: 'M' });
-        body += '<div class="l" style="text-align:' + x.align + '"><img src="' + pic + '" alt=""></div>';
-      } else body += '<div class="l' + (x.bold ? ' b' : '') + '" style="text-align:' + x.align + (x.scale > 1 ? ';font-size:' + (font * x.scale).toFixed(2) + 'vw' : '') + '">' + (x.text ? escapeHtml(x.text) : '&nbsp;') + '</div>';
+        body += '<' + tag + '><img src="' + pic + '" alt=""></' + tag + '>';
+      } else {
+        var text = x.text ? escapeHtml(x.text) : '';
+        if (x.bold) text = '<b>' + text + '</b>';
+        body += '<' + tag + (x.scale > 1 ? ' style="font-size:' + (font * x.scale).toFixed(1) + 'vw"' : '') + '>' + text + '</' + tag + '>';
+      }
     }
   }
-  return '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' +
-    'html,body{margin:0;padding:0;background:#fff;color:#000}' +
-    'body{font-family:monospace;font-size:' + font.toFixed(3) + 'vw;line-height:1.25}' +
-    '.l{white-space:pre-wrap;word-break:break-all}.b{font-weight:700}img{width:40vw;height:40vw}.cut{margin:4vw 0;text-align:center;color:#000}' +
+  return '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="format-detection" content="telephone=no"><style>' +
+    'body{margin:0;background:#fff;color:#000;font:' + font.toFixed(2) + 'vw/1.25 monospace}' +
+    'l,c,r,e{display:block;min-height:1.25em;white-space:pre-wrap;word-break:break-all}c{text-align:center}r{text-align:right}' +
+    'img{width:40vw;height:40vw}hr{border:0;border-top:1px dashed #000;margin:4vw 0}' +
     '</style></head><body>' + body + '</body></html>';
 }
 
 // The link that hands a receipt to PassPRNT. port: one printer by its
 // address (TCP:192.168.1.50, Star's port name), else the one chosen in
 // PassPRNT.
-export async function passPrntLink(byteArray, paperMm, backUrl, port) {
+// drawerOk false: the drawer is not asked for even when the receipt would
+// open it (no drawer plugged into the printer: passPrntDrawer).
+export async function passPrntLink(byteArray, paperMm, backUrl, port, drawerOk) {
   var doc = readEscPos(byteArray);
   return 'starpassprnt://v1/print/nopreview?html=' + encodeURIComponent(await passPrntHtml(byteArray)) +
-    '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick ? 'ahead' : 'off') +
+    '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick && drawerOk !== false ? 'ahead' : 'off') +
     (port ? '&port=' + encodeURIComponent(port) : '') + '&popup=enable' + (backUrl ? '&back=' + encodeURIComponent(backUrl) : '');
 }
 
@@ -610,6 +627,19 @@ export function setPassPrntComesBack(on) {
   try { localStorage.setItem(PASSPRNT_BACK_KEY, on ? 'always' : 'never'); } catch { /* this visit only: the default */ }
 }
 
+// A cash drawer plugged into the Star printer, opened by PassPRNT before a
+// cash sale's receipt — only when this device says there is one. Star
+// warns that asking for the drawer with none plugged in "may not work
+// properly": the receipts did not print. Kept per device (PrinterPanel),
+// off until turned on.
+var PASSPRNT_DRAWER_KEY = 'bamboo.printer.passprnt.drawer';
+export function passPrntDrawer() {
+  try { return localStorage.getItem(PASSPRNT_DRAWER_KEY) === '1'; } catch { return false; }
+}
+export function setPassPrntDrawer(on) {
+  try { if (on) localStorage.setItem(PASSPRNT_DRAWER_KEY, '1'); else localStorage.removeItem(PASSPRNT_DRAWER_KEY); } catch { /* this visit only */ }
+}
+
 // Opens another app from the page (the screenshots catch it to check the link).
 function launchApp(url) {
   if (typeof window !== 'undefined' && typeof window.__bambooLaunch === 'function') { window.__bambooLaunch(url); return; }
@@ -632,7 +662,7 @@ export function passPrntPrinter(paperMm, opts) {
       // — or, from a Home Screen app on an iPhone or iPad, a way back no app
       // answers, so nothing opens Safari (above).
       var back = passPrntComesBack() ? window.location.href.split('#')[0] + '#passprnt' : PASSPRNT_STAY;
-      launchApp(await passPrntLink(byteArray, mm, back, address ? 'TCP:' + address : ''));
+      launchApp(await passPrntLink(byteArray, mm, back, address ? 'TCP:' + address : '', !address && passPrntDrawer()));
     },
     forget: async function () { savePassPrnt(null); }
   };

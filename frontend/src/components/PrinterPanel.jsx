@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { tr } from '../lib/i18n.jsx';
 import {
-  bluetoothSupported, buildTestBytes, deviceModel, iminTill, kitchenAddressOk, kitchenPrinterFor, passPrntComesBack, passPrntPrinter, rawBtPrinter, requestBluetoothPrinter, requestUsbPrinter,
-  saveNetworkPrinter, savePassPrnt, saveRawBt, saveSystemPrinter, setPassPrntComesBack, systemPrinter, usbSupported
+  bluetoothSupported, buildTestBytes, deviceModel, iminTill, kitchenAddressOk, kitchenPrinterFor, passPrntComesBack, passPrntDrawer, passPrntPrinter, rawBtPrinter, requestBluetoothPrinter, requestUsbPrinter,
+  saveNetworkPrinter, savePassPrnt, saveRawBt, saveSystemPrinter, setPassPrntComesBack, setPassPrntDrawer, systemPrinter, usbSupported
 } from '../lib/thermalPrinter';
 import './PrinterPanel.css';
 
@@ -31,6 +31,9 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
   // Screen app on an iPhone or iPad, where its way back opens Safari
   // (lib/thermalPrinter.js passPrntComesBack); kept on this device.
   const [comesBack, setComesBack] = useState(passPrntComesBack);
+  // A cash drawer plugged into the Star printer, opened through PassPRNT for
+  // cash sales: off until said (lib/thermalPrinter.js passPrntDrawer).
+  const [drawerOn, setDrawerOn] = useState(passPrntDrawer);
   // An iMin till with its own printer (the Swan 2), found by its model.
   const [till, setTill] = useState(null);
   useEffect(() => { let live = true; deviceModel().then((m) => { if (live) setTill(iminTill(m)); }); return () => { live = false; }; }, []);
@@ -238,6 +241,16 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
                 ? tr('PassPRNT then opens the till\'s web address, which an iPad or iPhone opens in Safari, not in the till on the Home Screen. Keep this on only when the till is used in Safari.')
                 : tr('Off: best for the till on the Home Screen. Once PassPRNT has printed, tap ◀ at the top-left corner (or swipe right along the bottom edge) to come back to the till just as you left it.')}</small></span>
             <span className={'prp-switch' + (comesBack ? ' is-on' : '')} aria-hidden="true"><i /></span>
+          </button>
+        )}
+        {printer && printer.kind === 'passprnt' && (
+          <button type="button" role="switch" aria-checked={drawerOn} className="prp-kit-switch prp-drawer"
+            onClick={() => { setPassPrntDrawer(!drawerOn); setDrawerOn(!drawerOn); }}>
+            <span><strong>{tr('A cash drawer is plugged into this printer')}</strong>
+              <small>{drawerOn
+                ? tr('PassPRNT opens it before printing the receipt of a cash sale. Turn this off if no drawer is plugged in: the receipts may not print.')
+                : tr('Off: receipts print without asking for a drawer. Turn it on only if a cash drawer is plugged into the printer, to open it for cash sales.')}</small></span>
+            <span className={'prp-switch' + (drawerOn ? ' is-on' : '')} aria-hidden="true"><i /></span>
           </button>
         )}
         {done && <p className="prp-ok" role="status">✅ {done}</p>}
