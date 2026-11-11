@@ -248,7 +248,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
             onClick={() => { setPassPrntDrawer(!drawerOn); setDrawerOn(!drawerOn); }}>
             <span><strong>{tr('A cash drawer is plugged into this printer')}</strong>
               <small>{drawerOn
-                ? tr('PassPRNT opens it before printing the receipt of a cash sale. Turn this off if no drawer is plugged in: the receipts may not print.')
+                ? tr('PassPRNT opens it once the receipt of a cash sale has printed. If cash receipts stop printing, turn this off.')
                 : tr('Off: receipts print without asking for a drawer. Turn it on only if a cash drawer is plugged into the printer, to open it for cash sales.')}</small></span>
             <span className={'prp-switch' + (drawerOn ? ' is-on' : '')} aria-hidden="true"><i /></span>
           </button>

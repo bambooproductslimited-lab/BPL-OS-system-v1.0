@@ -12248,7 +12248,7 @@ export default {
   "passed on {a}": "转交 {a}",
   "Passed with notes": "合格（有备注）",
   "Passport": "护照",
-  "PassPRNT opens it before printing the receipt of a cash sale. Turn this off if no drawer is plugged in: the receipts may not print.": "现金销售时，PassPRNT 会在打印收据前打开钱箱。如果没有接钱箱，请关闭此项，否则收据可能打印不出来。",
+  "PassPRNT opens it once the receipt of a cash sale has printed. If cash receipts stop printing, turn this off.": "现金销售的收据打印完成后，PassPRNT 会打开钱箱。如果现金收据打印不出来，请关闭此项。",
   "PassPRNT then opens the till's web address, which an iPad or iPhone opens in Safari, not in the till on the Home Screen. Keep this on only when the till is used in Safari.": "这样 PassPRNT 会打开收银台的网址，而 iPad 或 iPhone 会在 Safari 中打开它，而不是主屏幕上的收银台。只有在 Safari 中使用收银台时才开启此项。",
   "Password": "密码",
   "Password changed.": "密码已更改。",

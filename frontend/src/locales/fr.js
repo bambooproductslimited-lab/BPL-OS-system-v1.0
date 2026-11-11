@@ -12248,7 +12248,7 @@ export default {
   "passed on {a}": "remis {a}",
   "Passed with notes": "Conforme avec remarques",
   "Passport": "Passeport",
-  "PassPRNT opens it before printing the receipt of a cash sale. Turn this off if no drawer is plugged in: the receipts may not print.": "PassPRNT l'ouvre avant d'imprimer le reçu d'une vente en espèces. Désactivez ceci si aucun tiroir n'est branché : les reçus pourraient ne pas s'imprimer.",
+  "PassPRNT opens it once the receipt of a cash sale has printed. If cash receipts stop printing, turn this off.": "PassPRNT l'ouvre une fois le reçu d'une vente en espèces imprimé. Si les reçus en espèces ne s'impriment plus, désactivez ceci.",
   "PassPRNT then opens the till's web address, which an iPad or iPhone opens in Safari, not in the till on the Home Screen. Keep this on only when the till is used in Safari.": "PassPRNT ouvre alors l'adresse web de la caisse, qu'un iPad ou un iPhone ouvre dans Safari, et non dans la caisse de l'écran d'accueil. Ne l'activez que si la caisse est utilisée dans Safari.",
   "Password": "Mot de passe",
   "Password changed.": "Mot de passe modifié.",

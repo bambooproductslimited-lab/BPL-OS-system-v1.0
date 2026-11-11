@@ -34,13 +34,32 @@ var GS = 0x1D;
 function bytes() {
   return Array.prototype.concat.apply([], arguments);
 }
+// Plain Latin-1/ASCII bytes — most thermal printers' default codepage
+// doesn't reliably render UTF-8 multi-byte sequences. Typographic quotes,
+// dashes, the cedi sign and odd spaces (a time from toLocaleString has a
+// narrow one) become their plain forms; an accented letter outside Latin-1
+// its plain letter; anything else (other scripts, emoji) a '?'. Never a
+// control byte: cut to one byte, a ” (U+201D) was GS and 一 (U+4E00) was
+// NUL — printer commands in the middle of a receipt's footer or a name.
+var PLAIN_TEXT = {
+  '‘': "'", '’': "'", '‚': "'", '′': "'", '“': '"', '”': '"', '„': '"', '″': '"',
+  '‐': '-', '‑': '-', '‒': '-', '–': '-', '—': '-', '−': '-', '…': '...', '•': '*', '₵': 'GHS ',
+  ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', '　': ' ', '\t': ' '
+};
 function textBytes(s) {
-  // Plain Latin-1/ASCII bytes — most thermal printers' default codepage
-  // doesn't reliably render UTF-8 multi-byte sequences, and nothing this
-  // receipt prints (names, GHS amounts) needs anything outside that range.
   var out = [];
-  var str = String(s == null ? '' : s);
-  for (var i = 0; i < str.length; i++) out.push(str.charCodeAt(i) & 0xff);
+  var str = String(s == null ? '' : s).replace(/[​-‍⁠﻿]/g, '');
+  for (var i = 0; i < str.length; i++) {
+    var ch = str.charAt(i), c = str.charCodeAt(i);
+    if (PLAIN_TEXT[ch] !== undefined) { for (var k = 0; k < PLAIN_TEXT[ch].length; k++) out.push(PLAIN_TEXT[ch].charCodeAt(k)); continue; }
+    if (c === 0x0a || (c >= 0x20 && c < 0x7f) || (c >= 0xa0 && c <= 0xff)) { out.push(c); continue; }
+    if (c >= 0xd800 && c <= 0xdbff) { out.push(0x3f); i++; continue; } // an emoji (two halves): one '?'
+    if (c > 0xff) {
+      var base = typeof ch.normalize === 'function' ? ch.normalize('NFD').charCodeAt(0) : 0;
+      out.push(base >= 0x20 && base < 0x7f ? base : 0x3f);
+    }
+    // any other control character is left out
+  }
   return out;
 }
 function line(s) { return bytes(textBytes(s), [0x0a]); }
@@ -592,11 +611,13 @@ async function passPrntHtml(byteArray) {
 // address (TCP:192.168.1.50, Star's port name), else the one chosen in
 // PassPRNT.
 // drawerOk false: the drawer is not asked for even when the receipt would
-// open it (no drawer plugged into the printer: passPrntDrawer).
+// open it (no drawer plugged into the printer: passPrntDrawer). When it is,
+// it opens once the receipt has printed ('after'), so a drawer that does
+// not answer never keeps the receipt from printing.
 export async function passPrntLink(byteArray, paperMm, backUrl, port, drawerOk) {
   var doc = readEscPos(byteArray);
   return 'starpassprnt://v1/print/nopreview?html=' + encodeURIComponent(await passPrntHtml(byteArray)) +
-    '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick && drawerOk !== false ? 'ahead' : 'off') +
+    '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick && drawerOk !== false ? 'after' : 'off') +
     (port ? '&port=' + encodeURIComponent(port) : '') + '&popup=enable' + (backUrl ? '&back=' + encodeURIComponent(backUrl) : '');
 }
 
