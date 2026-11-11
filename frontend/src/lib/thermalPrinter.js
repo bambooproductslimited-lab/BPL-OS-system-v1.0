@@ -588,11 +588,14 @@ export async function passPrntLink(byteArray, paperMm, backUrl, port) {
 // Home Screen app (the till or kitchen screen added to the Home Screen):
 // the staff would land in Safari, a till of its own (another sign-in, no
 // printer chosen), and print again from there. So a Home Screen app on an
-// iPhone or iPad gives PassPRNT no way back: it prints, shows how it went,
-// and the ◀ at the top-left corner (or a swipe along the bottom edge)
-// brings the till back just as it was. Kept per device, to change by hand
-// (PrinterPanel): 'always' comes back by itself, 'never' does not.
+// iPhone or iPad gives PassPRNT a way back that no app answers
+// (PASSPRNT_STAY — with none at all PassPRNT prints, then says "E002
+// Callback parameter not set"): it prints and stays, and the ◀ at the
+// top-left corner (or a swipe along the bottom edge) brings the till back
+// just as it was. Kept per device, to change by hand (PrinterPanel):
+// 'always' comes back by itself, 'never' does not.
 var PASSPRNT_BACK_KEY = 'bamboo.printer.passprnt.back';
+export var PASSPRNT_STAY = 'bamboo-os-stay://printed';
 export function appleHomeScreenApp() {
   return typeof navigator !== 'undefined' && navigator.standalone === true;
 }
@@ -626,8 +629,9 @@ export function passPrntPrinter(paperMm, opts) {
     name: address ? tr('Kitchen printer · {address}', { address: address }) : tr('Star printer (PassPRNT)'),
     write: async function (byteArray) {
       // Back to this page, the reply after the #, so the till does not reload
-      // — or no way back from a Home Screen app on an iPhone or iPad (above).
-      var back = passPrntComesBack() ? window.location.href.split('#')[0] + '#passprnt' : '';
+      // — or, from a Home Screen app on an iPhone or iPad, a way back no app
+      // answers, so nothing opens Safari (above).
+      var back = passPrntComesBack() ? window.location.href.split('#')[0] + '#passprnt' : PASSPRNT_STAY;
       launchApp(await passPrntLink(byteArray, mm, back, address ? 'TCP:' + address : ''));
     },
     forget: async function () { savePassPrnt(null); }
