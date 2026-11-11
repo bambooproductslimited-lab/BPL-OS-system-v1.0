@@ -572,6 +572,15 @@ export function reconnectSystemPrinter() {
 // Several tickets go in one print, a dashed line between them.
 var PASSPRNT_KEY = 'bamboo.printer.passprnt';
 
+// PassPRNT reads the link by decoding all of it, splitting it into its
+// parts, then decoding each part again. So the page must hold no % at all
+// ("VAT 15%" on every receipt and bill: the page became unreadable, "E009
+// No print data") and no & (a dish "Rice & beans": the page cut short
+// there). Those, a + (which a decoder may turn into a space: "+ Extra
+// shito") and < > are drawn by the page's own style instead.
+var PASSPRNT_GLYPH = { '%': '<pc></pc>', '&': '<am></am>', '+': '<pl></pl>', '<': '<lt></lt>', '>': '<gt></gt>' };
+function passPrntText(s) { return String(s).replace(/[%&+<>]/g, function (c) { return PASSPRNT_GLYPH[c]; }); }
+
 // Kept as short as it can be: the whole page travels inside the link, and
 // a long link may not reach PassPRNT whole (Star: keep the data passed
 // between apps as small as possible). Each line is one short element — l
@@ -591,10 +600,12 @@ async function passPrntHtml(byteArray) {
       var tag = x.align === 'center' ? 'c' : x.align === 'right' ? 'r' : 'l';
       if (x.t === 'feed') body += new Array(x.n + 1).join('<e></e>');
       else if (x.t === 'qr') {
-        var pic = await QRCode.toDataURL(x.data, { margin: 1, width: 200, errorCorrectionLevel: 'M' });
-        body += '<' + tag + '><img src="' + pic + '" alt=""></' + tag + '>';
+        // Drawn as lines (SVG), not a picture in base64: no + / = for a
+        // decoder to spoil (a bill's QR code to pay at the table).
+        var svg = await QRCode.toString(x.data, { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
+        body += '<' + tag + '>' + svg + '</' + tag + '>';
       } else {
-        var text = x.text ? escapeHtml(x.text) : '';
+        var text = x.text ? passPrntText(x.text) : '';
         if (x.bold) text = '<b>' + text + '</b>';
         body += '<' + tag + (x.scale > 1 ? ' style="font-size:' + (font * x.scale).toFixed(1) + 'vw"' : '') + '>' + text + '</' + tag + '>';
       }
@@ -603,7 +614,8 @@ async function passPrntHtml(byteArray) {
   return '<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="format-detection" content="telephone=no"><style>' +
     'body{margin:0;background:#fff;color:#000;font:' + font.toFixed(2) + 'vw/1.25 monospace}' +
     'l,c,r,e{display:block;min-height:1.25em;white-space:pre-wrap;word-break:break-all}c{text-align:center}r{text-align:right}' +
-    'img{width:40vw;height:40vw}hr{border:0;border-top:1px dashed #000;margin:4vw 0}' +
+    'svg{width:40vw;height:40vw}hr{border:0;border-top:1px dashed #000;margin:4vw 0}' +
+    'pc:before{content:"\\25"}am:before{content:"\\26"}pl:before{content:"\\2b"}lt:before{content:"\\3c"}gt:before{content:"\\3e"}' +
     '</style></head><body>' + body + '</body></html>';
 }
 
