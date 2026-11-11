@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { tr } from '../lib/i18n.jsx';
 import {
-  bluetoothSupported, buildTestBytes, deviceModel, iminTill, kitchenAddressOk, kitchenPrinterFor, passPrntPrinter, rawBtPrinter, requestBluetoothPrinter, requestUsbPrinter,
-  saveNetworkPrinter, savePassPrnt, saveRawBt, saveSystemPrinter, systemPrinter, usbSupported
+  bluetoothSupported, buildTestBytes, deviceModel, iminTill, kitchenAddressOk, kitchenPrinterFor, passPrntComesBack, passPrntPrinter, rawBtPrinter, requestBluetoothPrinter, requestUsbPrinter,
+  saveNetworkPrinter, savePassPrnt, saveRawBt, saveSystemPrinter, setPassPrntComesBack, systemPrinter, usbSupported
 } from '../lib/thermalPrinter';
 import './PrinterPanel.css';
 
@@ -27,6 +27,10 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
   const [own, setOwn] = useState(!!(kitchen && kitchen.address));
   const [address, setAddress] = useState(kitchen ? kitchen.address : '');
   const [help, setHelp] = useState(!printer && !(typeof navigator !== 'undefined' && /Android|iPad|iPhone/i.test(navigator.userAgent || '')));
+  // Whether PassPRNT comes back by itself after printing: not in a Home
+  // Screen app on an iPhone or iPad, where its way back opens Safari
+  // (lib/thermalPrinter.js passPrntComesBack); kept on this device.
+  const [comesBack, setComesBack] = useState(passPrntComesBack);
   // An iMin till with its own printer (the Swan 2), found by its model.
   const [till, setTill] = useState(null);
   useEffect(() => { let live = true; deviceModel().then((m) => { if (live) setTill(iminTill(m)); }); return () => { live = false; }; }, []);
@@ -126,7 +130,9 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
       <span className="prp-way-ico" aria-hidden="true">📲</span>
       <div className="prp-way-txt">
         <strong>{tr('Star printer, through the PassPRNT app')}{(android || ios) && <em className="prp-best is-bt">{tr('Network or Bluetooth')}</em>}</strong>
-        <small>{tr('For a Star printer on the network (such as a TSP143LAN) or on Bluetooth: Star\'s free PassPRNT app prints each receipt and brings you back to the till. Install it and choose the printer in it first.')}</small>
+        <small>{ios && !comesBack
+          ? tr('For a Star printer on the network (such as a TSP143LAN) or on Bluetooth: Star\'s free PassPRNT app prints each receipt, then tap ◀ at the top-left corner to come back to the till. Install it and choose the printer in it first.')
+          : tr('For a Star printer on the network (such as a TSP143LAN) or on Bluetooth: Star\'s free PassPRNT app prints each receipt and brings you back to the till. Install it and choose the printer in it first.')}</small>
       </div>
       <div className="prp-way-acts">
         {[80, 58].map((mm) => (
@@ -224,6 +230,16 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
             <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={forget}>{tr('Disconnect')}</button>
           </div>
         ) : <p className="prp-none">{tr('No printer yet: choose how this device prints.')}</p>}
+        {printer && printer.kind === 'passprnt' && ios && (
+          <button type="button" role="switch" aria-checked={comesBack} className="prp-kit-switch prp-back"
+            onClick={() => { setPassPrntComesBack(!comesBack); setComesBack(!comesBack); }}>
+            <span><strong>{tr('Come back to the till by itself after printing')}</strong>
+              <small>{comesBack
+                ? tr('PassPRNT then opens the till\'s web address, which an iPad or iPhone opens in Safari, not in the till on the Home Screen. Keep this on only when the till is used in Safari.')
+                : tr('Off: best for the till on the Home Screen. Once PassPRNT has printed, tap ◀ at the top-left corner (or swipe right along the bottom edge) to come back to the till just as you left it.')}</small></span>
+            <span className={'prp-switch' + (comesBack ? ' is-on' : '')} aria-hidden="true"><i /></span>
+          </button>
+        )}
         {done && <p className="prp-ok" role="status">✅ {done}</p>}
         {error && <div className="error-banner" role="alert">{error}</div>}
 
@@ -314,7 +330,10 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
               <li>{ios ? tr('Install Star PassPRNT (free) from the App Store.') : tr('Install Star PassPRNT (free) from Google Play.')}</li>
               <li>{tr('Open PassPRNT, tap Printer and pick the Star in the list (one on the network shows its address, TCP:192.168…), set the paper to 3 inch (80mm), then Check communication.')}</li>
               <li>{tr('Not in the list? Hold the printer\'s FEED button while switching it on: it prints its settings, with its IP address. The till and the printer must be on the same network.')}</li>
-              <li>{tr('Here, choose Star printer, through the PassPRNT app and 80 mm, then Print a test. Each print opens PassPRNT for a moment and comes back to the till.')}</li>
+              <li>{ios && !comesBack
+                ? tr('Here, choose Star printer, through the PassPRNT app and 80 mm, then Print a test. Each print opens PassPRNT: once it has printed, tap ◀ at the top-left corner (or swipe right along the bottom edge) to come back to the till.')
+                : tr('Here, choose Star printer, through the PassPRNT app and 80 mm, then Print a test. Each print opens PassPRNT for a moment and comes back to the till.')}</li>
+              {ios && <li>{tr('On an iPad or iPhone, open the till from its icon on the Home Screen, not in Safari: Safari is a till of its own, with its own sign-in and printer.')}</li>}
               <li>{tr('On the kitchen screen, new tickets cannot print by themselves this way: tap Print ticket.')}</li>
             </ol>
           </details>

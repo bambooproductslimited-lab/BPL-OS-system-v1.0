@@ -544,7 +544,8 @@ export function reconnectSystemPrinter() {
 // a starpassprnt:// link — the paper size (2 = 58mm, 3 = 80mm), a partial
 // cut, the drawer opened first for cash — and PassPRNT prints it over the
 // network or Bluetooth, then opens the back link, which brings
-// the till back with passprnt_code / passprnt_message (readPassPrntReply).
+// the till back with passprnt_code / passprnt_message (readPassPrntReply)
+// — except in a Home Screen app on an iPhone or iPad (passPrntComesBack).
 // Several tickets go in one print, a dashed line between them.
 var PASSPRNT_KEY = 'bamboo.printer.passprnt';
 
@@ -579,7 +580,31 @@ export async function passPrntLink(byteArray, paperMm, backUrl, port) {
   var doc = readEscPos(byteArray);
   return 'starpassprnt://v1/print/nopreview?html=' + encodeURIComponent(await passPrntHtml(byteArray)) +
     '&size=' + (Number(paperMm) === 58 ? '2' : '3') + '&cut=' + (doc.cut ? 'partial' : 'nocut') + '&drawer=' + (doc.kick ? 'ahead' : 'off') +
-    (port ? '&port=' + encodeURIComponent(port) : '') + '&popup=enable&back=' + encodeURIComponent(backUrl);
+    (port ? '&port=' + encodeURIComponent(port) : '') + '&popup=enable' + (backUrl ? '&back=' + encodeURIComponent(backUrl) : '');
+}
+
+// The way back from PassPRNT. It comes back by opening the till's web
+// address — but an iPhone or iPad opens a web address in Safari, never in a
+// Home Screen app (the till or kitchen screen added to the Home Screen):
+// the staff would land in Safari, a till of its own (another sign-in, no
+// printer chosen), and print again from there. So a Home Screen app on an
+// iPhone or iPad gives PassPRNT no way back: it prints, shows how it went,
+// and the ◀ at the top-left corner (or a swipe along the bottom edge)
+// brings the till back just as it was. Kept per device, to change by hand
+// (PrinterPanel): 'always' comes back by itself, 'never' does not.
+var PASSPRNT_BACK_KEY = 'bamboo.printer.passprnt.back';
+export function appleHomeScreenApp() {
+  return typeof navigator !== 'undefined' && navigator.standalone === true;
+}
+export function passPrntComesBack() {
+  var v = null;
+  try { v = localStorage.getItem(PASSPRNT_BACK_KEY); } catch { v = null; }
+  if (v === 'always') return true;
+  if (v === 'never') return false;
+  return !appleHomeScreenApp();
+}
+export function setPassPrntComesBack(on) {
+  try { localStorage.setItem(PASSPRNT_BACK_KEY, on ? 'always' : 'never'); } catch { /* this visit only: the default */ }
 }
 
 // Opens another app from the page (the screenshots catch it to check the link).
@@ -600,8 +625,9 @@ export function passPrntPrinter(paperMm, opts) {
     lineWidth: mm === 80 ? 42 : LINE_WIDTH_58MM,
     name: address ? tr('Kitchen printer · {address}', { address: address }) : tr('Star printer (PassPRNT)'),
     write: async function (byteArray) {
-      // Back to this page, the reply after the #, so the till does not reload.
-      var back = window.location.href.split('#')[0] + '#passprnt';
+      // Back to this page, the reply after the #, so the till does not reload
+      // — or no way back from a Home Screen app on an iPhone or iPad (above).
+      var back = passPrntComesBack() ? window.location.href.split('#')[0] + '#passprnt' : '';
       launchApp(await passPrntLink(byteArray, mm, back, address ? 'TCP:' + address : ''));
     },
     forget: async function () { savePassPrnt(null); }
