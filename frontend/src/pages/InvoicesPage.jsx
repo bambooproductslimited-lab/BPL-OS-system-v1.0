@@ -13,6 +13,7 @@ import RowMenu from '../components/RowMenu';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { adjustmentRows, creditRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
 import CreditNoteDialog from '../components/CreditNoteDialog';
+import CancelInvoiceDialog from '../components/CancelInvoiceDialog';
 import { RepeatDialog, SeriesDialog } from '../components/RepeatInvoice';
 import InvoiceCleanupDialog from '../components/InvoiceCleanupDialog';
 import { money, moneyBreakdown } from '../lib/currency';
@@ -125,6 +126,7 @@ export default function InvoicesPage() {
 
   const [payTarget, setPayTarget] = useState(null);
   const [creditTarget, setCreditTarget] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null); // an invoice to cancel, paid or not (components/CancelInvoiceDialog.jsx)
   const [repeatTarget, setRepeatTarget] = useState(null); // an invoice to repeat (components/RepeatInvoice.jsx)
   const [seriesOpen, setSeriesOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -234,18 +236,15 @@ export default function InvoicesPage() {
     }
   }
 
-  async function voidInvoice(inv) {
-    setBusyId(inv.id);
-    setError(null);
-    try {
-      await api.post('/invoices/' + inv.id + '/void', {});
-      setToast((inv.items || []).some((it) => it.productId) ? tr('{invoiceNo} voided — its stock items are back in stock.', { invoiceNo: inv.invoiceNo }) : tr('{invoiceNo} voided.', { invoiceNo: inv.invoiceNo }));
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusyId(null);
-    }
+  // Cancelled (CancelInvoiceDialog.jsx): say what went with it.
+  async function cancelled(inv, out, moneyWent) {
+    setCancelTarget(null);
+    const said = [tr('{invoiceNo} cancelled.', { invoiceNo: inv.invoiceNo })];
+    if (moneyWent) said.push(moneyWent.way === 'refund' ? tr('{amount} refunded.', { amount: money(moneyWent.amount, inv.currency) }) : tr('Its payments were taken off.'));
+    if ((inv.items || []).some((it) => it.productId)) said.push(tr('Its stock items are back in stock.'));
+    if (out.shopOrdersCancelled && out.shopOrdersCancelled.length) said.push(tr('Shop order {orders} cancelled with it.', { orders: out.shopOrdersCancelled.join(', ') }));
+    setToast(said.join(' '));
+    await load();
   }
   async function confirmDelete() {
     setDeleting(true);
@@ -397,7 +396,7 @@ export default function InvoicesPage() {
       canManage && isOwing(inv) && inv.customerPhone && { label: tr('Remind on WhatsApp'), onClick: () => remind(inv) },
       canManage && inv.status !== 'void' && { label: tr('Change due date or PO'), onClick: () => openEdit(inv) },
       canCredit(inv) && { label: tr('Credit note'), onClick: () => setCreditTarget(inv) },
-      canManage && inv.status === 'unpaid' && { label: tr('Void'), onClick: () => voidInvoice(inv) },
+      canManage && inv.status !== 'void' && { label: tr('Cancel invoice'), onClick: () => setCancelTarget(inv), danger: true },
       canDelete(inv) && { label: tr('Delete'), onClick: () => setDeleteTarget(inv), danger: true }
     ].filter(Boolean);
   }
@@ -518,7 +517,7 @@ export default function InvoicesPage() {
         [tr('Part-paid'), tr('Some money has come in, but not all of it.')],
         [tr('Collected'), tr('Payments recorded against invoices, by the date the money came in.')],
         [tr('Reminder'), tr('A WhatsApp or text message asking the client to pay, sent from here or the Payment reminders page.')],
-        [tr('Voided'), tr('Cancelled and kept for the record. Only an invoice with no payments can be voided.')],
+        [tr('Voided'), tr('Cancelled and kept for the record, owing nothing. Any invoice can be cancelled, paid or not: what was paid on it is refunded, or taken off if it never came in.')],
         [tr('Written off'), tr('A debt that will not be paid, taken off with a credit note. The invoice keeps its total and owes nothing; Clean up old invoices does several at once.')]
       ]} />
 
@@ -575,7 +574,7 @@ export default function InvoicesPage() {
                   );
                 })}
               </ul>
-            ) : <p className="dk-muted tl-small">{cur.status === 'void' ? tr('Voided before anything was paid.') : tr('Nothing paid yet.')}</p>}
+            ) : <p className="dk-muted tl-small">{cur.status === 'void' ? tr('Voided. No payments on it.') : tr('Nothing paid yet.')}</p>}
             {cur.paymentSchedule && cur.paymentSchedule.length > 0 && (
               <>
                 <h3 className="tl-h3">{tr('Payment schedule')}</h3>
@@ -593,7 +592,7 @@ export default function InvoicesPage() {
             {cur.notes && <><h3 className="tl-h3">{tr('Message to customer')}</h3><p className="tl-notes">{cur.notes}</p></>}
             <div className="dialog-actions tl-actions">
               {canDelete(cur) && <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(cur)}>{tr('Delete')}</button>}
-              {canManage && cur.status === 'unpaid' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => voidInvoice(cur)}>{tr('Void')}</button>}
+              {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary iv-cancel" onClick={() => setCancelTarget(cur)}>{tr('Cancel invoice')}</button>}
               {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Change due date or PO')}</button>}
               {canCredit(cur) && <button type="button" className="btn btn-secondary" onClick={() => setCreditTarget(cur)}>{tr('Credit note')}</button>}
               {canManage && cur.status !== 'void' && !cur.seriesId && <button type="button" className="btn btn-secondary" onClick={() => setRepeatTarget(cur)}>🔁 {tr('Repeat')}</button>}
@@ -776,6 +775,7 @@ export default function InvoicesPage() {
       {cleanupOpen && <InvoiceCleanupDialog invoices={invoices} onClose={() => setCleanupOpen(false)} onDone={() => load()} />}
       {repeatTarget && <RepeatDialog invoice={repeatTarget} onClose={() => setRepeatTarget(null)} onDone={() => { setRepeatTarget(null); setToast(tr('{invoice} will repeat. See it under Repeating.', { invoice: repeatTarget.invoiceNo })); load(); }} />}
       {seriesOpen && <SeriesDialog canManage={canManage} onClose={() => setSeriesOpen(false)} onChanged={load} />}
+      {cancelTarget && <CancelInvoiceDialog invoice={cancelTarget} onClose={() => setCancelTarget(null)} onDone={(out, moneyWent) => cancelled(cancelTarget, out, moneyWent)} />}
       {creditTarget && <CreditNoteDialog invoice={creditTarget} apiBase="/invoices" onClose={() => setCreditTarget(null)} onDone={() => load()} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}

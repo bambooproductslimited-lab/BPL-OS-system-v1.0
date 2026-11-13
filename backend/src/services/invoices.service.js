@@ -11,7 +11,7 @@ var { buildLineItems, computeDocTotals, nextDocNumber, addDays, todayISO, insert
 // when, not just the arithmetic result.
 async function loadPayments(db, invoiceId) {
   var res = await db.query(
-    'SELECT p.id, p.date, p.amount, p.method, p.reference, p.source, e.first_name, e.last_name ' +
+    'SELECT p.id, p.date, p.amount, p.method, p.reference, p.source, EXISTS (SELECT 1 FROM invoice_online_payments o WHERE o.payment_id = p.id AND o.status = \'success\') AS online, e.first_name, e.last_name ' +
     'FROM payments p LEFT JOIN employees e ON e.id = p.received_by ' +
     'WHERE p.invoice_id = $1 ORDER BY p.date, p.id',
     [invoiceId]);
@@ -19,7 +19,7 @@ async function loadPayments(db, invoiceId) {
     return {
       id: r.id, date: r.date, amount: Number(r.amount), method: r.method, reference: r.reference || '',
       receivedByName: r.first_name ? r.first_name + ' ' + r.last_name : '',
-      refund: r.source === 'refund'
+      refund: r.source === 'refund', online: !!r.online
     };
   });
 }
@@ -65,14 +65,14 @@ async function list(ctx) {
   var byInvoice = {};
   if (ids.length) {
     var payRes = await pool.query(
-      'SELECT p.invoice_id, p.id, p.date, p.amount, p.method, p.reference, p.source, e.first_name, e.last_name ' +
+      'SELECT p.invoice_id, p.id, p.date, p.amount, p.method, p.reference, p.source, EXISTS (SELECT 1 FROM invoice_online_payments o WHERE o.payment_id = p.id AND o.status = \'success\') AS online, e.first_name, e.last_name ' +
       'FROM payments p LEFT JOIN employees e ON e.id = p.received_by ' +
       'WHERE p.invoice_id = ANY($1::uuid[]) ORDER BY p.date, p.id', [ids]);
     payRes.rows.forEach(function (x) {
       (byInvoice[x.invoice_id] = byInvoice[x.invoice_id] || []).push({
         id: x.id, date: x.date, amount: Number(x.amount), method: x.method, reference: x.reference || '',
         receivedByName: x.first_name ? x.first_name + ' ' + x.last_name : '',
-        refund: x.source === 'refund'
+        refund: x.source === 'refund', online: !!x.online
       });
     });
   }
@@ -330,20 +330,64 @@ async function remove(ctx, id) {
 }
 
 // kernel.js: handlers['invoices.void']
-// reason (optional): why, kept in the audit log.
-async function voidInvoice(ctx, id, reason) {
+// Cancelling an invoice that is not needed any more, paid or not. It stays
+// on the list as voided, for the record, and owes nothing.
+// reason: why, kept in the audit log (needed when something was paid).
+// money: when something was paid on it, what happens to that money —
+//   { way: 'refund', method, reference }: it goes back to the customer — a
+//     refund of all that was paid, recorded as a credit note's refund is (a
+//     negative payment), so the money in and the money out both stay on
+//     record and collections net to nothing;
+//   { way: 'remove' }: it never came in (a payment recorded by mistake, or
+//     twice) — its payments and their receipts are taken off, as taking a
+//     payment off does. Not money paid online (card / Mobile Money): that
+//     did come in, so it is refunded.
+var REFUND_METHODS = ['cash', 'bank_transfer', 'mobile_money', 'card', 'cheque'];
+function money2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+async function voidInvoice(ctx, id, reason, money) {
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
   var res = await pool.query('SELECT * FROM invoices WHERE id = $1', [id]);
   var i = res.rows[0];
   if (!i) fail('notfound', 'Invoice not found.');
   if (i.status === 'void') fail('conflict', 'This invoice has already been voided.');
-  if (Number(i.amount_paid) > 0) fail('conflict', 'Cannot void an invoice that already has payments recorded against it.');
-  var released = { readings: 0, periods: 0 };
+  reason = String(reason || '').trim().slice(0, 300);
+  var way = null, method = null;
+  if (money2(i.amount_paid) > 0) {
+    if (!money || !money.way) {
+      fail('conflict', i.currency + ' ' + money2(i.amount_paid).toFixed(2) + ' was paid on ' + i.invoice_no + '. Say what happens to that money: refunded to the customer, or never received (recorded by mistake).');
+    }
+    way = V.oneOf(money.way, ['refund', 'remove'], 'What happens to the money');
+    if (!reason) fail('invalid', 'Say why this paid invoice is cancelled.');
+    if (way === 'refund') method = V.oneOf(money.method || 'bank_transfer', REFUND_METHODS, 'Refund method');
+  }
+  var released = { readings: 0, periods: 0 }, moneyNote = '', shopOrders = [];
   var updated = await withTransaction(async function (client) {
-    var u = await client.query("UPDATE invoices SET status = 'void' WHERE id = $1 AND status <> 'void' RETURNING *", [id]);
+    var cur = (await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id])).rows[0];
+    if (!cur || cur.status === 'void') fail('conflict', 'This invoice has already been voided.');
+    var paid = money2(cur.amount_paid);
+    if (paid > 0 && !way) fail('conflict', 'A payment was recorded on ' + cur.invoice_no + ' a moment ago. Open it again and say what happens to the money.');
+    if (paid > 0 && way === 'refund') {
+      await client.query(
+        "INSERT INTO payments (invoice_id, customer_id, date, amount, currency, method, reference, received_by, notes, source) " +
+        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'refund')",
+        [cur.id, cur.customer_id, todayISO(), -paid, cur.currency, method, String(money.reference || '').trim().slice(0, 120),
+          ctx.employee ? ctx.employee.id : null, 'Refund \u2014 ' + cur.invoice_no + ' cancelled: ' + reason]);
+      moneyNote = cur.currency + ' ' + paid.toFixed(2) + ' refunded by ' + method.replace('_', ' ');
+    } else if (paid > 0 && way === 'remove') {
+      var online = (await client.query("SELECT 1 FROM invoice_online_payments o JOIN payments p ON p.id = o.payment_id WHERE p.invoice_id = $1 AND o.status = 'success' LIMIT 1", [cur.id])).rows[0];
+      if (online) fail('conflict', 'Part of what was paid on ' + cur.invoice_no + ' came in online (card / Mobile Money), so it did come in: refund it instead.');
+      var refunds = (await client.query("SELECT 1 FROM payments WHERE invoice_id = $1 AND source = 'refund' LIMIT 1", [cur.id])).rows[0];
+      if (refunds) fail('conflict', 'A refund was already recorded on ' + cur.invoice_no + ' (credit note), so its payments did come in: refund what is left instead.');
+      var gone = (await client.query("SELECT id, amount FROM payments WHERE invoice_id = $1 AND source <> 'refund'", [cur.id])).rows;
+      await client.query("DELETE FROM receipts WHERE payment_id IN (SELECT id FROM payments WHERE invoice_id = $1 AND source <> 'refund')", [cur.id]);
+      await client.query("DELETE FROM payments WHERE invoice_id = $1 AND source <> 'refund'", [cur.id]);
+      moneyNote = gone.length + ' payment(s) of ' + cur.currency + ' ' + paid.toFixed(2) + ' taken off (never received)';
+    }
+    // Void: the trigger that keeps an invoice's status with its money leaves a void one as it is (migration 0119).
+    var u = await client.query("UPDATE invoices SET status = 'void', amount_paid = CASE WHEN $2 THEN 0 ELSE amount_paid END WHERE id = $1 AND status <> 'void' RETURNING *", [id, paid > 0]);
     if (!u.rows[0]) fail('conflict', 'This invoice has already been voided.');
     // What it took from stock goes back.
-    await inventorySales.giveBack(client, ctx, i, 'voided');
+    await inventorySales.giveBack(client, ctx, cur, 'voided');
     // A utility bill's meter readings and recurring-charge periods go back
     // to not billed, whichever screen voided it — so a bill raised by
     // mistake can be raised again, or a wrong reading deleted.
@@ -351,12 +395,20 @@ async function voidInvoice(ctx, id, reason) {
       readings: (await client.query('UPDATE poki_meter_readings SET invoice_id = NULL WHERE invoice_id = $1', [id])).rowCount,
       periods: await require('./pokiRecurring.service').release(client, id)
     };
-    await audit(client, ctx, 'invoice.void', 'invoice', id, i.invoice_no + ' voided' +
+    // A shop order waiting on it, or being made from it, is cancelled with it.
+    shopOrders = (await client.query("UPDATE shop_orders SET status = 'cancelled', steps = steps || jsonb_build_object('cancelled', to_jsonb(now())) " +
+      "WHERE invoice_id = $1 AND status NOT IN ('done', 'cancelled') RETURNING id, order_no", [id])).rows;
+    for (var k = 0; k < shopOrders.length; k++) {
+      await audit(client, ctx, 'shop.order_cancelled', 'shop_order', shopOrders[k].id, shopOrders[k].order_no + ' cancelled with its invoice ' + cur.invoice_no + '.');
+    }
+    await audit(client, ctx, 'invoice.void', 'invoice', id, cur.invoice_no + ' voided' +
+      (moneyNote ? ' \u2014 ' + moneyNote : '') +
       (released.readings || released.periods ? ' (' + released.readings + ' reading(s), ' + released.periods + ' recurring period(s) back to not billed)' : '') + (reason ? ' \u2014 ' + reason : '') + '.');
     return u;
   });
   var out = await rowToInvoice(pool, updated.rows[0]);
   out.released = released;
+  out.shopOrdersCancelled = shopOrders.map(function (o) { return o.order_no; });
   return out;
 }
 

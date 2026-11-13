@@ -477,7 +477,7 @@ async function setStatus(ctx, id, p) {
   if (o.status === 'cancelled') fail('conflict', 'That order was cancelled.');
   if (o.status === 'unpaid' && status !== 'cancelled') fail('conflict', 'Not paid yet: it is placed once its invoice is paid. Record the payment on the invoice.');
   if (status === 'out' && o.fulfilment !== 'delivery') fail('invalid', 'Only a delivery goes out: a pickup is collected (done).');
-  if (status === 'cancelled' && o.invoice_id && Number(o.amount_paid) > 0) fail('conflict', 'Something was paid on its invoice: refund it from the invoice first.');
+  if (status === 'cancelled' && o.invoice_id && Number(o.amount_paid) > 0) fail('conflict', 'Something was paid on its invoice: refund it from the invoice first, or cancel the invoice there (saying what happens to the money) and the order is cancelled with it.');
   await pool.query("UPDATE shop_orders SET status = $2, steps = steps || jsonb_build_object($2::text, to_jsonb(now())) WHERE id = $1", [id, status]);
   if (status === 'cancelled' && o.invoice_id && o.invoice_status !== 'void') {
     try { await require('./invoices.service').voidInvoice(ctx, o.invoice_id, 'Shop order ' + o.order_no + ' cancelled.'); } catch (e) { /* left for the invoice page */ }

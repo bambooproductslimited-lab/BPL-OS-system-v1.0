@@ -57,7 +57,8 @@ router.delete('/:id', async function (req, res, next) {
 
 // kernel.js: handlers['invoices.void'] -> POST /api/invoices/:id/void
 router.post('/:id/void', async function (req, res, next) {
-  try { res.json(await invoicesService.voidInvoice(req.ctx, req.params.id)); } catch (e) { next(e); }
+  var body = req.body || {};
+  try { res.json(await invoicesService.voidInvoice(req.ctx, req.params.id, body.reason, body.money)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['invoices.markPaid'] -> POST /api/invoices/:id/mark-paid
