@@ -344,7 +344,8 @@ export default function RestaurantPosPage() {
   // "Print receipt" browser-print button below — see thermalPrinter.js's
   // module comment for why WebUSB/WebBluetooth simply don't exist on an
   // iPad in any browser, so this stays optional rather than replacing it.
-  const [printer, setPrinter] = useState(null); // { kind, name, write }
+  const [printer, setPrinter] = useState(null); // { kind, name, write, auto? }
+  const [printerRestored, setPrinterRestored] = useState(false); // this device's own printer looked for
   const [printerError, setPrinterError] = useState(null);
   const [printerOpen, setPrinterOpen] = useState(false); // how this till prints (components/PrinterPanel.jsx)
   // Where kitchen tickets print (the till's printer or the kitchen's own),
@@ -631,9 +632,23 @@ export default function RestaurantPosPage() {
       const usb = await reconnectUsbPrinter();
       if (usb) { setPrinter(usb); return; }
       const bt = await reconnectBluetoothPrinter();
-      if (bt) setPrinter(bt);
-    })();
+      if (bt) setPrinter((p) => p && !p.auto ? p : bt);
+    })().finally(() => setPrinterRestored(true));
   }, []);
+  // No printer chosen on this device: the restaurant's own receipt printer,
+  // by itself (Till settings → Printers, one that prints receipts and
+  // bills) — an iPad needs no app and no setting of its own. Not kept on the
+  // device, so it follows what the restaurant sets there; a printer chosen
+  // on this till wins. With several, the one already in use stays, else the
+  // first online.
+  const receiptNets = netPrinters.filter((p) => p.receipts);
+  const autoPick = printer && printer.auto && receiptNets.find((p) => p.id === printer.id) || receiptNets.find((p) => p.online) || receiptNets[0] || null;
+  useEffect(() => {
+    if (!printerRestored || (printer && !printer.auto)) return;
+    if (!autoPick) { if (printer) setPrinter(null); return; }
+    if (printer && printer.id === autoPick.id) return;
+    setPrinter(Object.assign(networkPrinter(autoPick, () => tokenRef.current), { auto: true }));
+  }, [printerRestored, printer, autoPick && autoPick.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Back from Star's PassPRNT app (lib/thermalPrinter.js): printed, or why not.
   useEffect(() => {
     const said = () => {

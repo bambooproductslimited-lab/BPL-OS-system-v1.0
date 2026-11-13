@@ -212,7 +212,7 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
       })}
     </div>
   );
-  const kindText = !printer ? '' : printer.kind === 'network' ? tr('On the restaurant\'s network · {n} mm paper', { n: printer.paper }) : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
+  const kindText = !printer ? '' : printer.auto ? tr('Set for every till in Till settings → Printers · {n} mm paper', { n: printer.paper }) : printer.kind === 'network' ? tr('On the restaurant\'s network · {n} mm paper', { n: printer.paper }) : printer.kind === 'system' ? tr('Through this computer · {n} mm paper', { n: printer.paper })
     : printer.kind === 'passprnt' ? tr('Through PassPRNT · {n} mm paper', { n: printer.paper })
     : printer.kind === 'rawbt' ? tr('Through RawBT · {n} mm paper', { n: printer.paper })
     : printer.kind === 'usb' ? (printer.star ? tr('USB · Star, printed as a picture') : tr('USB')) : tr('Bluetooth');
@@ -230,9 +230,10 @@ export default function PrinterPanel({ printer, onPrinter, companyName, onClose,
             <span className="prp-dot" aria-hidden="true" />
             <div><strong>{printer.name}</strong><small>{kindText}</small></div>
             <button type="button" className="btn btn-primary" disabled={!!busy} onClick={test}>{busy === 'test' ? tr('Printing…') : tr('Print a test')}</button>
-            <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={forget}>{tr('Disconnect')}</button>
+            {!printer.auto && <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={forget}>{tr('Disconnect')}</button>}
           </div>
         ) : <p className="prp-none">{tr('No printer yet: choose how this device prints.')}</p>}
+        {printer && printer.auto && <p className="prp-auto">{tr('Chosen by the restaurant: every till with no printer of its own prints its receipts and bills here, with nothing to set up on the device. To print somewhere else from this till, choose another printer below.')}</p>}
         {printer && printer.kind === 'passprnt' && ios && (
           <button type="button" role="switch" aria-checked={comesBack} className="prp-kit-switch prp-back"
             onClick={() => { setPassPrntComesBack(!comesBack); setComesBack(!comesBack); }}>

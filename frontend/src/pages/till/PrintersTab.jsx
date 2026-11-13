@@ -129,7 +129,7 @@ function Editor({ p, stations, busy, onSave, onCancel, onNewKitchen }) {
         )}
       </div>
       {row('stubs', '🧾 ' + tr('Order summary for the cashier'), tr('Every order sent to the kitchen prints here too: all its dishes, which kitchen each went to and who sent it.'))}
-      {row('receipts', '💵 ' + tr('Receipts and bills'), tr('Tills can print their receipts, bills and drawer reports here, and open the cash drawer plugged into it.'))}
+      {row('receipts', '💵 ' + tr('Receipts and bills'), tr('Every till with no printer of its own prints its receipts, bills and drawer reports here by itself, and opens the cash drawer plugged into it: iPads need no app and nothing set up on them.'))}
       {row('voids', '🚫 ' + tr('Void tickets'), tr('A dish taken off after it was sent prints VOID at its kitchen, so it is not made.'))}
       <div className="tpr-two">
         <div className="tpr-block">
