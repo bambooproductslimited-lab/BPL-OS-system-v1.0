@@ -31,6 +31,12 @@
   RewriteRule ^kiosk/?$ /kiosk.html [L]
   RewriteRule ^pos/?$ /pos.html [L]
 
+  # A missing app file (a script or style from another build) is a real
+  # 404, never the page: a page under a script's name breaks the app, and
+  # an installed app's service worker could keep it.
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^assets/ - [L]
+
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]

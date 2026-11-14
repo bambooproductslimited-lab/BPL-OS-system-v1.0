@@ -15,7 +15,13 @@
 // longer on the server, once enough redeploys had happened since that
 // device's first visit. Bumped so every already-installed kiosk (including
 // any already wedged on the old bug) clears its cache and self-heals.
-var CACHE_NAME = 'bamboo-kiosk-v2';
+// v3: an HTML page saved under an app file's name (the server's
+//     answer while a file was missing) is never kept or used; this new
+//     name clears every copy kept before.
+var CACHE_NAME = 'bamboo-kiosk-v3';
+// An HTML page, where an app file (script, style, picture) was asked for.
+function isPage(res) { return (res.headers.get('content-type') || '').indexOf('text/html') === 0; }
+
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
@@ -70,8 +76,13 @@ self.addEventListener('fetch', function (event) {
   // whatever gets fetched fresh.
   event.respondWith(
     caches.match(req).then(function (cached) {
+      // Never a page under an app file's name: a server that answers a
+      // missing file with its home page (200, text/html) would otherwise
+      // be kept here and break the app on this device for good. Not kept,
+      // and one kept before is thrown away and fetched again.
+      if (cached && isPage(cached)) cached = null;
       var network = fetch(req).then(function (res) {
-        if (res && res.ok && res.type === 'basic') {
+        if (res && res.ok && res.type === 'basic' && !isPage(res)) {
           var copy = res.clone();
           caches.open(CACHE_NAME).then(function (cache) { cache.put(req, copy); });
         }
