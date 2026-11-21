@@ -50,10 +50,13 @@ export const NAV_GROUPS = [
   ] },
   { label: msg('Work'), items: [
     { key: 'tasks', label: msg('Work orders'), perm: 'task.read', icon: 'checklist' },
-    { key: 'projects', label: msg('Projects'), perm: 'project.read', icon: 'folder' },
-    { key: 'messages', label: msg('Messages'), icon: 'chat' },
-    { key: 'announcements', label: msg('Announcements'), icon: 'megaphone' },
-    { key: 'documents', label: msg('Documents'), perm: 'document.read', icon: 'document' },
+    // Out of the menu (hidden), still reached from links: the dashboard's
+    // and My space's announcement and message cards, the notifications, the
+    // employee directory's message button.
+    { key: 'projects', label: msg('Projects'), perm: 'project.read', icon: 'folder', hidden: true },
+    { key: 'messages', label: msg('Messages'), icon: 'chat', hidden: true },
+    { key: 'announcements', label: msg('Announcements'), icon: 'megaphone', hidden: true },
+    { key: 'documents', label: msg('Documents'), perm: 'document.read', icon: 'document', hidden: true },
     // Anyone tells whoever looks after machines that one is broken (pages/ReportProblemPage.jsx).
     { key: 'report-problem', label: msg('Report a problem'), icon: 'wrench' }
   ] },
