@@ -1,0 +1,57 @@
+/* The purchase order document (components/PurchaseOrderPreview.jsx): the
+   paper one's look — a red title, plain sections, a ruled table. Always on
+   white, whatever the app's theme: it is paper. */
+.po-doc {
+  position: relative;
+  background: #fff;
+  color: #111;
+  padding: 44px 56px;
+  width: 100%;
+  max-width: 794px;
+  max-height: 92vh;
+  overflow: auto;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.45;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+.po-doc-title { margin: 6px 0 26px; text-align: center; color: #a1191f; font-size: 26px; font-weight: 800; letter-spacing: 0.01em; line-height: 1.25; }
+.po-doc-company { font-weight: 700; font-size: 14.5px; }
+.po-doc-kind { color: #a1191f; font-weight: 700; font-size: 14.5px; margin-bottom: 14px; }
+.po-doc-lines { margin: 0 0 12px; }
+.po-doc-notes { white-space: pre-wrap; }
+.po-doc-h { margin: 22px 0 12px; font-size: 16px; font-weight: 700; letter-spacing: 0.01em; color: #111; }
+.po-doc-table { width: 100%; border-collapse: collapse; margin: 4px 0 14px; font-size: 14px; }
+.po-doc-table th, .po-doc-table td { border: 2px solid #555; padding: 8px 8px 26px; vertical-align: top; text-align: left; }
+.po-doc-table th { font-weight: 700; padding-bottom: 22px; }
+.po-doc-table .po-c-no { width: 38px; }
+.po-doc-table .po-c-num { white-space: nowrap; }
+.po-doc-total { margin: 0 0 6px; font-weight: 700; }
+.po-doc-quality { margin: 0 0 6px; padding-left: 52px; }
+.po-doc-quality li { margin: 2px 0; }
+.po-doc-stamp {
+  position: absolute; top: 34px; right: 34px; transform: rotate(-8deg);
+  padding: 4px 14px; border: 3px solid #a1191f; border-radius: 6px; color: #a1191f;
+  font-weight: 800; font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85;
+}
+.po-doc-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 28px; padding-top: 16px; border-top: 1px solid #ddd; }
+.po-doc-actions-gap { flex: 1; }
+
+.po-doc-table-wrap { overflow-x: auto; }
+@media (max-width: 640px) {
+  .po-doc { padding: 22px 14px; font-size: 13.5px; }
+  .po-doc-title { font-size: 20px; }
+  .po-doc-table { font-size: 9.5px; }
+  .po-doc-table th, .po-doc-table td { padding: 4px 3px 10px; border-width: 1.5px; }
+  .po-doc-table th, .po-doc-table .po-c-num { white-space: normal; }
+  .po-doc-table .po-c-no { width: 14px; }
+  .po-doc-quality { padding-left: 24px; }
+}
+
+@media print {
+  .po-doc {
+    position: absolute; top: 0; left: 0; width: 100%; max-width: none; max-height: none;
+    overflow: visible; box-shadow: none; padding: 0;
+  }
+}

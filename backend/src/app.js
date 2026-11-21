@@ -51,6 +51,7 @@ var itDevicesRoutes = require('./routes/itDevices.routes');
 var payrollRoutes = require('./routes/payroll.routes');
 var maintenanceRoutes = require('./routes/maintenance.routes');
 var maintenanceWorkOrdersRoutes = require('./routes/maintenanceWorkOrders.routes');
+var purchaseOrdersRoutes = require('./routes/purchaseOrders.routes');
 var customersRoutes = require('./routes/customers.routes');
 var crmRoutes = require('./routes/crm.routes');
 var crmHubRoutes = require('./routes/crmHub.routes');
@@ -224,6 +225,8 @@ app.use('/api/payroll', payrollRoutes);
 app.use('/api/timestation', timestationRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/maint-work-orders', maintenanceWorkOrdersRoutes);
+// Purchase orders to suppliers and bamboo farmers (purchaseOrders.service.js).
+app.use('/api/purchase-orders', purchaseOrdersRoutes);
 app.use('/api/bills', require('./routes/bills.routes'));
 app.use('/api/statements', require('./routes/statements.routes'));
 app.use('/api/cashflow', require('./routes/cashflow.routes'));

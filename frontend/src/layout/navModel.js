@@ -67,6 +67,8 @@ export const NAV_GROUPS = [
     { key: 'stocksummary', label: msg('Stock summary'), perm: 'inventory.read', icon: 'chart' },
     { key: 'suppliers', label: msg('Suppliers'), perm: 'supplier.read', icon: 'building' },
     { key: 'procurement', label: msg('Procurement'), perm: 'procurement.request', icon: 'cart' },
+    // Purchase orders to suppliers and bamboo farmers (pages/PurchaseOrdersPage.jsx).
+    { key: 'purchase-orders', label: msg('Purchase orders'), perm: ['procurement.approve', 'procurement.read.all'], icon: 'receipt' },
     { key: 'assets', label: msg('Assets & maintenance'), perm: 'asset.read', icon: 'wrench' },
     { key: 'waybills', label: msg('Waybills'), perm: 'waybill.read', icon: 'truck' },
     // The company's vans and cars, their fuel and papers (pages/VehiclesPage.jsx);
