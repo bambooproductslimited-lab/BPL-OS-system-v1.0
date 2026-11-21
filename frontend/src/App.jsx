@@ -5,6 +5,7 @@ import AppShell from './layout/AppShell';
 import { ALL_NAV_ITEMS } from './layout/navModel';
 import LoginPage from './pages/LoginPage';
 import KioskPage from './pages/KioskPage';
+import MyJobsPage from './pages/MyJobsPage';
 import DashboardPage from './pages/DashboardPage';
 import LeavePage from './pages/LeavePage';
 import LeaveTypesPage from './pages/LeaveTypesPage';
@@ -192,6 +193,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/kiosk" element={<KioskPage />} />
+      <Route path="/myjobs" element={<MyJobsPage />} />
       <Route path="/pos" element={<RestaurantPosPage />} />
       <Route path="/kds" element={<KdsPage />} />
       <Route path="/customer-display" element={<CustomerDisplay />} />

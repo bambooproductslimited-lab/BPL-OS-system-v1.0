@@ -13,6 +13,7 @@ var closeDayJob = require('./jobs/closeDay');
 var invoiceSeriesJob = require('./jobs/invoiceSeries');
 var remindersJob = require('./jobs/reminders');
 var paymentLinksJob = require('./jobs/paymentLinks');
+var maintRoutines = require('./jobs/maintRoutines');
 
 app.listen(config.port, function () {
   console.log('Bamboo OS backend listening on port ' + config.port + ' (' + config.nodeEnv + ')');
@@ -31,6 +32,7 @@ app.listen(config.port, function () {
   invoiceSeriesJob.start();
   remindersJob.start();
   paymentLinksJob.start();
+  maintRoutines.start();
   require('./services/whatsappAccess').load();
   // The sender ID chosen in Company settings, ready before the first text.
   require('./services/sms.service').loadSender().catch(function () {});

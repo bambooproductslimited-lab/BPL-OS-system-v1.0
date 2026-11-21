@@ -19,6 +19,8 @@ async function ctxFor(email) { return buildContext((await pool.query('SELECT id 
 function today() { return new Date().toISOString().slice(0, 10); }
 function addDays(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 async function rejects(p, code) { await assert.rejects(p, function (e) { return e.code === code; }); }
+// A photo of the finished work, as the phone sends it (a tiny PNG here).
+var PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 test.before(async function () {
   boss = await ctxFor('kelvin.duho@bplghana.com');
@@ -29,10 +31,17 @@ test.before(async function () {
   nobody.can = function (p) { return p !== 'task.read' && p !== 'task.manage'; };
 });
 async function cleanUp() {
+  // The photos of finished Zq jobs, kept in the database here (no R2 in tests).
+  await pool.query("DELETE FROM stored_files WHERE ('db:' || id) IN (SELECT p->>'key' FROM maint_work_orders w, jsonb_array_elements(w.done_photos) p WHERE w.description LIKE '%Zq%' " +
+    "UNION SELECT p->>'key' FROM maint_routine_log l JOIN maint_routines r ON r.id = l.routine_id, jsonb_array_elements(l.photos) p WHERE r.name LIKE 'Zq%')");
   await pool.query("DELETE FROM maint_work_orders WHERE description LIKE '%Zq%'");
   await pool.query("DELETE FROM maint_routines WHERE name LIKE 'Zq%'");
   await pool.query("DELETE FROM notifications WHERE title LIKE '%Zq%' OR body LIKE '%Zq%'");
   await pool.query("DELETE FROM crm_name_aliases WHERE name_key LIKE 'zq%'");
+  if (worker) {
+    await pool.query("DELETE FROM notifications WHERE employee_id = $1 AND link = '/myjobs'", [worker.employee.id]);
+    await pool.query('DELETE FROM maint_morning_sent WHERE employee_id = $1', [worker.employee.id]);
+  }
 }
 test.after(async function () { await cleanUp(); await pool.end(); });
 
@@ -85,8 +94,18 @@ test('planned and given to someone, moved along by them, done: the sheet’s sum
   assert.match(started.notes, /waiting for the Zq part/);
   await rejects(mwo.setAudited(boss, wo.id, true), 'invalid');
   await rejects(mwo.setStatus(worker, wo.id, { status: 'completed', completedOn: addDays(today(), 1) }), 'invalid');
-  var done = await mwo.setStatus(worker, wo.id, { status: 'completed', completedOn: today(), actualCost: '480.50' });
+  // Done only with a photo of the finished work.
+  await assert.rejects(mwo.setStatus(worker, wo.id, { status: 'completed', completedOn: today() }), function (e) { return e.code === 'invalid' && /photo of the finished work/.test(e.message); });
+  await rejects(mwo.setStatus(worker, wo.id, { status: 'completed', completedOn: today(), photos: ['data:image/png;base64,bm90IGEgcGhvdG8='] }), 'invalid');
+  var done = await mwo.setStatus(worker, wo.id, { status: 'completed', completedOn: today(), actualCost: '480.50', photos: [PHOTO] });
   assert.equal(done.completedOn, today());
+  assert.equal(done.donePhotos.length, 1);
+  var shot = await mwo.photoOf(worker, wo.id, 0);
+  assert.match(shot.name, /^wo-\d+-done-1\.png$/);
+  await rejects(mwo.photoOf(nobody, wo.id, 0), 'not_found');
+  await rejects(mwo.photoOf(worker, wo.id, 1), 'not_found');
+  // A note on a job already done needs no new photo.
+  assert.match((await mwo.setStatus(worker, wo.id, { status: 'completed', note: 'Zq all tested' })).notes, /Zq all tested/);
   assert.equal(done.daysTaken, 2, 'planned two days ago, done today');
   assert.equal(done.daysOpen, 5);
   assert.equal(done.overdue, false);
@@ -126,7 +145,9 @@ test('routines come round every so many days; a work order made from one marks i
   assert.equal(wo.scheduledOn, rt.nextOn, 'planned for its next day');
   assert.equal(wo.routineName, 'Zq A/C cleaning');
   await rejects(mwo.routineOrder(boss, rt.id, {}), 'conflict');
-  await mwo.setStatus(worker, wo.id, { status: 'completed' });
+  // Its work order open: the routine is done by finishing that.
+  await rejects(mwo.routineDone(worker, rt.id, { photos: [PHOTO] }), 'conflict');
+  await mwo.setStatus(worker, wo.id, { status: 'completed', photos: [PHOTO] });
   var after = (await mwo.list(boss, {})).routines.find(function (r) { return r.id === rt.id; });
   assert.equal(after.lastDoneOn, today());
   assert.equal(after.nextOn, addDays(today(), 84));
@@ -135,10 +156,17 @@ test('routines come round every so many days; a work order made from one marks i
 
   // Marked done by hand by whoever does it; a late record of an earlier
   // time does not move the dates back.
-  await mwo.routineDone(worker, rt.id, { on: addDays(today(), -10) });
+  await rejects(mwo.routineDone(worker, rt.id, { on: addDays(today(), -10) }), 'invalid');
+  await mwo.routineDone(worker, rt.id, { on: addDays(today(), -10), photos: [PHOTO, PHOTO] });
   var still = (await mwo.list(boss, {})).routines.find(function (r) { return r.id === rt.id; });
   assert.equal(still.lastDoneOn, today());
   assert.equal(still.timesDone, 2);
+  // The routine's record keeps the photos: the work order's, and the two taken by hand.
+  var log = (await mwo.get(boss, wo.id)).routineLog;
+  assert.deepEqual(log.map(function (l) { return l.photos; }).sort(), [1, 2]);
+  var byHand = log.find(function (l) { return l.photos === 2; });
+  assert.match((await mwo.routinePhotoOf(worker, byHand.id, 1)).name, /^rt-\d+-done-2\.png$/);
+  await rejects(mwo.routinePhotoOf(nobody, byHand.id, 0), 'not_found');
   await rejects(mwo.routineDone(reader, rt.id, {}), 'forbidden');
   // Every so many days changed: the next day follows.
   assert.equal((await mwo.saveRoutine(boss, rt.id, { everyDays: 30 })).nextOn, addDays(today(), 30));
@@ -147,6 +175,83 @@ test('routines come round every so many days; a work order made from one marks i
 });
 
 // A workbook laid out like the team's sheet (made-up rows).
+test('My Jobs: my own jobs, late first; my routines; nobody else\'s', async function () {
+  var late = await mwo.create(boss, { description: 'Zq gate light out', location: 'BPL', category: 'electrical', priority: 'medium', assignedToId: worker.employee.id, scheduledOn: addDays(today(), -2) });
+  var urgent = await mwo.create(boss, { description: 'Zq router down', location: 'BPL', category: 'it', priority: 'urgent', assignedToId: worker.employee.id, scheduledOn: today() });
+  var later = await mwo.create(boss, { description: 'Zq repaint door', location: 'BPL', category: 'facilities', assignedToId: worker.employee.id, scheduledOn: addDays(today(), 4) });
+  var other = await mwo.create(boss, { description: 'Zq not mine', location: 'BPL', assignedToId: boss.employee.id, scheduledOn: today() });
+  var finished = await mwo.create(boss, { description: 'Zq fixed yesterday', location: 'BPL', assignedToId: worker.employee.id, scheduledOn: addDays(today(), -1) });
+  await mwo.setStatus(worker, finished.id, { status: 'completed', photos: [PHOTO] });
+  var rt = await mwo.saveRoutine(boss, null, { name: 'Zq generator service', location: 'BPL', category: 'electrical', everyDays: 30, lastDoneOn: addDays(today(), -5), assignedToId: worker.employee.id });
+
+  var m = await mwo.mine(worker);
+  var ids = m.todo.map(function (o) { return o.id; });
+  assert.ok(ids.indexOf(late.id) >= 0 && ids.indexOf(urgent.id) >= 0 && ids.indexOf(later.id) >= 0);
+  assert.ok(ids.indexOf(other.id) < 0, 'only the jobs given to me');
+  assert.ok(ids.indexOf(late.id) < ids.indexOf(urgent.id) && ids.indexOf(urgent.id) < ids.indexOf(later.id), 'late first, then today, then later');
+  assert.ok(m.done.some(function (o) { return o.id === finished.id && o.donePhotos.length === 1; }));
+  assert.ok(m.routines.some(function (r) { return r.id === rt.id && r.nextOn === addDays(today(), 25); }));
+  assert.ok(m.counts.late >= 1 && m.counts.today >= 1 && m.counts.later >= 1);
+  assert.equal(m.me.id, worker.employee.id);
+});
+
+test('routines become work orders by themselves when close; the morning list once a day', async function () {
+  await cleanUp();
+  // Next in 1 day, every 84: made (2 days ahead). Next in 5 days: not yet.
+  var soon = await mwo.saveRoutine(boss, null, { name: 'Zq A/C filters', location: 'BPL', category: 'hvac', everyDays: 84, lastDoneOn: addDays(today(), -83), assignedToId: worker.employee.id });
+  var notYet = await mwo.saveRoutine(boss, null, { name: 'Zq roof check', location: 'BPL', category: 'facilities', everyDays: 90, lastDoneOn: addDays(today(), -85), assignedToId: worker.employee.id });
+  // Daily: made on the day itself, not the day before.
+  var dailyTomorrow = await mwo.saveRoutine(boss, null, { name: 'Zq daily backup check', location: 'BPL', category: 'it', everyDays: 1, lastDoneOn: today(), assignedToId: worker.employee.id });
+  var dailyToday = await mwo.saveRoutine(boss, null, { name: 'Zq daily server check', location: 'BPL', category: 'it', everyDays: 1, lastDoneOn: addDays(today(), -1), assignedToId: worker.employee.id });
+  // Late and given to nobody: made, and the managers hear.
+  var nobodys = await mwo.saveRoutine(boss, null, { name: 'Zq pump service', location: 'BPL', category: 'plumbing', everyDays: 60, lastDoneOn: addDays(today(), -70) });
+  assert.equal(mwo.leadOf(84), 2);
+  assert.equal(mwo.leadOf(2), 1);
+  assert.equal(mwo.leadOf(1), 0);
+
+  await mwo.runDue();
+  var all = await mwo.list(boss, {});
+  var rt = function (r) { return all.routines.find(function (x) { return x.id === r.id; }); };
+  assert.ok(rt(soon).openOrderId, 'close: a work order');
+  assert.equal(rt(notYet).openOrderId, null, 'five days off: not yet');
+  assert.equal(rt(dailyTomorrow).openOrderId, null, 'a daily one not the day before');
+  assert.ok(rt(dailyToday).openOrderId, 'a daily one on its day');
+  assert.ok(rt(nobodys).openOrderId);
+  var wo = all.orders.find(function (o) { return o.id === rt(soon).openOrderId; });
+  assert.equal(wo.status, 'scheduled');
+  assert.equal(wo.scheduledOn, addDays(today(), 1), 'planned for the routine\'s day');
+  assert.equal(wo.assignedTo.id, worker.employee.id);
+  assert.equal(wo.autoMade, true);
+  var late = all.orders.find(function (o) { return o.id === rt(nobodys).openOrderId; });
+  assert.equal(late.overdue, true, 'a late routine is a late job');
+  var told = (await pool.query("SELECT link FROM notifications WHERE employee_id = $1 AND title LIKE '🔁 Routine job%' AND body LIKE '%Zq A/C filters%'", [worker.employee.id])).rows;
+  assert.equal(told.length, 1);
+  assert.equal(told[0].link, '/myjobs?job=' + wo.id);
+  var managers = (await pool.query("SELECT count(*)::int AS n FROM notifications WHERE title LIKE '🔁 Routine job with nobody on it%' AND body LIKE '%Zq pump service%'")).rows[0].n;
+  assert.ok(managers >= 1, 'the managers hear of one with nobody on it');
+
+  // Run again: nothing twice.
+  var before = (await pool.query("SELECT count(*)::int AS n FROM maint_work_orders WHERE description LIKE 'Zq%' AND auto_made")).rows[0].n;
+  await mwo.runDue();
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM maint_work_orders WHERE description LIKE 'Zq%' AND auto_made")).rows[0].n, before);
+
+  // Done with a photo: the routine moves on and has nothing open until it is close again.
+  await mwo.setStatus(worker, wo.id, { status: 'completed', photos: [PHOTO] });
+  await mwo.runDue();
+  var after = (await mwo.list(boss, {})).routines.find(function (x) { return x.id === soon.id; });
+  assert.equal(after.nextOn, addDays(today(), 84));
+  assert.equal(after.openOrderId, null);
+
+  // The morning list: not before 06:00; then once, opening My Jobs.
+  assert.equal(await mwo.morning(new Date(today() + 'T05:30:00Z')), 0);
+  await mwo.morning(new Date(today() + 'T06:30:00Z'));
+  var morning = (await pool.query("SELECT title, link FROM notifications WHERE employee_id = $1 AND link = '/myjobs'", [worker.employee.id])).rows;
+  assert.equal(morning.length, 1);
+  assert.match(morning[0].title, /jobs? for you today/);
+  await mwo.morning(new Date(today() + 'T09:00:00Z'));
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND link = '/myjobs'", [worker.employee.id])).rows[0].n, 1, 'once a day');
+});
+
 async function sheet(opts) {
   opts = opts || {};
   var wb = new ExcelJS.Workbook();

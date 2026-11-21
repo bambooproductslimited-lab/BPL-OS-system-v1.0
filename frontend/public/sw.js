@@ -29,7 +29,9 @@
 // v7: an HTML page saved under an app file's name (the server's
 //     answer while a file was missing) is never kept or used; this new
 //     name clears every copy kept before.
-var CACHE_NAME = 'bamboo-app-v7';
+// v8: a pop-up whose link is already a path (/myjobs?job=…, a work order
+//     of the maintenance team) opens that path, not a broken address.
+var CACHE_NAME = 'bamboo-app-v8';
 // An HTML page, where an app file (script, style, picture) was asked for.
 function isPage(res) { return (res.headers.get('content-type') || '').indexOf('text/html') === 0; }
 
@@ -249,6 +251,7 @@ self.addEventListener('notificationclick', function (event) {
   var path = '/';
   // Answer, or a tap on the call pop-up itself: open the chat and join.
   if (d.type === 'call' && chatOf(link)) path = '/messages?chat=' + chatOf(link) + '&answer=' + d.callId;
+  else if (link && String(link).charAt(0) === '/') path = String(link);
   else if (link) {
     var parts = String(link).split(':');
     path = parts[0] === 'message' ? '/messages?peer=' + parts[1]

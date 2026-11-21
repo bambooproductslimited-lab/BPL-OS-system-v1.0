@@ -1,0 +1,30 @@
+/* Photos of the finished work (components/DonePhotos.jsx). */
+.dp-field { display: flex; flex-direction: column; gap: 10px; }
+.dp-thumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.dp-thumbs li { position: relative; width: 96px; height: 96px; border-radius: 10px; overflow: hidden; border: 1px solid var(--color-border); background: var(--color-bg-subtle); }
+.dp-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dp-x {
+  position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; border: 0;
+  background: rgba(0, 0, 0, 0.62); color: #fff; font-size: 18px; line-height: 1; cursor: pointer;
+}
+.dp-take {
+  display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; padding: 12px 16px;
+  border: 2px dashed var(--color-accent); border-radius: 12px; background: var(--color-accent-100);
+  color: var(--color-accent-800); font: inherit; font-weight: 700; font-size: 16px; cursor: pointer;
+}
+.dp-take span { font-size: 22px; }
+.dp-take.is-more { min-height: 44px; font-size: 14px; border-width: 1px; }
+.dp-take:disabled { opacity: 0.6; cursor: default; }
+.dp-need { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.dp-error { margin: 0; font-size: 13px; color: var(--color-danger); }
+
+.dp-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+.dp-shot { width: 72px; height: 72px; padding: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--color-border); background: var(--color-bg-subtle); cursor: zoom-in; }
+.dp-shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dp-shot-wait { display: flex; align-items: center; justify-content: center; height: 100%; opacity: 0.5; }
+.dp-big {
+  position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, 0.88);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px;
+}
+.dp-big img { max-width: 100%; max-height: calc(100vh - 100px); border-radius: 8px; object-fit: contain; }
+.dp-big-x { border: 0; border-radius: 999px; padding: 10px 22px; font: inherit; font-weight: 600; background: #fff; color: #111; cursor: pointer; }

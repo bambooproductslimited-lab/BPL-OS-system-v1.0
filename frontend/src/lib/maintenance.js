@@ -23,3 +23,9 @@ const STATUS = {
   completed: () => tr('Completed'), cancelled: () => tr('Cancelled')
 };
 export function statusName(s) { return (STATUS[s] || (() => s))(); }
+
+// The photos of a job's finished work (backend GET /:id/photos/:n), for
+// components/DonePhotos.jsx's DonePhotoStrip.
+export function jobPhotoPaths(job) {
+  return (job.donePhotos || []).map((p) => '/maint-work-orders/' + job.id + '/photos/' + p.n);
+}

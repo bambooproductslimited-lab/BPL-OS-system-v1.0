@@ -4,9 +4,10 @@ import Photo from '../components/Photo';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { Insights, Section, fmtDate } from '../components/DashKit';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
-import { KINDS, PRIORITIES, STATUSES, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance.js';
+import { KINDS, PRIORITIES, STATUSES, jobPhotoPaths, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance.js';
 import { WoBanner } from './WorkOrdersFun.jsx';
 import MaintenancePresent from './MaintenancePresent';
+import { DonePhotoField, DonePhotoStrip } from '../components/DonePhotos';
 import './MaintenanceOrders.css';
 
 // Maintenance and IT work orders — the jobs the maintenance team does
@@ -16,7 +17,9 @@ import './MaintenanceOrders.css';
 // days, every job (WO Data), the routines (RT Data and RT Report) and
 // Billing with its audit tick. Anyone can ask for a job; the work order
 // managers plan it, give it to someone and import the sheet; whoever a job
-// is given to moves it along.
+// is given to moves it along. A job or a routine is marked done only with a
+// photo of the finished work (components/DonePhotos.jsx); the team works
+// from its phone app, My Jobs (pages/MyJobsPage.jsx, /myjobs).
 
 const FLOW = ['new', 'scheduled', 'in_progress', 'on_hold', 'completed'];
 const TABS = [
@@ -97,6 +100,7 @@ function JobPanel({ job, can, myId, busy, onAct, onEdit, onDelete, onClose }) {
   const [day, setDay] = useState(new Date().toISOString().slice(0, 10));
   const [cost, setCost] = useState(job.actualCost === null ? '' : String(job.actualCost));
   const [note, setNote] = useState('');
+  const [photos, setPhotos] = useState([]);
   const given = job.assignedTo && job.assignedTo.id === myId;
   const moves = can.manage || given;
   const asked = job.requestedBy && job.requestedBy.id === myId;
@@ -121,16 +125,23 @@ function JobPanel({ job, can, myId, busy, onAct, onEdit, onDelete, onClose }) {
           <div><dt>{tr('Completed')}</dt><dd>{job.completedOn ? fmtDate(job.completedOn) : '—'}</dd></div>
           <div><dt>{tr('Days open')}</dt><dd>{job.daysOpen === null ? '—' : job.daysOpen}{job.daysTaken !== null && <small> · {job.daysTaken === 0 ? tr('done on its planned day') : tr('{n} days from its planned day', { n: job.daysTaken })}</small>}</dd></div>
           {(job.estimatedCost !== null || job.actualCost !== null) && <div><dt>{tr('Cost')}</dt><dd>{job.estimatedCost !== null && <span>{tr('Estimated')} {money(job.estimatedCost, job.currency)}</span>}{job.actualCost !== null && <strong> {tr('Actual')} {money(job.actualCost, job.currency)}</strong>}</dd></div>}
-          {job.routineName && <div><dt>{tr('Routine')}</dt><dd>🔁 {job.routineName}</dd></div>}
+          {job.routineName && <div><dt>{tr('Routine')}</dt><dd>🔁 {job.routineName}{job.autoMade && <small> · {tr('made by itself as its day came close')}</small>}</dd></div>}
         </dl>
         {job.notes && <p className="mw-job-notes">{job.notes}</p>}
+        {job.donePhotos && job.donePhotos.length > 0 && (
+          <div className="mw-done-photos">
+            <h4>📷 {tr('Photos of the finished work')}</h4>
+            <DonePhotoStrip paths={jobPhotoPaths(job)} />
+          </div>
+        )}
 
         {doing === 'done' && (
           <div className="mw-inline">
             <label><span>{tr('Done on')}</span><input type="date" className="input" value={day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDay(e.target.value)} /></label>
             <label><span>{tr('Actual cost')} ({job.currency})</span><input className="input" inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0.00" /></label>
             <label className="is-wide"><span>{tr('Note (optional)')}</span><input className="input" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} /></label>
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => go('completed', { completedOn: day, actualCost: cost, note })}>✓ {tr('Mark done')}</button>
+            <div className="is-wide"><DonePhotoField value={photos} onChange={setPhotos} disabled={busy} /></div>
+            <button type="button" className="btn btn-primary" disabled={busy || !photos.length} onClick={() => go('completed', { completedOn: day, actualCost: cost, note, photos })}>✓ {tr('Mark done')}</button>
           </div>
         )}
         {doing === 'schedule' && (
@@ -162,6 +173,52 @@ function JobPanel({ job, can, myId, busy, onAct, onEdit, onDelete, onClose }) {
           {can.manage && <button type="button" className="btn btn-secondary" onClick={() => onEdit(job)}>{tr('Edit')}</button>}
           <button type="button" className="btn btn-primary" onClick={onClose}>{tr('Close')}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// A routine done by hand: a photo of the finished work, required.
+function RoutineDoneDialog({ routine, busy, onDone, onClose }) {
+  const [photos, setPhotos] = useState([]);
+  const [note, setNote] = useState('');
+  const [day, setDay] = useState(new Date().toISOString().slice(0, 10));
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog mw-job" role="dialog" aria-modal="true" aria-labelledby="mw-rtd-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="mw-rtd-title" className="mw-job-title">✓ {routine.name}</h2>
+        <p className="dk-muted">{tr('Take or add a photo of the finished work: the routine is marked done only with one, and its next day moves on.')}</p>
+        <div className="mw-inline">
+          <label><span>{tr('Done on')}</span><input type="date" className="input" value={day} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDay(e.target.value)} /></label>
+          <label className="is-wide"><span>{tr('Note (optional)')}</span><input className="input" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} /></label>
+          <div className="is-wide"><DonePhotoField value={photos} onChange={setPhotos} disabled={busy} /></div>
+        </div>
+        <div className="dialog-actions">
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
+          <button type="button" className="btn btn-primary" disabled={busy || !photos.length} onClick={() => onDone({ on: day, note, photos })}>✓ {tr('Mark done')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// The team's phone app: where it is and what it does.
+function MyJobsCard() {
+  const [copied, setCopied] = useState(false);
+  const link = window.location.origin + '/myjobs';
+  async function copy() {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch { window.prompt(tr('Copy this link:'), link); }
+  }
+  return (
+    <div className="mw-app-card">
+      <span className="mw-app-ico" aria-hidden="true">📱</span>
+      <div className="mw-app-text">
+        <strong>{tr('My Jobs: the team’s phone app')}</strong>
+        <small>{tr('Each person opens {link} on their phone, signs in once and adds it to the home screen. Every morning they see the jobs given to them, and mark each one done with a photo of the finished work. Routines become work orders by themselves as their day comes close.', { link: link.replace(/^https?:\/\//, '') })}</small>
+      </div>
+      <div className="mw-app-acts">
+        <a className="btn btn-primary" href="/myjobs">{tr('Open My Jobs')}</a>
+        <button type="button" className="btn btn-secondary" onClick={copy}>{copied ? '✓ ' + tr('Copied') : tr('Copy link')}</button>
       </div>
     </div>
   );
@@ -416,6 +473,7 @@ export default function MaintenanceOrders({ myId }) {
   const [openId, setOpenId] = useState(() => new URLSearchParams(window.location.search).get('job') || null);
   const [form, setForm] = useState(null); // { job? }
   const [routineForm, setRoutineForm] = useState(null); // { routine? }
+  const [routineDoing, setRoutineDoing] = useState(null); // a routine being marked done (with its photo)
   const [importing, setImporting] = useState(false);
   const [presenting, setPresenting] = useState(false);
   // All jobs: the filters.
@@ -445,7 +503,7 @@ export default function MaintenanceOrders({ myId }) {
   const audit = (job, on) => act(() => api.post('/maint-work-orders/' + job.id + '/audit', { audited: on })).catch(() => {});
   const saveRoutine = (body) => act(() => (routineForm.routine ? api.patch('/maint-work-orders/routines/' + routineForm.routine.id, body) : api.post('/maint-work-orders/routines', body)), tr('Routine job saved.'))
     .then(() => setRoutineForm(null)).catch(() => {});
-  const routineDone = (r) => act(() => api.post('/maint-work-orders/routines/' + r.id + '/done', {}), tr('{name} done today: next time moved on.', { name: r.name })).catch(() => {});
+  const routineDone = (r, body) => act(() => api.post('/maint-work-orders/routines/' + r.id + '/done', body), tr('{name} done today: next time moved on.', { name: r.name })).then(() => setRoutineDoing(null));
   const routineOrder = (r) => act(() => api.post('/maint-work-orders/routines/' + r.id + '/order', {}), tr('A work order is made for {name}.', { name: r.name })).then((o) => o && setOpenId(o.id)).catch(() => {});
   const routineArchive = (r, on) => act(() => api.post('/maint-work-orders/routines/' + r.id + '/archive', { archived: on }), on ? tr('{name} put away.', { name: r.name }) : tr('{name} brought back.', { name: r.name })).catch(() => {});
 
@@ -553,6 +611,7 @@ export default function MaintenanceOrders({ myId }) {
 
       {tab === 'dash' && (
         <>
+          <MyJobsCard />
           <nav className="mw-flow" aria-label={tr('Jobs by status')}>
             {FLOW.map((st, i) => (
               <Fragment key={st}>
@@ -734,10 +793,9 @@ export default function MaintenanceOrders({ myId }) {
                       {r.link && <a className="wo-small" href={r.link} target="_blank" rel="noreferrer">🔗 {tr('Web link')}</a>}
                     </div>
                     <div className="mw-rt-acts">
-                      {(can.manage || mine) && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => routineDone(r)}>✓ {tr('Done today')}</button>}
-                      {can.manage && (r.openOrderId
-                        ? <button type="button" className="btn btn-secondary" onClick={() => setOpenId(r.openOrderId)}>{tr('Its work order')}</button>
-                        : <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => routineOrder(r)}>{tr('Make a work order')}</button>)}
+                      {(can.manage || mine) && !r.openOrderId && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setRoutineDoing(r)}>✓ {tr('Done today')}</button>}
+                      {r.openOrderId && (can.manage || mine) && <button type="button" className="btn btn-secondary" onClick={() => setOpenId(r.openOrderId)}>{tr('Its work order')}</button>}
+                      {can.manage && !r.openOrderId && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => routineOrder(r)}>{tr('Make a work order')}</button>}
                       {can.manage && <button type="button" className="pos-link" onClick={() => setRoutineForm({ routine: r })}>{tr('Edit')}</button>}
                       {can.manage && <button type="button" className="pos-link" onClick={() => routineArchive(r, true)}>{tr('Put it away')}</button>}
                     </div>
@@ -800,6 +858,7 @@ export default function MaintenanceOrders({ myId }) {
       {job && <JobPanel key={job.id + job.status} job={job} can={can} myId={myId} busy={busy} onAct={moveJob} onDelete={deleteJob} onEdit={(j) => { setOpenId(null); setForm({ job: j }); }} onClose={() => setOpenId(null)} />}
       {form && <JobForm job={form.job} can={can} employees={employees} places={places} busy={busy} onSave={saveJob} onClose={() => setForm(null)} />}
       {routineForm && <RoutineForm routine={routineForm.routine} employees={employees} places={places} busy={busy} onSave={saveRoutine} onClose={() => setRoutineForm(null)} />}
+      {routineDoing && <RoutineDoneDialog routine={routineDoing} busy={busy} onDone={(body) => routineDone(routineDoing, body).catch(() => {})} onClose={() => setRoutineDoing(null)} />}
       {importing && <ImportSheet employees={employees} onClose={() => setImporting(false)} onDone={(r) => { setImporting(false); load(); say(tr('Imported: {a} jobs added, {u} brought up to date, {r} routines added.', { a: r.orders.added, u: r.orders.updated, r: r.routines.added })); }} />}
     </div>
   );

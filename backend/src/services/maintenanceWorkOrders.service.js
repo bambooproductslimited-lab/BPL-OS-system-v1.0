@@ -19,6 +19,12 @@ var { notify } = require('../utils/notify');
 // assign, edit and import; task.read sees every job. Anyone signed in may
 // ask for a job and sees the jobs they asked for or were given. Whoever a
 // job is given to moves it along (started, on hold, done).
+//
+// The team's phone app, My Jobs (frontend /myjobs, migration 0217): each
+// person's own jobs (mine), and a job or a routine is marked done only with
+// a photo of the finished work. A routine whose next day is close becomes a
+// work order by itself (runDue, jobs/maintRoutines.js), and each morning
+// whoever has jobs is told how many (morning).
 
 var CATEGORIES = ['electrical', 'plumbing', 'hvac', 'facilities', 'it', 'mason', 'other'];
 var PRIORITIES = ['low', 'medium', 'high', 'urgent'];
@@ -26,6 +32,16 @@ var STATUSES = ['new', 'scheduled', 'in_progress', 'on_hold', 'completed', 'canc
 var OPEN = ['new', 'scheduled', 'in_progress', 'on_hold'];
 var CURRENCIES = /^[A-Z]{3}$/;
 var LINK = '/tasks?side=maint&job=';
+// Whoever does the job opens it in My Jobs, on the phone or the computer.
+var MY_LINK = '/myjobs?job=';
+// Photos of the finished work, at most this many each time.
+var MAX_DONE_PHOTOS = 3;
+var PHOTO_NEEDED = 'Take a photo of the finished work first: a job is marked done only with a photo of it.';
+// A routine becomes a work order this many days before its next day (less
+// for one that comes round sooner: a daily routine on the day itself).
+var LEAD_DAYS = 2;
+// The morning list goes from 06:00 Ghana time (GMT all year).
+var MORNING_FROM_HOUR_UTC = 6;
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 function addDays(iso, n) { var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
@@ -112,7 +128,9 @@ function shapeOrder(r, ctx) {
     scheduledOn: planned, completedOn: done,
     currency: r.currency, estimatedCost: r.estimated_cost === null ? null : Number(r.estimated_cost), actualCost: r.actual_cost === null ? null : Number(r.actual_cost),
     notes: r.notes, audited: !!r.audited_at, auditedAt: r.audited_at || null, auditedBy: r.audited_at ? nameOf(r.au_first, r.au_last) : null,
-    routineId: r.routine_id || null, routineName: r.routine_name || null, fromSheet: !!r.sheet_key,
+    routineId: r.routine_id || null, routineName: r.routine_name || null, fromSheet: !!r.sheet_key, autoMade: !!r.auto_made,
+    // Photos of the finished work (GET /:id/photos/:n).
+    donePhotos: (r.done_photos || []).map(function (p, n) { return { n: n, at: p.at || null }; }),
     open: open,
     // The sheet's columns: Days Open, Days (planned → done), and late.
     daysOpen: r.status === 'cancelled' ? null : daysBetween(asked, done || today),
@@ -262,9 +280,9 @@ async function list(ctx, q) {
 async function get(ctx, id) {
   var o = (await loadOrder(ctx, id)).order;
   var log = o.routineId ? (await pool.query(
-    'SELECT l.done_on::text AS day, l.note, e.first_name, e.last_name FROM maint_routine_log l LEFT JOIN employees e ON e.id = l.done_by_id ' +
+    'SELECT l.id, l.done_on::text AS day, l.note, l.photos, e.first_name, e.last_name FROM maint_routine_log l LEFT JOIN employees e ON e.id = l.done_by_id ' +
     'WHERE l.routine_id = $1 ORDER BY l.done_on DESC, l.created_at DESC LIMIT 12', [o.routineId])).rows : [];
-  o.routineLog = log.map(function (l) { return { day: l.day, note: l.note, by: nameOf(l.first_name, l.last_name) }; });
+  o.routineLog = log.map(function (l) { return { id: l.id, day: l.day, note: l.note, by: nameOf(l.first_name, l.last_name), photos: (l.photos || []).length }; });
   return o;
 }
 
@@ -294,7 +312,43 @@ async function personOr(client, id, name) {
 async function tellAssigned(client, ctx, row, verb) {
   if (!row.assigned_to_id || row.assigned_to_id === ctx.employee.id) return;
   await notify(client, row.assigned_to_id, (verb || '🔧 New job') + ' ' + row.ref + (row.location ? ' · ' + row.location : ''),
-    text(row.description, 140) + (row.scheduled_on ? ' — ' + iso(row.scheduled_on) : ''), LINK + row.id);
+    text(row.description, 140) + (row.scheduled_on ? ' — ' + iso(row.scheduled_on) : ''), MY_LINK + row.id);
+}
+
+// ── photos of the finished work ─────────────────────────────────────────
+
+// The photos sent with "done" (JPEG data URLs, made small on the phone),
+// kept in file storage: [{ key, type, at, by }].
+async function photosFrom(ctx, given, name) {
+  var list = Array.isArray(given) ? given.filter(Boolean).slice(0, MAX_DONE_PHOTOS) : [];
+  var photoFrom = require('./restaurantCashOffice.service').photoFrom;
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var p = await photoFrom(list[i], name + '-' + (i + 1));
+    out.push({ key: p.key, type: p.type, at: new Date().toISOString(), by: ctx.employee.id });
+  }
+  return out;
+}
+function photoName(prefix, n, p) { return prefix + '-' + (Number(n) + 1) + (p.type === 'image/png' ? '.png' : p.type === 'image/webp' ? '.webp' : '.jpg'); }
+
+// GET /:id/photos/:n — whoever may see the job.
+async function photoOf(ctx, id, n) {
+  var row = (await loadOrder(ctx, id)).row;
+  var p = (row.done_photos || [])[Number(n)];
+  if (!p) fail('not_found', 'No such photo.');
+  return { key: p.key, name: photoName(String(row.ref || 'job').toLowerCase() + '-done', n, p) };
+}
+
+// GET /routines/log/:id/photos/:n — whoever sees every job, does the
+// routine, or did it that time.
+async function routinePhotoOf(ctx, logId, n) {
+  if (!isUuid(logId)) fail('not_found', 'No such photo.');
+  var l = (await pool.query('SELECT l.photos, l.done_by_id, r.ref, r.assigned_to_id FROM maint_routine_log l JOIN maint_routines r ON r.id = l.routine_id WHERE l.id = $1', [logId])).rows[0];
+  if (!l) fail('not_found', 'No such photo.');
+  if (!seesAll(ctx) && l.done_by_id !== ctx.employee.id && l.assigned_to_id !== ctx.employee.id) fail('not_found', 'No such photo.');
+  var p = (l.photos || [])[Number(n)];
+  if (!p) fail('not_found', 'No such photo.');
+  return { key: p.key, name: photoName(String(l.ref || 'routine').toLowerCase() + '-done', n, p) };
 }
 
 // ── work orders ─────────────────────────────────────────────────────────
@@ -396,19 +450,21 @@ async function update(ctx, id, body) {
 
 // What a change of status sets off: whoever asked hears it is done, and a
 // work order made from a routine marks the routine done that day.
-async function afterStatus(client, ctx, was, row) {
+async function afterStatus(client, ctx, was, row, shots) {
   if (was.status === row.status) return;
   if (row.status === 'completed') {
     if (row.requested_by_id && row.requested_by_id !== ctx.employee.id) {
       await notify(client, row.requested_by_id, '✅ Done: ' + row.ref + (row.location ? ' · ' + row.location : ''), text(row.description, 140), LINK + row.id);
     }
-    if (row.routine_id) await markRoutineDone(client, ctx, row.routine_id, iso(row.completed_on), '', row.id);
+    if (row.routine_id) await markRoutineDone(client, ctx, row.routine_id, iso(row.completed_on), '', row.id, shots);
   }
 }
 
-// POST /:id/status { status, completedOn?, actualCost?, note? } — a work
-// order manager, or whoever the job is given to; whoever asked may call off
-// a job not yet planned.
+// POST /:id/status { status, completedOn?, actualCost?, note?, photos? } —
+// a work order manager, or whoever the job is given to; whoever asked may
+// call off a job not yet planned. Done takes 1 to 3 photos of the finished
+// work (JPEG data URLs): without one it is refused. A note added to a job
+// already done needs none.
 async function setStatus(ctx, id, body) {
   body = body || {};
   var status = pick(body.status, STATUSES, 'Status', null);
@@ -423,11 +479,17 @@ async function setStatus(ctx, id, body) {
       if (status === 'cancelled' || status === 'new') fail('forbidden', 'Only the work order managers can call off a job.');
     }
     var f = { status: status };
+    var shots = [];
     if (status === 'completed') {
       // Still done (a note added): the day it was done stays.
       f.completed_on = dayOr(body.completedOn, 'Completed date') || (was.status === 'completed' ? was.done_day : todayISO());
       if (f.completed_on > todayISO()) fail('invalid', 'The day it was done cannot be in the future.');
       if (body.actualCost !== undefined && body.actualCost !== '') f.actual_cost = money(body.actualCost, 'Actual cost');
+      if (was.status !== 'completed') {
+        if (!Array.isArray(body.photos) || !body.photos.filter(Boolean).length) fail('invalid', PHOTO_NEEDED);
+        shots = await photosFrom(ctx, body.photos, String(was.ref || 'job').toLowerCase() + '-done');
+        f.done_photos = JSON.stringify((was.done_photos || []).concat(shots).slice(-9));
+      }
     } else f.completed_on = null;
     if (status === 'scheduled' && body.scheduledOn !== undefined) f.scheduled_on = dayOr(body.scheduledOn, 'Scheduled date');
     var note = text(body.note, 300);
@@ -438,8 +500,8 @@ async function setStatus(ctx, id, body) {
     var keys = Object.keys(f);
     var row = (await client.query('UPDATE maint_work_orders SET ' + keys.map(function (k, i) { return k + ' = $' + (i + 2); }).join(', ') +
       ', updated_at = now() WHERE id = $1 RETURNING *', [id].concat(keys.map(function (k) { return f[k]; })))).rows[0];
-    await audit(client, ctx, 'maintwo.status', 'maint_work_order', id, row.ref + ' is now ' + status.replace('_', ' ') + '.');
-    await afterStatus(client, ctx, was, row);
+    await audit(client, ctx, 'maintwo.status', 'maint_work_order', id, row.ref + ' is now ' + status.replace('_', ' ') + '.' + (shots.length ? ' ' + shots.length + ' photo(s) of the finished work.' : ''));
+    await afterStatus(client, ctx, was, row, shots);
     return (await loadOrder(ctx, id, client)).order;
   });
 }
@@ -521,10 +583,10 @@ async function saveRoutine(ctx, id, body) {
   });
 }
 
-async function markRoutineDone(client, ctx, id, on, note, workOrderId) {
+async function markRoutineDone(client, ctx, id, on, note, workOrderId, photos) {
   var r = await loadRoutine(id, client);
-  await client.query('INSERT INTO maint_routine_log (routine_id, done_on, done_by_id, note, work_order_id) VALUES ($1, $2, $3, $4, $5)',
-    [id, on, ctx.employee.id, text(note, 300), workOrderId || null]);
+  await client.query('INSERT INTO maint_routine_log (routine_id, done_on, done_by_id, note, work_order_id, photos) VALUES ($1, $2, $3, $4, $5, $6)',
+    [id, on, ctx.employee.id, text(note, 300), workOrderId || null, JSON.stringify(photos || [])]);
   // A late record of an earlier time does not move the dates back.
   if (!r.last_day || on >= r.last_day) {
     await client.query('UPDATE maint_routines SET last_done_on = $2, next_on = $3, updated_at = now() WHERE id = $1',
@@ -532,16 +594,24 @@ async function markRoutineDone(client, ctx, id, on, note, workOrderId) {
   }
 }
 
-// POST /routines/:id/done { on?, note? } — a manager, or whoever does it.
+// POST /routines/:id/done { on?, note?, photos } — a manager, or whoever
+// does it, with 1 to 3 photos of the finished work. A routine with a work
+// order open is done by marking that work order done.
 async function routineDone(ctx, id, body) {
   body = body || {};
   return withTransaction(async function (client) {
     var r = await loadRoutine(id, client);
     if (!canManage(ctx) && r.assigned_to_id !== ctx.employee.id) fail('forbidden', 'Only the work order managers, or whoever does this routine, can mark it done.');
+    if (r.open_order_id) {
+      var open = (await client.query('SELECT ref FROM maint_work_orders WHERE id = $1', [r.open_order_id])).rows[0];
+      fail('conflict', 'This routine is work order ' + (open ? open.ref : '') + ' now: mark that work order done instead.');
+    }
     var on = dayOr(body.on, 'Done on') || todayISO();
     if (on > todayISO()) fail('invalid', 'The day it was done cannot be in the future.');
-    await markRoutineDone(client, ctx, id, on, body.note, null);
-    await audit(client, ctx, 'maintwo.routine.done', 'maint_routine', id, 'Routine ' + r.ref + ' "' + r.name + '" done on ' + on + '.');
+    if (!Array.isArray(body.photos) || !body.photos.filter(Boolean).length) fail('invalid', PHOTO_NEEDED);
+    var shots = await photosFrom(ctx, body.photos, String(r.ref || 'routine').toLowerCase() + '-done');
+    await markRoutineDone(client, ctx, id, on, body.note, null, shots);
+    await audit(client, ctx, 'maintwo.routine.done', 'maint_routine', id, 'Routine ' + r.ref + ' "' + r.name + '" done on ' + on + ', with ' + shots.length + ' photo(s).');
     return shapeRoutine(await loadRoutine(id, client));
   });
 }
@@ -567,6 +637,112 @@ async function routineOrder(ctx, id, body) {
   });
 }
 
+// ── My Jobs: one person's own jobs ──────────────────────────────────────
+
+// GET /mine — the phone app's list: the jobs given to me still to do (late
+// first, then by their day and how urgent), those I finished this week, and
+// my routines with their next day.
+var PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3 };
+async function mine(ctx) {
+  var me = ctx.employee.id, today = todayISO();
+  var rows = (await pool.query(SELECT_WO +
+    "WHERE w.assigned_to_id = $1 AND (w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $2::date)) " +
+    'ORDER BY w.created_at', [me, addDays(today, -7)])).rows;
+  var orders = rows.map(function (r) { return shapeOrder(r, ctx); });
+  var dayOf = function (o) { return o.scheduledOn || o.requestedOn || today; };
+  var todo = orders.filter(function (o) { return o.open; }).sort(function (a, b) {
+    return (dayOf(a) < dayOf(b) ? -1 : dayOf(a) > dayOf(b) ? 1 : 0) || ((PRIORITY_RANK[a.priority] || 2) - (PRIORITY_RANK[b.priority] || 2)) || (a.ref < b.ref ? -1 : 1);
+  });
+  var done = orders.filter(function (o) { return o.status === 'completed'; }).sort(function (a, b) { return a.completedOn < b.completedOn ? 1 : a.completedOn > b.completedOn ? -1 : 0; });
+  var routines = (await pool.query(SELECT_RT + 'WHERE r.assigned_to_id = $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows.map(shapeRoutine);
+  var late = todo.filter(function (o) { return o.overdue; }).length;
+  var now = todo.filter(function (o) { return !o.overdue && dayOf(o) <= today; }).length;
+  return {
+    today: today,
+    me: { id: me, name: nameOf(ctx.employee.first_name, ctx.employee.last_name) },
+    todo: todo, done: done, routines: routines,
+    counts: { late: late, today: now, later: todo.length - late - now, doneThisWeek: done.length },
+    can: { manage: canManage(ctx), seeAll: seesAll(ctx) }
+  };
+}
+
+// ── routines that become work orders by themselves ──────────────────────
+
+function leadOf(every) { return every ? Math.max(0, Math.min(LEAD_DAYS, every - 1)) : LEAD_DAYS; }
+
+// Every routine whose next day is close (LEAD_DAYS, or less for one that
+// comes round sooner) and has no work order open becomes one, planned for
+// that day and given to whoever does the routine, who hears of it; one with
+// nobody on it is told to the work order managers. Run by
+// jobs/maintRoutines.js; returns how many were made.
+async function runDue(on) {
+  var today = on || todayISO();
+  var due = (await pool.query(SELECT_RT + 'WHERE r.archived_at IS NULL AND r.next_on IS NOT NULL AND r.next_on <= $1::date ORDER BY r.next_on, r.ref',
+    [addDays(today, LEAD_DAYS)])).rows
+    .filter(function (r) { return !r.open_order_id && r.next_day <= addDays(today, leadOf(r.every_days)); });
+  var made = 0;
+  for (var i = 0; i < due.length; i++) {
+    var ok = await withTransaction(async function (client) {
+      // One at a time per routine, and only if it still has nothing open.
+      await client.query('SELECT id FROM maint_routines WHERE id = $1 FOR UPDATE', [due[i].id]);
+      var r = await loadRoutine(due[i].id, client);
+      if (r.open_order_id || r.archived_at || !r.next_day) return false;
+      var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
+      var row = (await client.query(
+        'INSERT INTO maint_work_orders (ref, requested_on, requested_by_name, location, company_id, category, description, priority, status, ' +
+        "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, auto_made) VALUES ($1, $2::date, 'Routine', $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, true) RETURNING *",
+        [ref, today, r.location, r.company_id, r.category, (r.name + (r.description ? ' — ' + r.description : '')).slice(0, 2000),
+          r.assigned_to_id, r.assigned_to_name, r.next_day, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id])).rows[0];
+      await audit(client, null, 'maintwo.create', 'maint_work_order', row.id, 'Made ' + ref + ' by itself from routine ' + r.ref + ' "' + r.name + '", due ' + r.next_day + '.');
+      if (row.assigned_to_id) {
+        await notify(client, row.assigned_to_id, '🔁 Routine job ' + ref + (row.location ? ' · ' + row.location : ''),
+          text(row.description, 140) + ' — ' + r.next_day, MY_LINK + row.id);
+      } else {
+        var holders = await require('./staffAlerts.service').holdersOf(['task.manage']);
+        for (var h = 0; h < holders.length; h++) {
+          await notify(client, holders[h].employee_id, '🔁 Routine job with nobody on it: ' + ref + (row.location ? ' · ' + row.location : ''),
+            text(row.description, 140) + ' — ' + r.next_day + '. Give it to someone.', LINK + row.id);
+        }
+      }
+      return true;
+    });
+    if (ok) made++;
+  }
+  return made;
+}
+
+// The morning list: from 06:00, once a day, each person with jobs to do
+// today or late is told how many, opening My Jobs. Returns how many people
+// were told.
+async function morning(now) {
+  now = now || new Date();
+  if (now.getUTCHours() < MORNING_FROM_HOUR_UTC) return 0;
+  var today = now.toISOString().slice(0, 10);
+  var people = (await pool.query(
+    "SELECT w.assigned_to_id AS id, count(*) FILTER (WHERE w.scheduled_on IS NULL OR w.scheduled_on <= $1::date)::int AS now_n, " +
+    "count(*) FILTER (WHERE w.scheduled_on < $1::date)::int AS late_n, count(*) FILTER (WHERE w.priority IN ('urgent', 'high'))::int AS urgent_n " +
+    "FROM maint_work_orders w JOIN employees e ON e.id = w.assigned_to_id " +
+    "WHERE w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') AND e.status = 'active' " +
+    'AND NOT EXISTS (SELECT 1 FROM maint_morning_sent s WHERE s.employee_id = w.assigned_to_id AND s.day = $1::date) ' +
+    'GROUP BY w.assigned_to_id', [today])).rows
+    .filter(function (p) { return p.now_n > 0; });
+  var told = 0;
+  for (var i = 0; i < people.length; i++) {
+    var p = people[i];
+    var ok = await withTransaction(async function (client) {
+      var first = (await client.query('INSERT INTO maint_morning_sent (employee_id, day, jobs) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING employee_id',
+        [p.id, today, p.now_n])).rows[0];
+      if (!first) return false;
+      var extra = [p.late_n ? p.late_n + ' late' : '', p.urgent_n ? p.urgent_n + ' urgent' : ''].filter(Boolean).join(', ');
+      await notify(client, p.id, '🔧 ' + (p.now_n === 1 ? '1 job for you today' : p.now_n + ' jobs for you today') + (extra ? ' (' + extra + ')' : ''),
+        'Open My Jobs to see them. When one is done, take a photo of the finished work and mark it done.', '/myjobs');
+      return true;
+    });
+    if (ok) told++;
+  }
+  return told;
+}
+
 async function archiveRoutine(ctx, id, archived) {
   needManage(ctx);
   return withTransaction(async function (client) {
@@ -590,6 +766,7 @@ async function removeRoutine(ctx, id) {
 module.exports = {
   list: list, get: get, create: create, update: update, setStatus: setStatus, setAudited: setAudited, remove: remove,
   saveRoutine: saveRoutine, routineDone: routineDone, routineOrder: routineOrder, archiveRoutine: archiveRoutine, removeRoutine: removeRoutine,
+  mine: mine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
   companyMatcher: companyMatcher, summarize: summarize,
   CATEGORIES: CATEGORIES, PRIORITIES: PRIORITIES, STATUSES: STATUSES
 };

@@ -2,6 +2,7 @@ var express = require('express');
 var multer = require('multer');
 var { requireAuth } = require('../middleware/auth');
 var { allowlistFilter } = require('../lib/uploadFilters');
+var fileStore = require('../lib/fileStore');
 var mwo = require('../services/maintenanceWorkOrders.service');
 var mwoImport = require('../services/maintenanceWoImport.service');
 
@@ -23,6 +24,18 @@ function run(fn, status) {
 
 // The whole tracker: work orders, routines, the dashboard, the options.
 router.get('/', run(function (req) { return mwo.list(req.ctx, req.query); }));
+
+// My Jobs, the team's phone app: the jobs given to me and my routines.
+router.get('/mine', run(function (req) { return mwo.mine(req.ctx); }));
+
+// Photos of the finished work: of a work order, of a routine done that time.
+function sendPhoto(find) {
+  return async function (req, res, next) {
+    try { var f = await find(req); await fileStore.send(res, f.key, f.name, req.query.inline === '1'); } catch (e) { next(e); }
+  };
+}
+router.get('/routines/log/:id/photos/:n', sendPhoto(function (req) { return mwo.routinePhotoOf(req.ctx, req.params.id, req.params.n); }));
+router.get('/:id/photos/:n', sendPhoto(function (req) { return mwo.photoOf(req.ctx, req.params.id, req.params.n); }));
 
 // The IT work order sheet: preview what a workbook holds, then import it.
 router.post('/import/preview', sheetUpload.single('file'), run(function (req) { return mwoImport.preview(req.ctx, req.file, req.body); }));

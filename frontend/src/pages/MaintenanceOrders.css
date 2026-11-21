@@ -199,3 +199,18 @@
 @media print {
   .mw-tabs, .mw-filters, .mw-rt-acts, .mw-bill-acts { display: none; }
 }
+
+/* Photos of the finished work, on a job (components/DonePhotos.jsx). */
+.mw-done-photos { margin: 0 0 14px; }
+.mw-done-photos h4 { margin: 0 0 8px; font-size: 14px; }
+
+/* My Jobs, the team's phone app (pages/MyJobsPage.jsx). */
+.mw-app-card {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; margin-bottom: 16px;
+  border: 1px solid var(--color-border); border-left: 4px solid var(--color-accent); border-radius: 12px; background: var(--color-bg);
+}
+.mw-app-ico { font-size: 28px; }
+.mw-app-text { flex: 1 1 320px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mw-app-text small { color: var(--color-text-muted); line-height: 1.45; }
+.mw-app-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.mw-inline > div.is-wide { flex: 1 1 100%; }
