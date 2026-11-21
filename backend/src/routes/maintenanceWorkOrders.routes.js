@@ -5,6 +5,7 @@ var { allowlistFilter } = require('../lib/uploadFilters');
 var fileStore = require('../lib/fileStore');
 var mwo = require('../services/maintenanceWorkOrders.service');
 var mwoImport = require('../services/maintenanceWoImport.service');
+var myJobsAccess = require('../services/myJobsAccess.service');
 
 // Maintenance and IT work orders and routines (migration 0214).
 var router = express.Router();
@@ -27,6 +28,10 @@ router.get('/', run(function (req) { return mwo.list(req.ctx, req.query); }));
 
 // My Jobs, the team's phone app: the jobs given to me and my routines.
 router.get('/mine', run(function (req) { return mwo.mine(req.ctx); }));
+
+// Its team code, for signing in with a kiosk code (the work order managers).
+router.get('/myjobs-team', run(function (req) { return myJobsAccess.teamCode(req.ctx); }));
+router.post('/myjobs-team/renew', run(function (req) { return myJobsAccess.renewTeamCode(req.ctx); }));
 
 // Photos of the finished work: of a work order, of a routine done that time.
 function sendPhoto(find) {

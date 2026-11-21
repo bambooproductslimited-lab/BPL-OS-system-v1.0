@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { api } from '../api/client';
+import { api, API_URL } from '../api/client';
 import LoginPage from './LoginPage';
 import ForcedPasswordChangePage from './ForcedPasswordChangePage';
 import { DonePhotoField, DonePhotoStrip } from '../components/DonePhotos';
@@ -18,10 +18,77 @@ import './MyJobsPage.css';
 // close to its day is already a work order (backend runDue). Every morning
 // a notification says how many jobs they have (backend morning).
 //
-// Data: GET /api/maint-work-orders/mine; moves: POST /:id/status, POST
-// /routines/:id/done (backend maintenanceWorkOrders.service.js).
+// Signing in: with the kiosk code (the 4-digit code they clock in with), on
+// a phone that has the team code — typed once, or brought by the team's
+// link (/myjobs?team=…) — backend myJobsAccess.service.js; or with their
+// Bamboo OS email and password. A kiosk-code sign-in reaches only the
+// person's own jobs.
+//
+// Data: GET mine; moves: POST jobs/:id/status, POST routines/:id/done —
+// under /api/myjobs signed in with a kiosk code, /api/maint-work-orders with
+// the OS (backend maintenanceWorkOrders.service.js).
 
 const REFRESH_MS = 2 * 60 * 1000;
+const TEAM_KEY = 'bos.myjobs.team';
+const SIGN_IN_KEY = 'bos.myjobs.signIn';
+
+function readStore(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function writeStore(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* this visit only */ } }
+function normTeam(v) { return String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
+function shownTeam(v) { const c = normTeam(v); return c.length > 4 ? c.slice(0, 4) + '-' + c.slice(4) : c; }
+
+// The team's link brings the team code: kept on this phone, taken off the
+// address (so it is not in what is shared or saved to the home screen).
+function takeTeamFromLink() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const t = normTeam(p.get('team'));
+    if (!t) return;
+    writeStore(TEAM_KEY, t);
+    p.delete('team');
+    window.history.replaceState(window.history.state, '', window.location.pathname + (p.toString() ? '?' + p.toString() : ''));
+  } catch { /* the code can be typed instead */ }
+}
+
+// A call to My Jobs' own API (signed in with a kiosk code): its answer, or
+// an Error with the server's words and the status.
+async function myJobsCall(method, path, body, token) {
+  let res;
+  try {
+    res = await fetch(API_URL + '/myjobs' + path, {
+      method,
+      headers: Object.assign({}, token ? { Authorization: 'Bearer ' + token } : {}, body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      body: body !== undefined ? JSON.stringify(body) : undefined
+    });
+  } catch {
+    throw Object.assign(new Error(tr('No connection. Check the internet and try again.')), { status: 0 });
+  }
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) throw Object.assign(new Error(data && data.error ? data.error.message : tr('Something went wrong.')), { status: res.status });
+  return data;
+}
+
+// The same few calls, for either sign-in.
+function osClient() {
+  return {
+    mine: () => api.get('/maint-work-orders/mine'),
+    job: (id) => api.get('/maint-work-orders/' + id),
+    move: (id, body) => api.post('/maint-work-orders/' + id + '/status', body),
+    routineDone: (id, body) => api.post('/maint-work-orders/routines/' + id + '/done', body),
+    photoBase: '/maint-work-orders/', token: null, team: null
+  };
+}
+function pinClient(token, team, onEnded) {
+  const call = (method, path, body) => myJobsCall(method, path, body, token).catch((e) => { if (e.status === 401) onEnded(); throw e; });
+  return {
+    mine: () => call('GET', '/mine'),
+    job: (id) => call('GET', '/jobs/' + id),
+    move: (id, body) => call('POST', '/jobs/' + id + '/status', body),
+    routineDone: (id, body) => call('POST', '/routines/' + id + '/done', body),
+    photoBase: '/myjobs/jobs/', token, team
+  };
+}
 
 function dayWords(iso, today) {
   if (!iso) return '';
@@ -74,7 +141,7 @@ function JobCard({ job, today, onOpen }) {
 
 // One job, full screen on the phone: what, where, who asked; start, hold,
 // note; done with photos.
-function JobSheet({ job, today, busy, onMove, onClose }) {
+function JobSheet({ job, today, busy, client, onMove, onClose }) {
   const [step, setStep] = useState(null); // 'done' | 'hold' | 'note'
   const [photos, setPhotos] = useState([]);
   const [note, setNote] = useState('');
@@ -110,7 +177,7 @@ function JobSheet({ job, today, busy, onMove, onClose }) {
         {job.donePhotos && job.donePhotos.length > 0 && (
           <section className="mj-sec">
             <h3>{tr('Photos of the finished work')}</h3>
-            <DonePhotoStrip paths={jobPhotoPaths(job)} />
+            <DonePhotoStrip paths={jobPhotoPaths(job, client.photoBase)} token={client.token} />
           </section>
         )}
 
@@ -198,7 +265,7 @@ function RoutineDone({ routine, busy, onDone, onClose }) {
   );
 }
 
-function InstallHint() {
+function InstallHint({ team }) {
   const [prompt, setPrompt] = useState(null);
   const [hidden, setHidden] = useState(() => { try { return isInstalled() || localStorage.getItem('bos.myjobs.installHint') === 'off'; } catch { return isInstalled(); } });
   useEffect(() => {
@@ -214,7 +281,7 @@ function InstallHint() {
       <div>
         <strong>{tr('Put My Jobs on your home screen')}</strong>
         <small>{prompt ? tr('It opens like an app, straight to your jobs.')
-          : isIos() ? tr('In Safari: tap Share ⬆, then Add to Home Screen.')
+          : isIos() ? (team ? tr('In Safari: tap Share ⬆, then Add to Home Screen. The first time you open it from there, enter the team code {code} again.', { code: shownTeam(team) }) : tr('In Safari: tap Share ⬆, then Add to Home Screen.'))
             : tr('In Chrome: tap ⋮, then Install app or Add to Home screen.')}</small>
       </div>
       {prompt && <button type="button" className="mj-small is-on" onClick={async () => { prompt.prompt(); try { await prompt.userChoice; } catch { /* closed */ } setPrompt(null); hide(); }}>{tr('Install')}</button>}
@@ -223,8 +290,7 @@ function InstallHint() {
   );
 }
 
-function Jobs() {
-  const { session, logout } = useAuth();
+function Jobs({ client, onSignOut }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [data, setData] = useState(null);
@@ -236,7 +302,7 @@ function Jobs() {
   const [extraJob, setExtraJob] = useState(null); // a job not on my list (opened from a link)
   const jobId = new URLSearchParams(location.search).get('job');
 
-  const load = useCallback(() => api.get('/maint-work-orders/mine').then((d) => { setData(d); setError(null); }).catch((e) => setError(e.message)), []);
+  const load = useCallback(() => client.mine().then((d) => { setData(d); setError(null); }).catch((e) => setError(e.message)), [client]);
   useEffect(() => {
     load();
     const t = setInterval(load, REFRESH_MS);
@@ -260,8 +326,8 @@ function Jobs() {
   const listed = jobId ? all.find((j) => j.id === jobId) : null;
   useEffect(() => {
     if (!jobId || !data || listed) { setExtraJob(null); return; }
-    api.get('/maint-work-orders/' + jobId).then(setExtraJob).catch(() => setExtraJob(null));
-  }, [jobId, data, listed]);
+    client.job(jobId).then(setExtraJob).catch(() => setExtraJob(null));
+  }, [jobId, data, listed, client]);
   const job = listed || (extraJob && extraJob.id === jobId ? extraJob : null);
 
   const openJob = (j) => navigate('/myjobs?job=' + j.id);
@@ -271,7 +337,7 @@ function Jobs() {
   async function move(j, body) {
     setBusy(true);
     try {
-      const out = await api.post('/maint-work-orders/' + j.id + '/status', body);
+      const out = await client.move(j.id, body);
       await load();
       if (extraJob && extraJob.id === j.id) setExtraJob(out);
       if (body.status === 'completed' && j.status !== 'completed') { say(tr('{ref} done. Well done!', { ref: j.ref })); closeJob(); }
@@ -283,7 +349,7 @@ function Jobs() {
   async function routineDone(r, body) {
     setBusy(true);
     try {
-      await api.post('/maint-work-orders/routines/' + r.id + '/done', body);
+      await client.routineDone(r.id, body);
       await load();
       setRoutineOpen(null);
       say(tr('{name} done. Next time moved on.', { name: r.name }));
@@ -295,9 +361,9 @@ function Jobs() {
   const late = data ? data.todo.filter((o) => o.overdue) : [];
   const now = data ? data.todo.filter((o) => !o.overdue && dayOf(o) <= today) : [];
   const later = data ? data.todo.filter((o) => !o.overdue && dayOf(o) > today) : [];
-  const first = (data && data.me.name ? data.me.name : (session.employee && session.employee.firstName) || '').split(' ')[0];
+  const first = (data && data.me.name ? data.me.name : '').split(' ')[0];
 
-  if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} onMove={move} onClose={closeJob} />;
+  if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} onMove={move} onClose={closeJob} />;
   if (routineOpen) return <RoutineDone routine={routineOpen} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
 
   const group = (title, list, tone) => list.length > 0 && (
@@ -312,14 +378,14 @@ function Jobs() {
       <header className="mj-bar">
         <span className="mj-brand"><img src="/icon-192.png" alt="" width="28" height="28" /> {tr('My Jobs')}</span>
         <button type="button" className="mj-icon-btn" onClick={load} aria-label={tr('Refresh')} title={tr('Refresh')}>⟳</button>
-        <button type="button" className="mj-icon-btn is-text" onClick={() => { if (window.confirm(tr('Sign out of My Jobs?'))) logout(); }}>{tr('Sign out')}</button>
+        <button type="button" className="mj-icon-btn is-text" onClick={() => { if (window.confirm(tr('Sign out of My Jobs?'))) onSignOut(); }}>{tr('Sign out')}</button>
       </header>
       <main className="mj-main">
         <div className="mj-hello">
           <h1>{hello()}{first ? ', ' + first : ''}</h1>
           <p>{new Date().toLocaleDateString(activeIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
-        <InstallHint />
+        <InstallHint team={client.team} />
         {error && <p className="mj-error" role="alert">{error} <button type="button" className="mj-link" onClick={load}>{tr('Try again')}</button></p>}
         {!data && !error && <p className="mj-muted">{tr('Loading your jobs…')}</p>}
         {data && (
@@ -380,17 +446,125 @@ function Jobs() {
   );
 }
 
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'];
+
+// Signing in with the kiosk code: the team code first on a new phone (or
+// from the team's link), then the 4 digits, sent as soon as the 4th is in.
+function KioskSignIn({ notice, onSignedIn, onEmail }) {
+  const [team, setTeam] = useState(() => readStore(TEAM_KEY) || '');
+  const [step, setStep] = useState(() => (normTeam(readStore(TEAM_KEY)).length === 8 ? 'pin' : 'team'));
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function checkTeam(e) {
+    e.preventDefault();
+    setErr(null);
+    if (normTeam(team).length !== 8) { setErr(tr('The team code has 8 letters and numbers.')); return; }
+    setBusy(true);
+    try { await myJobsCall('POST', '/team', { team: normTeam(team) }); writeStore(TEAM_KEY, normTeam(team)); setStep('pin'); } catch (x) { setErr(x.message); }
+    setBusy(false);
+  }
+  async function signIn(code) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await myJobsCall('POST', '/sign-in', { team: normTeam(team), pin: code });
+      const s = { token: r.token, team: normTeam(team) };
+      writeStore(SIGN_IN_KEY, JSON.stringify(s));
+      onSignedIn(s);
+    } catch (x) {
+      setPin('');
+      setErr(x.message);
+      // The team code changed: type the new one.
+      if (x.status === 400 && /team code/i.test(x.message)) { writeStore(TEAM_KEY, null); setStep('team'); }
+    }
+    setBusy(false);
+  }
+  function press(k) {
+    if (busy) return;
+    if (k === 'back') { setPin((p) => p.slice(0, -1)); return; }
+    if (!k || pin.length >= 4) return;
+    const next = pin + k;
+    setPin(next);
+    if (next.length === 4) signIn(next);
+  }
+  return (
+    <div className="mj-page mj-signin">
+      <header className="mj-bar"><span className="mj-brand"><img src="/icon-192.png" alt="" width="28" height="28" /> {tr('My Jobs')}</span></header>
+      <main className="mj-main">
+        {notice && <p className="mj-notice" role="status">{notice}</p>}
+        {step === 'team' ? (
+          <form className="mj-signin-box" onSubmit={checkTeam}>
+            <h1>{tr('Enter your team code')}</h1>
+            <p>{tr('Your manager has it: 8 letters and numbers, like ABCD-2345. You type it once on this phone.')}</p>
+            <input className="input mj-team-input" value={shownTeam(team)} onChange={(e) => setTeam(normTeam(e.target.value))} autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false}
+              inputMode="text" maxLength={9} placeholder="ABCD-2345" aria-label={tr('Team code')} autoFocus />
+            {err && <p className="mj-error" role="alert">{err}</p>}
+            <button type="submit" className="mj-big is-done" disabled={busy || normTeam(team).length !== 8}>{busy ? tr('Checking…') : tr('Next')}</button>
+          </form>
+        ) : (
+          <div className="mj-signin-box">
+            <h1>{tr('Enter your kiosk code')}</h1>
+            <p>{tr('The 4-digit code you clock in with.')}</p>
+            <div className={'mj-dots' + (err ? ' is-wrong' : '')} aria-label={tr('{n} of 4 digits', { n: pin.length })} role="status">
+              {[0, 1, 2, 3].map((i) => <span key={i} className={i < pin.length ? 'is-on' : ''} />)}
+            </div>
+            {err && <p className="mj-error" role="alert">{err}</p>}
+            {busy && <p className="mj-muted">{tr('Signing in…')}</p>}
+            <div className="mj-keypad">
+              {KEYS.map((k, i) => k === '' ? <span key={i} /> : (
+                <button key={i} type="button" className={k === 'back' ? 'is-back' : ''} disabled={busy} onClick={() => press(k)} aria-label={k === 'back' ? tr('Delete the last digit') : k}>
+                  {k === 'back' ? '⌫' : k}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="mj-link" onClick={() => { setStep('team'); setErr(null); setPin(''); }}>{tr('Team code: {code} · change it', { code: shownTeam(team) })}</button>
+          </div>
+        )}
+        <p className="mj-foot"><button type="button" className="mj-link" onClick={onEmail}>{tr('Sign in with your Bamboo OS email and password instead')}</button></p>
+      </main>
+    </div>
+  );
+}
+
+function readSignIn() {
+  try { const s = JSON.parse(readStore(SIGN_IN_KEY)); return s && /^[0-9a-f]{64}$/.test(s.token) ? s : null; } catch { return null; }
+}
+
 export default function MyJobsPage() {
-  const { session, loading, reconnecting } = useAuth();
+  const { session, loading, reconnecting, logout } = useAuth();
+  const [kiosk, setKiosk] = useState(() => { takeTeamFromLink(); return readSignIn(); });
+  const [useEmail, setUseEmail] = useState(false);
+  const [notice, setNotice] = useState(null);
   useEffect(() => {
     const before = document.title;
     document.title = tr('My Jobs · Bamboo OS');
     return () => { document.title = before; };
   }, []);
+  const ended = useCallback(() => { writeStore(SIGN_IN_KEY, null); setKiosk(null); setNotice(tr('Signed out. Sign in again with your kiosk code.')); }, []);
+  const client = useMemo(() => (session ? osClient() : kiosk ? pinClient(kiosk.token, kiosk.team, ended) : null), [session, kiosk, ended]);
+  async function signOutKiosk() {
+    try { await myJobsCall('POST', '/sign-out', {}, kiosk.token); } catch { /* signed out here anyway */ }
+    writeStore(SIGN_IN_KEY, null);
+    setKiosk(null);
+    setNotice(null);
+  }
+
   if (loading) return <div className="mj-wait">{reconnecting ? tr('Reaching the server…') : tr('Loading…')}</div>;
   // Signed in right here: an installed app leaving its own address to sign in
   // would open a browser instead (iPhone).
-  if (!session) return <LoginPage home="/myjobs" />;
-  if (session.mustChangePassword) return <ForcedPasswordChangePage />;
-  return <Jobs />;
+  if (session) {
+    if (session.mustChangePassword) return <ForcedPasswordChangePage />;
+    return <Jobs client={client} onSignOut={() => logout()} />;
+  }
+  if (kiosk) return <Jobs client={client} onSignOut={signOutKiosk} />;
+  if (useEmail) {
+    return (
+      <div className="mj-email">
+        <LoginPage home="/myjobs" />
+        <button type="button" className="mj-switch" onClick={() => setUseEmail(false)}>🔢 {tr('Use my kiosk code instead')}</button>
+      </div>
+    );
+  }
+  return <KioskSignIn notice={notice} onSignedIn={(s) => { setNotice(null); setKiosk(s); }} onEmail={() => setUseEmail(true)} />;
 }

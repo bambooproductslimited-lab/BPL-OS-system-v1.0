@@ -26,6 +26,8 @@ export function statusName(s) { return (STATUS[s] || (() => s))(); }
 
 // The photos of a job's finished work (backend GET /:id/photos/:n), for
 // components/DonePhotos.jsx's DonePhotoStrip.
-export function jobPhotoPaths(job) {
-  return (job.donePhotos || []).map((p) => '/maint-work-orders/' + job.id + '/photos/' + p.n);
+// base: where the job is read from — the OS's tracker, or My Jobs signed in
+// with a kiosk code ('/myjobs/jobs/').
+export function jobPhotoPaths(job, base = '/maint-work-orders/') {
+  return (job.donePhotos || []).map((p) => base + job.id + '/photos/' + p.n);
 }

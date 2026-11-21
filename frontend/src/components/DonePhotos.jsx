@@ -54,8 +54,8 @@ export function DonePhotoField({ value, onChange, disabled }) {
   );
 }
 
-function Shot({ path, label, onOpen }) {
-  const url = useBlobUrl(path);
+function Shot({ path, token, label, onOpen }) {
+  const url = useBlobUrl(path, undefined, token);
   return (
     <button type="button" className="dp-shot" onClick={() => url && onOpen(url)} aria-label={label}>
       {url ? <img src={url} alt="" /> : <span className="dp-shot-wait" aria-hidden="true">📷</span>}
@@ -64,13 +64,13 @@ function Shot({ path, label, onOpen }) {
 }
 
 // Showing them: thumbnails; a tap shows one full size. paths are the API
-// paths of the photos (behind sign-in).
-export function DonePhotoStrip({ paths }) {
+// paths of the photos (behind sign-in); token, a kiosk-code sign-in's.
+export function DonePhotoStrip({ paths, token }) {
   const [big, setBig] = useState(null);
   if (!paths || !paths.length) return null;
   return (
     <div className="dp-strip">
-      {paths.map((p, i) => <Shot key={p} path={p} label={tr('Photo {n} of the finished work', { n: i + 1 })} onOpen={setBig} />)}
+      {paths.map((p, i) => <Shot key={p} path={p} token={token} label={tr('Photo {n} of the finished work', { n: i + 1 })} onOpen={setBig} />)}
       {big && (
         <div className="dp-big" role="dialog" aria-modal="true" aria-label={tr('Photo of the finished work')} onClick={() => setBig(null)}>
           <img src={big} alt={tr('Photo of the finished work')} />

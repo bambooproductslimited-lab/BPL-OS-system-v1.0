@@ -202,23 +202,42 @@ function RoutineDoneDialog({ routine, busy, onDone, onClose }) {
   );
 }
 
-// The team's phone app: where it is and what it does.
-function MyJobsCard() {
-  const [copied, setCopied] = useState(false);
-  const link = window.location.origin + '/myjobs';
-  async function copy() {
-    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch { window.prompt(tr('Copy this link:'), link); }
+// The team's phone app: where it is, and — for the work order managers —
+// the team code each phone needs once before people sign in with their
+// kiosk code (backend myJobsAccess.service.js), with a link that brings it.
+function MyJobsCard({ manage }) {
+  const [copied, setCopied] = useState(null);
+  const [team, setTeam] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (manage) api.get('/maint-work-orders/myjobs-team').then(setTeam).catch((e) => setErr(e.message)); }, [manage]);
+  const plain = window.location.origin + '/myjobs';
+  const link = team ? plain + '?team=' + team.code.replace('-', '') : plain;
+  async function copy(what, text) {
+    try { await navigator.clipboard.writeText(text); setCopied(what); setTimeout(() => setCopied(null), 2500); } catch { window.prompt(tr('Copy this link:'), text); }
+  }
+  async function renew() {
+    if (!window.confirm(tr('Make a new team code? Every phone signed in with the old one is signed out, and the team needs the new code.'))) return;
+    setBusy(true);
+    try { setTeam(await api.post('/maint-work-orders/myjobs-team/renew', {})); setErr(null); } catch (e) { setErr(e.message); }
+    setBusy(false);
   }
   return (
     <div className="mw-app-card">
       <span className="mw-app-ico" aria-hidden="true">📱</span>
       <div className="mw-app-text">
         <strong>{tr('My Jobs: the team’s phone app')}</strong>
-        <small>{tr('Each person opens {link} on their phone, signs in once and adds it to the home screen. Every morning they see the jobs given to them, and mark each one done with a photo of the finished work. Routines become work orders by themselves as their day comes close.', { link: link.replace(/^https?:\/\//, '') })}</small>
+        <small>{manage
+          ? tr('Send the team the link: on their phone it brings the team code, and each person signs in with their kiosk code (the 4 digits they clock in with), then adds it to the home screen. Every morning they see the jobs given to them, and mark each one done with a photo of the finished work. Routines become work orders by themselves as their day comes close.')
+          : tr('Each person opens {link} on their phone, signs in once and adds it to the home screen. Every morning they see the jobs given to them, and mark each one done with a photo of the finished work. Routines become work orders by themselves as their day comes close.', { link: plain.replace(/^https?:\/\//, '') })}</small>
+        {manage && team && (
+          <span className="mw-app-code">{tr('Team code')}: <b>{team.code}</b> <button type="button" className="pos-link" disabled={busy} onClick={renew}>{tr('Make a new one')}</button></span>
+        )}
+        {err && <span className="mw-app-err" role="alert">{err}</span>}
       </div>
       <div className="mw-app-acts">
         <a className="btn btn-primary" href="/myjobs">{tr('Open My Jobs')}</a>
-        <button type="button" className="btn btn-secondary" onClick={copy}>{copied ? '✓ ' + tr('Copied') : tr('Copy link')}</button>
+        <button type="button" className="btn btn-secondary" onClick={() => copy('link', link)}>{copied === 'link' ? '✓ ' + tr('Copied') : manage ? tr('Copy the team’s link') : tr('Copy link')}</button>
       </div>
     </div>
   );
@@ -611,7 +630,7 @@ export default function MaintenanceOrders({ myId }) {
 
       {tab === 'dash' && (
         <>
-          <MyJobsCard />
+          <MyJobsCard manage={can.manage} />
           <nav className="mw-flow" aria-label={tr('Jobs by status')}>
             {FLOW.map((st, i) => (
               <Fragment key={st}>

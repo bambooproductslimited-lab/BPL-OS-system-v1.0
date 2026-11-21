@@ -67,7 +67,7 @@ test('anyone asks for a job; the managers hear; it is tied to our company by its
   assert.ok(seen.orders.some(function (o) { return o.id === mine.id; }));
   assert.ok(!seen.orders.some(function (o) { return o.id === asked.id; }));
   assert.equal(seen.can.manage, false);
-  await rejects(mwo.get(nobody, asked.id), 'not_found');
+  await rejects(mwo.get(nobody, asked.id), 'notfound');
   // They may call off a job they asked for while it waits to be planned.
   assert.equal((await mwo.setStatus(nobody, mine.id, { status: 'cancelled' })).status, 'cancelled');
 });
@@ -102,8 +102,8 @@ test('planned and given to someone, moved along by them, done: the sheet’s sum
   assert.equal(done.donePhotos.length, 1);
   var shot = await mwo.photoOf(worker, wo.id, 0);
   assert.match(shot.name, /^wo-\d+-done-1\.png$/);
-  await rejects(mwo.photoOf(nobody, wo.id, 0), 'not_found');
-  await rejects(mwo.photoOf(worker, wo.id, 1), 'not_found');
+  await rejects(mwo.photoOf(nobody, wo.id, 0), 'notfound');
+  await rejects(mwo.photoOf(worker, wo.id, 1), 'notfound');
   // A note on a job already done needs no new photo.
   assert.match((await mwo.setStatus(worker, wo.id, { status: 'completed', note: 'Zq all tested' })).notes, /Zq all tested/);
   assert.equal(done.daysTaken, 2, 'planned two days ago, done today');
@@ -129,7 +129,7 @@ test('planned and given to someone, moved along by them, done: the sheet’s sum
   assert.ok(s.byPerson.some(function (p) { return p.id === worker.employee.id && p.open >= 1; }));
   assert.ok(all.options.places.indexOf('BG') >= 0, 'places used before are offered');
   await mwo.remove(boss, wo.id);
-  await rejects(mwo.get(boss, wo.id), 'not_found');
+  await rejects(mwo.get(boss, wo.id), 'notfound');
 });
 
 test('routines come round every so many days; a work order made from one marks it done', async function () {
@@ -166,7 +166,7 @@ test('routines come round every so many days; a work order made from one marks i
   assert.deepEqual(log.map(function (l) { return l.photos; }).sort(), [1, 2]);
   var byHand = log.find(function (l) { return l.photos === 2; });
   assert.match((await mwo.routinePhotoOf(worker, byHand.id, 1)).name, /^rt-\d+-done-2\.png$/);
-  await rejects(mwo.routinePhotoOf(nobody, byHand.id, 0), 'not_found');
+  await rejects(mwo.routinePhotoOf(nobody, byHand.id, 0), 'notfound');
   await rejects(mwo.routineDone(reader, rt.id, {}), 'forbidden');
   // Every so many days changed: the next day follows.
   assert.equal((await mwo.saveRoutine(boss, rt.id, { everyDays: 30 })).nextOn, addDays(today(), 30));

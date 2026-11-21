@@ -9,10 +9,12 @@ import { API_URL, getToken } from '../api/client';
 
 const cache = new Map(); // key -> Promise<string | null>
 
-export function fetchBlobUrl(path, version) {
+// token: another sign-in's, in place of the OS's (My Jobs signed in with a
+// kiosk code, pages/MyJobsPage.jsx).
+export function fetchBlobUrl(path, version, token) {
   const key = path + '#' + (version || '');
   if (!cache.has(key)) {
-    cache.set(key, fetch(API_URL + path, { headers: { Authorization: 'Bearer ' + (getToken() || '') } })
+    cache.set(key, fetch(API_URL + path, { headers: { Authorization: 'Bearer ' + (token || getToken() || '') } })
       .then((r) => (r.ok ? r.blob() : null))
       .then((b) => (b ? URL.createObjectURL(b) : null))
       .catch(() => { cache.delete(key); return null; }));
@@ -25,15 +27,15 @@ export function forgetBlob(path) {
 
 // The object URL for a protected file, or null while loading / if missing.
 // path null means "nothing to load".
-export function useBlobUrl(path, version) {
+export function useBlobUrl(path, version, token) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
     let alive = true;
     setUrl(null);
     if (!path) return undefined;
-    fetchBlobUrl(path, version).then((u) => { if (alive) setUrl(u); });
+    fetchBlobUrl(path, version, token).then((u) => { if (alive) setUrl(u); });
     return () => { alive = false; };
-  }, [path, version]);
+  }, [path, version, token]);
   return url;
 }
 

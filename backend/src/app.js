@@ -71,6 +71,7 @@ var oauthRoutes = require('./routes/oauth.routes');
 var attendanceFeedsRoutes = require('./routes/attendanceFeeds.routes');
 var whatsappRoutes = require('./routes/whatsapp.routes');
 var kioskRoutes = require('./routes/kiosk.routes');
+var myJobsRoutes = require('./routes/myJobs.routes');
 var meetRoutes = require('./routes/meet.routes');
 var pushRoutes = require('./routes/push.routes');
 var squareRoutes = require('./routes/square.routes');
@@ -302,6 +303,8 @@ app.use('/api/marketing', marketingRoutes);
 // brand kit, market and audiences (routes/mk.routes.js).
 app.use('/api/mk', require('./routes/mk.routes'));
 app.use('/api/kiosk', kioskRoutes);
+// My Jobs signed in with a kiosk code: its own sign-in, the person's own jobs only.
+app.use('/api/myjobs', myJobsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/poki', pokiRoutes);
 app.use('/api/square', squareRoutes);

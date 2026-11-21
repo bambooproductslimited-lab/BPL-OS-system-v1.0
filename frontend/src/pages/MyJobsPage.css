@@ -113,3 +113,26 @@
   position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 60;
   max-width: calc(100% - 32px); padding: 12px 18px; border-radius: 999px; background: #1d2b1c; color: #fff; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
+
+/* Signing in with the kiosk code */
+.mj-signin .mj-main { max-width: 420px; }
+.mj-signin-box { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin-top: 12px; padding: 20px 18px; border-radius: 16px; background: var(--color-bg); border: 1px solid var(--color-border); text-align: center; }
+.mj-signin-box h1 { margin: 0; font-size: 22px; font-family: var(--font-heading); }
+.mj-signin-box p { margin: 0; color: var(--color-text-muted); font-size: 14px; line-height: 1.45; }
+.mj-team-input { font-size: 26px; letter-spacing: 0.12em; text-align: center; text-transform: uppercase; padding: 12px; font-weight: 700; }
+.mj-dots { display: flex; justify-content: center; gap: 16px; margin: 8px 0 2px; }
+.mj-dots span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--color-accent-700); }
+.mj-dots span.is-on { background: var(--color-accent-700); }
+.mj-dots.is-wrong span { border-color: var(--color-danger); }
+.mj-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 6px; }
+.mj-keypad button { min-height: 62px; border-radius: 14px; border: 1px solid var(--color-border); background: var(--color-bg-subtle); color: var(--color-text); font: inherit; font-size: 26px; font-weight: 700; cursor: pointer; }
+.mj-keypad button:active { background: var(--color-accent-100); }
+.mj-keypad button.is-back { font-size: 22px; }
+.mj-keypad button:disabled { opacity: 0.5; }
+.mj-notice { padding: 10px 12px; border-radius: 10px; background: var(--color-warning-100); font-size: 14px; }
+.mj-email { position: relative; min-height: 100vh; }
+.mj-switch {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
+  padding: 12px 18px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text);
+  font: inherit; font-weight: 700; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); cursor: pointer;
+}

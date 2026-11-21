@@ -170,17 +170,17 @@ function visibleWhere(ctx, args) {
 }
 
 async function loadOrder(ctx, id, db) {
-  if (!isUuid(id)) fail('not_found', 'That work order no longer exists.');
+  if (!isUuid(id)) fail('notfound', 'That work order no longer exists.');
   var row = (await (db || pool).query(SELECT_WO + 'WHERE w.id = $1', [id])).rows[0];
-  if (!row) fail('not_found', 'That work order no longer exists.');
+  if (!row) fail('notfound', 'That work order no longer exists.');
   var o = shapeOrder(row, ctx);
-  if (!seesAll(ctx) && !o.mine.asked && !o.mine.given) fail('not_found', 'That work order no longer exists.');
+  if (!seesAll(ctx) && !o.mine.asked && !o.mine.given) fail('notfound', 'That work order no longer exists.');
   return { row: row, order: o };
 }
 async function loadRoutine(id, db) {
-  if (!isUuid(id)) fail('not_found', 'That routine no longer exists.');
+  if (!isUuid(id)) fail('notfound', 'That routine no longer exists.');
   var row = (await (db || pool).query(SELECT_RT + 'WHERE r.id = $1', [id])).rows[0];
-  if (!row) fail('not_found', 'That routine no longer exists.');
+  if (!row) fail('notfound', 'That routine no longer exists.');
   return row;
 }
 
@@ -335,19 +335,19 @@ function photoName(prefix, n, p) { return prefix + '-' + (Number(n) + 1) + (p.ty
 async function photoOf(ctx, id, n) {
   var row = (await loadOrder(ctx, id)).row;
   var p = (row.done_photos || [])[Number(n)];
-  if (!p) fail('not_found', 'No such photo.');
+  if (!p) fail('notfound', 'No such photo.');
   return { key: p.key, name: photoName(String(row.ref || 'job').toLowerCase() + '-done', n, p) };
 }
 
 // GET /routines/log/:id/photos/:n — whoever sees every job, does the
 // routine, or did it that time.
 async function routinePhotoOf(ctx, logId, n) {
-  if (!isUuid(logId)) fail('not_found', 'No such photo.');
+  if (!isUuid(logId)) fail('notfound', 'No such photo.');
   var l = (await pool.query('SELECT l.photos, l.done_by_id, r.ref, r.assigned_to_id FROM maint_routine_log l JOIN maint_routines r ON r.id = l.routine_id WHERE l.id = $1', [logId])).rows[0];
-  if (!l) fail('not_found', 'No such photo.');
-  if (!seesAll(ctx) && l.done_by_id !== ctx.employee.id && l.assigned_to_id !== ctx.employee.id) fail('not_found', 'No such photo.');
+  if (!l) fail('notfound', 'No such photo.');
+  if (!seesAll(ctx) && l.done_by_id !== ctx.employee.id && l.assigned_to_id !== ctx.employee.id) fail('notfound', 'No such photo.');
   var p = (l.photos || [])[Number(n)];
-  if (!p) fail('not_found', 'No such photo.');
+  if (!p) fail('notfound', 'No such photo.');
   return { key: p.key, name: photoName(String(l.ref || 'routine').toLowerCase() + '-done', n, p) };
 }
 
