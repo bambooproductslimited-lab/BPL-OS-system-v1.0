@@ -14,6 +14,7 @@ import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initia
 import { adjustmentRows, creditRows, lineAmount, paymentsForDocument, totalsForDialog } from '../lib/docItems';
 import CreditNoteDialog from '../components/CreditNoteDialog';
 import CancelInvoiceDialog from '../components/CancelInvoiceDialog';
+import ReviveDialog from '../components/ReviveDialog';
 import { RepeatDialog, SeriesDialog } from '../components/RepeatInvoice';
 import InvoiceCleanupDialog from '../components/InvoiceCleanupDialog';
 import { money, moneyBreakdown } from '../lib/currency';
@@ -127,6 +128,7 @@ export default function InvoicesPage() {
   const [payTarget, setPayTarget] = useState(null);
   const [creditTarget, setCreditTarget] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null); // an invoice to cancel, paid or not (components/CancelInvoiceDialog.jsx)
+  const [reviving, setReviving] = useState(null); // its customer link ran out, or past its due date (components/ReviveDialog.jsx)
   const [repeatTarget, setRepeatTarget] = useState(null); // an invoice to repeat (components/RepeatInvoice.jsx)
   const [seriesOpen, setSeriesOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
@@ -388,12 +390,15 @@ export default function InvoicesPage() {
   // Something left to take back, or money paid over what is owed.
   const canCredit = (inv) => canManage && inv.status !== 'void' &&
     (inv.grandTotal - (inv.creditTotal || 0) > 0.005 || inv.amountPaid > inv.grandTotal - (inv.creditTotal || 0) + 0.005);
+  // Its customer link ran out, or it is past its due date: revived with ReviveDialog.
+  const canRevive = (inv) => canManage && inv.status !== 'void' && (inv.linkExpired || inv.overdue);
   function actionsFor(inv) {
     return [
       { label: tr('Open'), onClick: () => setDetail(inv.id) },
       { label: tr('Preview'), onClick: () => openPreview(inv) },
       canManage && isOwing(inv) && { label: tr('Record payment'), onClick: () => openPay(inv) },
       canManage && isOwing(inv) && inv.customerPhone && { label: tr('Remind on WhatsApp'), onClick: () => remind(inv) },
+      canRevive(inv) && { label: '♻️ ' + tr('Revive'), onClick: () => setReviving(inv) },
       canManage && inv.status !== 'void' && { label: tr('Change due date or PO'), onClick: () => openEdit(inv) },
       canCredit(inv) && { label: tr('Credit note'), onClick: () => setCreditTarget(inv) },
       canManage && inv.status !== 'void' && { label: tr('Cancel invoice'), onClick: () => setCancelTarget(inv), danger: true },
@@ -593,6 +598,7 @@ export default function InvoicesPage() {
             <div className="dialog-actions tl-actions">
               {canDelete(cur) && <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(cur)}>{tr('Delete')}</button>}
               {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary iv-cancel" onClick={() => setCancelTarget(cur)}>{tr('Cancel invoice')}</button>}
+              {canRevive(cur) && <button type="button" className="btn btn-secondary" onClick={() => setReviving(cur)}>♻️ {tr('Revive')}</button>}
               {canManage && cur.status !== 'void' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Change due date or PO')}</button>}
               {canCredit(cur) && <button type="button" className="btn btn-secondary" onClick={() => setCreditTarget(cur)}>{tr('Credit note')}</button>}
               {canManage && cur.status !== 'void' && !cur.seriesId && <button type="button" className="btn btn-secondary" onClick={() => setRepeatTarget(cur)}>🔁 {tr('Repeat')}</button>}
@@ -779,6 +785,14 @@ export default function InvoicesPage() {
       {creditTarget && <CreditNoteDialog invoice={creditTarget} apiBase="/invoices" onClose={() => setCreditTarget(null)} onDone={() => load()} />}
 
       {toast && <div className="toast" role="status">{toast}</div>}
+      {reviving && <ReviveDialog kind="invoice" doc={reviving} onClose={() => setReviving(null)}
+        onDone={(out, date) => {
+          setReviving(null);
+          setToast(date && out.reopenedLinks ? tr('{no} is now due {date}, and its customer link is open again for 30 days.', { no: out.invoiceNo, date: fmtDate(date) })
+            : date ? tr('{no} is now due {date}.', { no: out.invoiceNo, date: fmtDate(date) })
+              : tr('{no}: its customer link is open again for 30 days.', { no: out.invoiceNo }));
+          load();
+        }} />}
     </div>
   );
 }

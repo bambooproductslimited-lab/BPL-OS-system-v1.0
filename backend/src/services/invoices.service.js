@@ -51,6 +51,8 @@ async function list(ctx) {
   var res = await pool.query(
     'SELECT i.*, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email, c.category AS customer_category, ' +
     '  q.quote_no, so.order_no, rm.reminders, rm.last_reminded_at, ' +
+    // Its customer link, if one was made: when the latest runs out.
+    "  (SELECT max(s.expires_at) FROM document_shares s WHERE s.document_type = 'invoice' AND s.document_id = i.id) AS link_expires_at, " +
     // The sale's rep: its sales order's, else the customer's (CRM).
     "  COALESCE(so.rep_id, c.account_manager_id) AS rep_id, rp.first_name || ' ' || rp.last_name AS rep_name " +
     'FROM invoices i JOIN customers c ON c.id = i.customer_id ' +
@@ -89,6 +91,7 @@ async function list(ctx) {
       reminders: r.reminders || 0, lastRemindedAt: r.last_reminded_at || null,
       overdue: overdue, daysOverdue: overdue ? Math.round((new Date(t + 'T00:00:00Z') - new Date(r.due_date + 'T00:00:00Z')) / 86400000) : 0,
       payments: byInvoice[r.id] || [],
+      linkExpiresAt: r.link_expires_at || null, linkExpired: !!(r.link_expires_at && new Date(r.link_expires_at) < new Date())
     }));
   }
   return out;
@@ -313,6 +316,32 @@ async function update(ctx, id, p) {
   return rowToInvoice(pool, i);
 }
 
+// POST /:id/revive { dueDate? } — an invoice whose customer link ran out,
+// or that is past its due date: the link the customer already has opens
+// again for 30 days (to see it and pay it online), and with dueDate, a new
+// due date (today or later). Not a voided invoice.
+async function revive(ctx, id, p) {
+  if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
+  p = p || {};
+  var inv = (await pool.query('SELECT * FROM invoices WHERE id = $1', [id])).rows[0];
+  if (!inv) fail('notfound', 'Invoice not found.');
+  if (inv.status === 'void') fail('conflict', 'This invoice has been voided.');
+  var t = todayISO();
+  var due = p.dueDate ? V.date(p.dueDate, 'The new due date') : null;
+  if (due && due < t) fail('invalid', 'The new due date must be today or later.');
+  if (due && (inv.status === 'paid' || Number(inv.balance_due) <= 0)) fail('conflict', 'This invoice is paid: it needs no new due date.');
+  return withTransaction(async function (client) {
+    var r = inv;
+    if (due) r = (await client.query('UPDATE invoices SET due_date = $2 WHERE id = $1 RETURNING *', [id, due])).rows[0];
+    var links = await require('./shares.service').reopenLinks(client, 'invoice', id, null);
+    if (!due && !links.links) fail('invalid', 'This invoice has no customer link yet: share it to make one, or give it a new due date.');
+    await audit(client, ctx, 'invoice.revive', 'invoice', id, 'Revived ' + r.invoice_no + ':' + (due ? ' due ' + due + (inv.due_date ? ' (was ' + String(inv.due_date).slice(0, 10) + ')' : '') + ';' : '') +
+      (links.links ? ' the customer\'s link opens again until ' + links.until.toISOString().slice(0, 10) : ' no customer link yet') + '.');
+    var last = (await client.query("SELECT max(expires_at) AS e FROM document_shares WHERE document_type = 'invoice' AND document_id = $1", [id])).rows[0].e;
+    return rowToInvoice(client, r, { reopenedLinks: links.links, linkExpiresAt: last || null, linkExpired: !!(last && new Date(last) < new Date()) });
+  });
+}
+
 // kernel.js: handlers['invoices.delete']
 async function remove(ctx, id) {
   if (!ctx.can('invoice.manage')) fail('forbidden', 'Your role does not allow this action (invoice.manage).');
@@ -425,6 +454,6 @@ async function markPaid(ctx, id) {
 
 module.exports = {
   list: list, createFromOrder: createFromOrder, createFromQuotation: createFromQuotation, createManual: createManual,
-  recordPayment: recordPayment, update: update, remove: remove, voidInvoice: voidInvoice, markPaid: markPaid,
+  recordPayment: recordPayment, update: update, remove: remove, voidInvoice: voidInvoice, markPaid: markPaid, revive: revive,
   rowToInvoice: rowToInvoice, rowToPayment: rowToPayment, rowToReceipt: rowToReceipt
 };

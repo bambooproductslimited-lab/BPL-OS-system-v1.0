@@ -21,6 +21,10 @@ router.put('/:id', async function (req, res, next) {
 router.delete('/:id', async function (req, res, next) {
   try { res.json(await estimatesService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
+// A document that ran out, with a new valid-until date; its customer link opens again.
+router.post('/:id/revive', async function (req, res, next) {
+  try { res.json(await estimatesService.revive(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
 router.post('/:id/status', async function (req, res, next) {
   try { res.json(await estimatesService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
 });

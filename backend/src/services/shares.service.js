@@ -57,6 +57,20 @@ async function issueLink(documentType, documentId, days, employeeId) {
   return { token: token, expiresAt: expiresAt };
 }
 
+// The links a customer already has for a document, open again — a revived
+// quotation, estimate or invoice (their services' revive): until the end of
+// untilDay, and at most SHARE_MAX_DAYS from now, as any link. Returns how
+// many were opened again and until when.
+async function reopenLinks(db, documentType, documentId, untilDay) {
+  var cap = new Date(Date.now() + SHARE_MAX_DAYS * 86400000);
+  var until = untilDay ? new Date(String(untilDay).slice(0, 10) + 'T23:59:59Z') : cap;
+  if (!(until <= cap)) until = cap;
+  var r = await (db || pool).query(
+    'UPDATE document_shares SET expires_at = $3 WHERE document_type = $1 AND document_id = $2 AND expires_at < $3',
+    [documentType, documentId, until]);
+  return { links: r.rowCount, until: until };
+}
+
 // Normalizes the three slightly different row shapes into one view model —
 // exactly what the public preview page (and nothing more) needs.
 async function getSharedDocument(token) {
@@ -214,5 +228,5 @@ async function shareViaWhatsApp(ctx, documentType, documentId, url) {
   return { sent: true };
 }
 
-module.exports = { createShareLink: createShareLink, issueLink: issueLink, getSharedDocument: getSharedDocument, documentView: documentView, shareViaWhatsApp: shareViaWhatsApp,
+module.exports = { createShareLink: createShareLink, issueLink: issueLink, reopenLinks: reopenLinks, getSharedDocument: getSharedDocument, documentView: documentView, shareViaWhatsApp: shareViaWhatsApp,
   SHARE_DEFAULT_DAYS: SHARE_DEFAULT_DAYS, SHARE_MAX_DAYS: SHARE_MAX_DAYS };

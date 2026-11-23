@@ -56,6 +56,10 @@ router.delete('/:id', async function (req, res, next) {
 });
 
 // kernel.js: handlers['invoices.void'] -> POST /api/invoices/:id/void
+// Its customer link open again for 30 days, and a new due date if given.
+router.post('/:id/revive', async function (req, res, next) {
+  try { res.json(await invoicesService.revive(req.ctx, req.params.id, req.body)); } catch (e) { next(e); }
+});
 router.post('/:id/void', async function (req, res, next) {
   var body = req.body || {};
   try { res.json(await invoicesService.voidInvoice(req.ctx, req.params.id, body.reason, body.money)); } catch (e) { next(e); }

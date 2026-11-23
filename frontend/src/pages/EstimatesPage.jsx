@@ -10,6 +10,7 @@ import DocPreview from '../components/DocPreview';
 import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
+import ReviveDialog from '../components/ReviveDialog';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { adjustmentRows, lineAmount, totalsForDialog } from '../lib/docItems';
 import { money, moneyBreakdown } from '../lib/currency';
@@ -99,6 +100,7 @@ export default function EstimatesPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [reviving, setReviving] = useState(null); // an estimate past its date, given a new one (components/ReviveDialog.jsx)
   const [detail, setDetail] = useState(null);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -283,6 +285,7 @@ export default function EstimatesPage() {
       canManage && es.status === 'draft' && { label: tr('Edit'), onClick: () => openEdit(es) },
       canManage && es.status === 'draft' && { label: tr('Mark ready'), onClick: () => finalize(es) },
       canManage && isOpen(es) && { label: tr('Make into a quotation'), onClick: () => convert(es) },
+      canManage && isPast(es) && { label: '♻️ ' + tr('Revive with a new date'), onClick: () => setReviving(es) },
       canManage && es.status === 'finalized' && { label: tr('Back to draft'), onClick: () => reopen(es) },
       canManage && isOpen(es) && { label: tr('Put away'), onClick: () => archive(es) },
       canManage && es.status === 'archived' && { label: tr('Bring back'), onClick: () => reopen(es) },
@@ -448,6 +451,7 @@ export default function EstimatesPage() {
               {canManage && cur.status !== 'converted' && <button type="button" className="btn btn-secondary" onClick={() => setDeleteTarget(cur)}>{tr('Delete')}</button>}
               {canManage && isOpen(cur) && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => archive(cur)}>{tr('Put away')}</button>}
               {canManage && cur.status === 'archived' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => reopen(cur)}>{tr('Bring back')}</button>}
+              {canManage && isPast(cur) && <button type="button" className="btn btn-secondary" onClick={() => setReviving(cur)}>♻️ {tr('Revive with a new date')}</button>}
               {canManage && cur.status === 'draft' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Edit')}</button>}
               <button type="button" className="btn btn-secondary" onClick={() => openPreview(cur)}>{tr('Preview')}</button>
               {canManage && cur.status === 'draft' && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => finalize(cur)}>{tr('Mark ready')}</button>}
@@ -552,6 +556,8 @@ export default function EstimatesPage() {
           }} />
       )}
       {toast && <div className="toast" role="status">{toast}</div>}
+      {reviving && <ReviveDialog kind="estimate" doc={reviving} onClose={() => setReviving(null)}
+        onDone={(out, date) => { setReviving(null); setToast(tr('{no} is open again until {date}.', { no: out.estimateNo, date: fmtDate(date) })); load(); }} />}
     </div>
   );
 }

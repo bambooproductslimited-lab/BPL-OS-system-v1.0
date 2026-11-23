@@ -10,6 +10,7 @@ import DocPreview from '../components/DocPreview';
 import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import RowMenu from '../components/RowMenu';
+import ReviveDialog from '../components/ReviveDialog';
 import { Glossary, Hero, Insights, Section, Status, avatarColor, fmtDate, initials, jump } from '../components/DashKit';
 import { adjustmentRows, lineAmount, totalsForDialog } from '../lib/docItems';
 import { money, moneyBreakdown } from '../lib/currency';
@@ -110,6 +111,7 @@ export default function QuotationsPage() {
   const [dialogError, setDialogError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [reviving, setReviving] = useState(null); // a quotation that ran out, given a new date (components/ReviveDialog.jsx)
   const [detail, setDetail] = useState(() => params.get('open'));
   const [previewQ, setPreviewQ] = useState(null);
   const [search, setSearch] = useState('');
@@ -305,7 +307,8 @@ export default function QuotationsPage() {
       canManage && isWaiting(q) && { label: tr('Client turned it down'), onClick: () => setStatus(q, 'rejected') },
       canInvoice && toInvoice(q) && { label: tr('Make the invoice'), onClick: () => convertToInvoice(q) },
       inv && { label: tr('Open {no}', { no: inv.invoiceNo }), to: '/invoices?open=' + inv.id },
-      canManage && (isLost(q) || (q.status === 'accepted' && !inv)) && { label: tr('Reopen as a draft'), onClick: () => setStatus(q, 'draft') },
+      canManage && q.status === 'expired' && { label: '♻️ ' + tr('Revive with a new date'), onClick: () => setReviving(q) },
+      canManage && ((isLost(q) && q.status !== 'expired') || (q.status === 'accepted' && !inv)) && { label: tr('Reopen as a draft'), onClick: () => setStatus(q, 'draft') },
       canManage && (q.status === 'draft' || isWaiting(q)) && { label: tr('Cancel'), onClick: () => setStatus(q, 'cancelled'), danger: true }
     ].filter(Boolean).map((a) => (a.to ? { label: a.label, onClick: () => navigate(a.to) } : a));
   }
@@ -427,7 +430,7 @@ export default function QuotationsPage() {
         [tr('Waiting for an answer'), tr('Sent (or seen) and the client hasn\'t said yes or no. Counted from the day it was sent.')],
         [tr('Accepted'), tr('The client said yes. The next step is the invoice.')],
         [tr('Invoiced'), tr('An invoice was made from it. Its status then stays accepted unless that invoice is voided.')],
-        [tr('Lost'), tr('Turned down, cancelled, or it passed its valid-until date without an answer (expired). It can be reopened as a draft to update the prices.')],
+        [tr('Lost'), tr('Turned down, cancelled, or it passed its valid-until date without an answer (expired). An expired one can be revived with a new valid-until date; the others can be reopened as a draft to update the prices.')],
         [tr('Won in the last 90 days'), tr('Quotations accepted in the last 90 days, added up in each currency. The share won counts only those answered or expired in that time.')]
       ]} />
 
@@ -489,7 +492,8 @@ export default function QuotationsPage() {
             {cur.terms && <details className="qt-terms"><summary>{tr('Terms & conditions')}</summary><p className="tl-notes">{cur.terms}</p></details>}
             <div className="dialog-actions tl-actions">
               {canManage && (cur.status === 'draft' || isWaiting(cur)) && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'cancelled')}>{tr('Cancel quotation')}</button>}
-              {canManage && (isLost(cur) || toInvoice(cur)) && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'draft')}>{tr('Reopen as a draft')}</button>}
+              {canManage && cur.status === 'expired' && <button type="button" className="btn btn-primary" onClick={() => setReviving(cur)}>♻️ {tr('Revive with a new date')}</button>}
+              {canManage && ((isLost(cur) && cur.status !== 'expired') || toInvoice(cur)) && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'draft')}>{tr('Reopen as a draft')}</button>}
               {canManage && cur.status === 'draft' && <button type="button" className="btn btn-secondary" onClick={() => openEdit(cur)}>{tr('Edit')}</button>}
               <button type="button" className="btn btn-secondary" onClick={() => openPreview(cur)}>{tr('Preview')}</button>
               {canManage && isWaiting(cur) && <button type="button" className="btn btn-secondary" disabled={busyId === cur.id} onClick={() => setStatus(cur, 'rejected')}>{tr('Client turned it down')}</button>}
@@ -574,6 +578,8 @@ export default function QuotationsPage() {
       )}
 
       {toast && <div className="toast" role="status">{toast}</div>}
+      {reviving && <ReviveDialog kind="quotation" doc={reviving} onClose={() => setReviving(null)}
+        onDone={(out, date) => { setReviving(null); setToast(tr('{no} is open again until {date}.', { no: out.quoteNo, date: fmtDate(date) })); load(); }} />}
     </div>
   );
 }

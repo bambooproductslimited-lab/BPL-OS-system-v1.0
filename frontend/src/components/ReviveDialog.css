@@ -1,0 +1,8 @@
+/* Reviving a document that ran out (components/ReviveDialog.jsx). */
+.rv { width: min(520px, 100%); }
+.rv h2 { margin-top: 0; }
+.rv-what { margin: 0 0 14px; line-height: 1.5; }
+.rv-field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--color-text-muted); max-width: 240px; }
+.rv-check { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-weight: 600; cursor: pointer; }
+.rv-note { margin: 0 0 6px; font-size: 13px; color: var(--color-text-muted); }
+.rv-err { margin: 8px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--color-danger-100); color: var(--color-danger); font-size: 14px; }

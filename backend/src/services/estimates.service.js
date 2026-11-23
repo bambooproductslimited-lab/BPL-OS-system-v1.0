@@ -94,6 +94,32 @@ async function setStatus(ctx, id, status) {
   return rowToEstimate(pool, es);
 }
 
+// POST /:id/revive { validUntil } — an estimate past its valid-until date
+// with a new one: its customer can answer it again, and the link they
+// already have works again (shares.service reopenLinks). One already made
+// into a quotation is revived there.
+async function revive(ctx, id, p) {
+  if (!ctx.can('quotation.manage')) fail('forbidden', 'Your role does not allow this action (quotation.manage).');
+  p = p || {};
+  var es = (await pool.query('SELECT * FROM estimates WHERE id = $1', [id])).rows[0];
+  if (!es) fail('notfound', 'Estimate not found.');
+  if (es.status === 'converted') {
+    var q = (await pool.query('SELECT quote_no FROM quotations WHERE from_estimate_id = $1 ORDER BY created_at DESC LIMIT 1', [id])).rows[0];
+    fail('conflict', 'This estimate was made into ' + (q ? 'quotation ' + q.quote_no : 'a quotation') + ': revive that quotation instead.');
+  }
+  var t = todayISO();
+  var was = es.valid_until ? String(es.valid_until).slice(0, 10) : null;
+  var until = V.date(p.validUntil, 'The new valid-until date');
+  if (until < t) fail('invalid', 'The new valid-until date must be today or later.');
+  return withTransaction(async function (client) {
+    var r = (await client.query('UPDATE estimates SET valid_until = $2 WHERE id = $1 RETURNING *', [id, until])).rows[0];
+    var links = await require('./shares.service').reopenLinks(client, 'estimate', id, until);
+    await audit(client, ctx, 'estimate.revive', 'estimate', id, 'Revived ' + r.estimate_no + (was ? ' (it ran out ' + was + ')' : '') + ': valid until ' + until +
+      (links.links ? '; the customer\'s link opens again' : '') + '.');
+    return rowToEstimate(client, r, { reopenedLinks: links.links });
+  });
+}
+
 // kernel.js: handlers['estimates.update']
 async function update(ctx, id, p) {
   if (!ctx.can('quotation.manage')) fail('forbidden', 'Your role does not allow this action (quotation.manage).');
@@ -177,4 +203,4 @@ async function convertToQuotation(ctx, id) {
   return quotationsService.rowToQuotation(pool, final.rows[0]);
 }
 
-module.exports = { list: list, create: create, setStatus: setStatus, update: update, remove: remove, convertToQuotation: convertToQuotation };
+module.exports = { list: list, create: create, setStatus: setStatus, update: update, remove: remove, convertToQuotation: convertToQuotation, revive: revive };

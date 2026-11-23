@@ -166,6 +166,32 @@ async function setStatus(ctx, id, status) {
   return rowToQuotation(pool, q);
 }
 
+// POST /:id/revive { validUntil } — a quotation that ran out (expired, or
+// past its valid-until date without an answer) with a new valid-until date:
+// open again — sent, if it had gone out, else a draft — and the link the
+// customer already has works again (shares.service reopenLinks). Before,
+// "Reopen as a draft" left the old date, so it ran out again at once.
+async function revive(ctx, id, p) {
+  if (!ctx.can('quotation.manage')) fail('forbidden', 'Your role does not allow this action (quotation.manage).');
+  p = p || {};
+  var q = (await pool.query('SELECT * FROM quotations WHERE id = $1', [id])).rows[0];
+  if (!q) fail('notfound', 'Quotation not found.');
+  var t = todayISO();
+  var was = q.valid_until ? String(q.valid_until).slice(0, 10) : null;
+  var ranOut = q.status === 'expired' || (['draft', 'sent', 'viewed'].indexOf(q.status) >= 0 && was && was < t);
+  if (!ranOut) fail('conflict', 'Only a quotation that has run out can be revived: this one is ' + q.status + '.');
+  var until = V.date(p.validUntil, 'The new valid-until date');
+  if (until < t) fail('invalid', 'The new valid-until date must be today or later.');
+  var status = q.sent_at ? 'sent' : 'draft';
+  return withTransaction(async function (client) {
+    var r = (await client.query('UPDATE quotations SET status = $2, valid_until = $3, answered_at = NULL WHERE id = $1 RETURNING *', [id, status, until])).rows[0];
+    var links = await require('./shares.service').reopenLinks(client, 'quotation', id, until);
+    await audit(client, ctx, 'quotation.revive', 'quotation', id, 'Revived ' + r.quote_no + ' (it ran out ' + (was || '') + '): valid until ' + until + ', ' + status +
+      (links.links ? '; the customer\'s link opens again' : '') + '.');
+    return rowToQuotation(client, r, { reopenedLinks: links.links });
+  });
+}
+
 // Only a draft can be changed; once it has gone out, the client has seen
 // those prices.
 async function update(ctx, id, p) {
@@ -218,4 +244,4 @@ async function choose(ctx, id, key) {
   return rowToQuotation(pool, q);
 }
 
-module.exports = { list: list, create: create, update: update, setStatus: setStatus, rowToQuotation: rowToQuotation, choose: choose, chooseOption: chooseOption, optionsOut: optionsOut };
+module.exports = { list: list, create: create, update: update, setStatus: setStatus, revive: revive, rowToQuotation: rowToQuotation, choose: choose, chooseOption: chooseOption, optionsOut: optionsOut };
