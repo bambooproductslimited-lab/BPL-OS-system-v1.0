@@ -10,6 +10,9 @@ import { StopPill } from './crmStop';
 import { NOT_LEAD_REASONS, reasonText } from './crmStopReasons';
 import { SalesReviewButton } from './SalesPresent';
 import { PRIORITY_GLOSSARY, PriorityKey, PriorityRing, ReasonChips, TIERS, TierTag, estimate } from './leadPriority';
+import { AddContactsDialog, GroupDialog, GroupsSection } from './LeadGroups';
+import { useLeadGroups } from './leadGroupKinds';
+import './LeadGroups.css';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
 import './CrmPage.css';
@@ -31,6 +34,10 @@ import './CrmPage.css';
 // ones to work first and the priority ladder, the list is in that order
 // unless another is picked (?sort=new, ?sort=follow) and can keep one tier
 // (?tier=solid). The star marks a lead Important by hand.
+//
+// Groups (LeadGroups.jsx): the people from a fair or an event, a list or a
+// campaign, each with how far its follow-up has got; ?group= shows one
+// group's leads, at every stage.
 
 const LIST_STEP = 60;
 const TIER_COLOR = { solid: 'var(--lp-solid)', promising: 'var(--lp-promising)', maybe: 'var(--lp-maybe)', long_shot: 'var(--lp-long)' };
@@ -56,6 +63,8 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   const [toast, setToast] = useState(null);
   const [moving, setMoving] = useState(null);
   const unmatched = useUnmatchedNames();
+  const leadGroups = useLeadGroups();
+  const reloadGroups = leadGroups.reload;
 
   const stagesHere = isP ? PROSPECT_STAGES : LEAD_STAGES;
   const view = params.get('view') === 'board' ? 'board' : 'list';
@@ -65,12 +74,16 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   const sourceF = params.get('source') || '';
   const tierF = TIERS.some((t) => t.key === params.get('tier')) ? params.get('tier') : '';
   const sortF = SORTS[params.get('sort')] ? params.get('sort') || '' : '';
+  const groupF = params.get('group') || '';
+  const groupOn = leadGroups.groups.find((g) => g.id === groupF) || null;
   function setParam(k, v) { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); p.delete('lead'); p.delete('new'); setParams(p, { replace: true }); setShown(LIST_STEP); }
 
   const load = useCallback(async () => {
     try { setLeads(await api.get('/crm/leads?stage=all&limit=1000')); setError(null); } catch (err) { setError(err.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  const reloadAll = useCallback(() => { load(); reloadGroups(); }, [load, reloadGroups]);
+  const inGroup = useCallback((l) => !groupF || (l.groups || []).some((g) => g.id === groupF), [groupF]);
 
   // What this page holds while it is being worked on.
   const isOpenHere = useCallback((l) => (isP ? l.phase === 'prospect' || l.phase === 'won' : l.phase === 'lead'), [isP]);
@@ -80,7 +93,9 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   const unTiered = useMemo(() => {
     if (!leads) return [];
     return leads.filter((l) => {
-      if (stageF === 'open') { if (!isOpenHere(l)) return false; }
+      if (!inGroup(l)) return false;
+      if (stageF === 'all') { /* every stage */ }
+      else if (stageF === 'open') { if (!isOpenHere(l)) return false; }
       else if (stageF === 'won' || stageF === 'customer') { if (l.phase !== stageF) return false; }
       else if (l.stage !== stageF) return false;
       if (followF) {
@@ -95,12 +110,11 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
       if (sourceF && (l.source || '-') !== sourceF) return false;
       return matchesQuery(q, ...[l.name, l.company, l.phone, l.item, l.location, l.ref, l.sheetRef, l.repName, l.comments]);
     });
-  }, [leads, stageF, followF, sourceF, q, isOpenHere, repMatch]);
+  }, [leads, stageF, followF, sourceF, q, isOpenHere, repMatch, inGroup]);
   const filtered = useMemo(() => unTiered.filter((l) => !tierF || (l.priority && l.priority.tier === tierF)).sort(SORTS[sortF]), [unTiered, tierF, sortF]);
 
   if (!leads) return <div className="dk">{error ? <div className="error-banner">{error}</div> : <div className="eyebrow">{tr('Loading…')}</div>}</div>;
 
-  const open = leads.filter(isOpenHere);
   const working = leads.filter((l) => (isP ? l.phase === 'prospect' : l.phase === 'lead'));
   const overdue = working.filter((l) => l.nextFollowUp && l.nextFollowUp < today);
   const fresh = leads.filter((l) => l.stage === 'new');
@@ -113,8 +127,17 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   const movedPct = recent.length ? Math.round(movedOn.length / recent.length * 100) : null;
   const reps = [...new Map(leads.filter((l) => l.repName).map((l) => [l.repId || l.repName, l.repName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const sources = [...new Set(leads.filter((l) => isOpenHere(l) || l.phase === 'lost').map((l) => l.source || '-'))].sort();
-  const count = (st) => leads.filter((l) => l.stage === st).length;
-  const countPhase = (ph) => leads.filter((l) => l.phase === ph).length;
+  // The stage chips count the group picked, if one is.
+  const scoped = groupF ? leads.filter(inGroup) : leads;
+  const count = (st) => scoped.filter((l) => l.stage === st).length;
+  const countPhase = (ph) => scoped.filter((l) => l.phase === ph).length;
+  function pickGroup(id) {
+    const p = new URLSearchParams(params);
+    if (id) { p.set('group', id); p.set('stage', 'all'); } else { p.delete('group'); p.delete('stage'); }
+    p.delete('lead'); p.delete('new'); p.delete('tier');
+    setParams(p, { replace: true }); setShown(LIST_STEP);
+    if (id) setTimeout(() => jump('crm-leads'), 50);
+  }
 
   // Ranked: this page's open leads for the rep and source picked, most important first.
   const ranked = leads.filter((l) => isOpenHere(l) && l.priority && repMatch(l) && (!sourceF || (l.source || '-') === sourceF)).sort(byPriority);
@@ -167,6 +190,7 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           )}
           <span className="dk-muted tl-small crm-card-want">{l.item || tr('What they want isn\'t written down yet.')}{p && p.value ? <span className="lp-card-value"> · {tr('about {amount}', { amount: estimate(p.value.amount) })}</span> : null}</span>
           <span className="dk-muted tl-small">{[l.source, l.repName, l.location].filter(Boolean).join(' · ') || '—'}</span>
+          {!compact && l.groups && l.groups.length > 0 && <span className="lg-tags">{l.groups.map((g) => <span key={g.id} className="lg-tag">{g.name}</span>)}</span>}
           {p && <ReasonChips priority={p} max={compact ? 1 : 2} />}
           {l.stage === 'not_lead' ? <span className="dk-muted tl-small crm-card-why">{reasonText(l.lostReason, NOT_LEAD_REASONS)}</span>
             : l.noFollowUp ? <StopPill noFollowUp={l.noFollowUp} />
@@ -191,8 +215,8 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
   };
 
   const chips = isP
-    ? [['open', tr('Open'), open.length], ...PROSPECT_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['won', tr('Won, waiting for payment'), waitingPay.length], ['customer', tr('Became customers'), countPhase('customer')]]
-    : [['open', tr('Open'), open.length], ...LEAD_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['lost', tr('Lost'), count('lost')], ['not_lead', tr('Not leads'), count('not_lead')]];
+    ? [['open', tr('Open'), scoped.filter(isOpenHere).length], ...PROSPECT_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['won', tr('Won, waiting for payment'), countPhase('won')], ['customer', tr('Became customers'), countPhase('customer')], ['all', tr('All stages'), scoped.length]]
+    : [['open', tr('Open'), scoped.filter(isOpenHere).length], ...LEAD_STAGES.map((k) => [k, tr(stage(k).label), count(k)]), ['lost', tr('Lost'), count('lost')], ['not_lead', tr('Not leads'), count('not_lead')], ['all', tr('All stages'), scoped.length]];
   const columns = isP ? [...PROSPECT_STAGES, 'won'] : LEAD_STAGES;
   const phaseInfo = PHASES.find((p) => p.key === phase);
 
@@ -266,6 +290,15 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
         </div>
       </Section>
 
+      {!isP && (
+        <Section id="crm-groups" title={tr('Groups')}
+          sub={tr('The people from a fair or an event, a contact list or a campaign, and how far each group\'s follow-up has got.')}
+          action={canManage && leadGroups.groups.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => setDialog({ kind: 'group', group: null })}>+ {tr('New group')}</button>}>
+          {leadGroups.loaded && <GroupsSection groups={leadGroups.groups} activeId={groupF} canManage={canManage} onPick={pickGroup}
+            onNew={() => setDialog({ kind: 'group', group: null })} onEdit={(g) => setDialog({ kind: 'group', group: g })} onAdd={(g) => setDialog({ kind: 'contacts', group: g })} />}
+        </Section>
+      )}
+
       <Section id="crm-leads" title={view === 'board' ? tr('The board') : isP ? tr('All prospects') : tr('All leads')}
         sub={view === 'board'
           ? (isP ? tr('Prospects by stage. Next moves one on; open one to win or lose it. Won ones wait for their first payment.') : tr('Leads by stage. Next moves one on; Make a prospect when it is a real job.'))
@@ -288,6 +321,14 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
             <button type="button" className="dk-link" onClick={() => setDialog({ kind: 'who' })}>{tr('Who is this?')} <Icon name="arrow" /></button>
           </div>
         )}
+        {groupOn && (
+          <div className="crm-note is-info lg-showing">
+            <Icon name="people" />
+            <span>{tr('Showing the group {name}: {n} contacts, at every stage.', { name: groupOn.name, n: groupOn.counts.total })}</span>
+            {canManage && <button type="button" className="dk-link" onClick={() => setDialog({ kind: 'contacts', group: groupOn })}>+ {tr('Add contacts')}</button>}
+            <button type="button" className="dk-link" onClick={() => pickGroup('')}>{tr('Show everyone')}</button>
+          </div>
+        )}
         <div className="crm-filters">
           <SearchInput value={q} onChange={setQ} placeholder={tr('Search name, phone, item, place…')} />
           <select className="input" value={repF} onChange={(e) => setParam('rep', e.target.value)} aria-label={tr('Sales rep')}>
@@ -300,6 +341,12 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
             <option value="">{tr('Any source')}</option>
             {sources.map((s) => <option key={s} value={s}>{s === '-' ? tr('Not known') : s}</option>)}
           </select>
+          {leadGroups.groups.length > 0 && (
+            <select className="input" value={groupF} onChange={(e) => pickGroup(e.target.value)} aria-label={tr('Group')}>
+              <option value="">{tr('Any group')}</option>
+              {leadGroups.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
           <select className="input" value={sortF} onChange={(e) => setParam('sort', e.target.value)} aria-label={tr('Order')}>
             <option value="">{tr('Most important first')}</option>
             <option value="new">{tr('Newest first')}</option>
@@ -335,7 +382,7 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
         ) : (
           <div className={'crm-board' + (isP ? ' is-four' : ' is-three')} role="list">
             {columns.map((key) => {
-              const col = filtered.filter((l) => (key === 'won' ? l.phase === 'won' : l.stage === key) && (stageF === 'open' || stageF === key));   // in the order picked
+              const col = filtered.filter((l) => (key === 'won' ? l.phase === 'won' : l.stage === key) && (stageF === 'open' || stageF === 'all' || stageF === key));   // in the order picked
               const label = key === 'won' ? tr('Won, waiting for payment') : tr(stage(key).label);
               const help = key === 'won' ? tr('They agreed to buy. The first payment makes them a customer.') : tr(stage(key).help);
               return (
@@ -357,9 +404,18 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
         .concat(PRIORITY_GLOSSARY.map(([k, v]) => [tr(k), tr(v)]))} />
 
       {dialog && dialog.kind === 'new' && settings && <NewLeadDialog settings={settings} people={people} meId={meId} onClose={() => setDialog(null)} onSaved={(l) => { setDialog({ kind: 'lead', id: l.id }); setToast(tr('Lead {ref} added.', { ref: l.ref })); load(); }} />}
+      {dialog && dialog.kind === 'group' && (
+        <GroupDialog group={dialog.group} onClose={() => setDialog(null)}
+          onSaved={(g, made) => { reloadGroups(); setToast(made ? tr('Group {name} made. Now add its contacts.', { name: g.name }) : tr('Group {name} saved.', { name: g.name })); setDialog(made ? { kind: 'contacts', group: g } : null); }}
+          onDeleted={(g) => { setDialog(null); if (groupF === g.id) pickGroup(''); reloadAll(); setToast(tr('Group {name} deleted. Its leads are still here.', { name: g.name })); }} />
+      )}
+      {dialog && dialog.kind === 'contacts' && (
+        <AddContactsDialog group={dialog.group} leads={leads} people={people} settings={settings} meId={meId} onClose={() => setDialog(null)}
+          onDone={(r) => { setDialog(null); reloadAll(); pickGroup(r.group.id); }} />
+      )}
       {dialog && dialog.kind === 'import' && <ImportDialog onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}
       {dialog && dialog.kind === 'who' && <WhoIsThisDialog people={people} onClose={() => setDialog(null)} onDone={() => { load(); unmatched.reload(); }} />}
-      {dialog && dialog.kind === 'lead' && settings && <LeadDialog leadId={dialog.id} settings={settings} people={people} onClose={() => setDialog(null)} onChanged={load} onVisit={(v) => setDialog({ kind: 'visit', visit: v, back: dialog.id })} />}
+      {dialog && dialog.kind === 'lead' && settings && <LeadDialog leadId={dialog.id} settings={settings} people={people} onClose={() => setDialog(null)} onChanged={reloadAll} onVisit={(v) => setDialog({ kind: 'visit', visit: v, back: dialog.id })} />}
       {dialog && dialog.kind === 'visit' && <VisitDialog visit={dialog.visit} people={people} onClose={() => setDialog({ kind: 'lead', id: dialog.back })} onSaved={() => { setToast(tr('Site visit saved.')); setDialog({ kind: 'lead', id: dialog.back }); }} />}
       <Toast text={toast} onDone={() => setToast(null)} />
     </div>

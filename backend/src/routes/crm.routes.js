@@ -9,6 +9,7 @@ var crmBoard = require('../services/crmBoard.service');
 var crmWeekly = require('../services/crmWeekly.service');
 var crmRoute = require('../services/crmRoute.service');
 var productSheets = require('../services/crmProductSheets.service');
+var groups = require('../services/crmLeadGroups.service');
 
 // The CRM (services/crm.service.js) and its spreadsheet import
 // (services/crmImport.service.js).
@@ -20,6 +21,16 @@ var sheetUpload = multer({
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: allowlistFilter(['xlsx'], 'Download the Google Sheet as Microsoft Excel (.xlsx) and upload that file.')
 });
+
+// Contacts for a lead group: a spreadsheet, a phone's contacts, or a CSV.
+var contactsUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: allowlistFilter(['xlsx', 'csv', 'vcf', 'txt'], 'Choose an Excel (.xlsx), CSV (.csv) or contacts (.vcf) file.')
+});
+function importOptions(req) {
+  try { return req.body && req.body.options ? JSON.parse(req.body.options) : {}; } catch (e) { return {}; }
+}
 
 function h(fn) {
   return async function (req, res, next) { try { res.json(await fn(req)); } catch (e) { next(e); } };
@@ -53,6 +64,16 @@ router.post('/leads/:id/notes', h(function (req) { return crm.addNote(req.ctx, r
 router.post('/leads/:id/customer', h(function (req) { return crm.toCustomer(req.ctx, req.params.id); }));
 router.post('/leads/:id/deals', h(function (req) { return crm.linkInvoice(req.ctx, req.params.id, req.body); }));
 router.delete('/leads/:id', h(function (req) { return crm.removeLead(req.ctx, req.params.id); }));
+
+// Groups of leads: a fair or an event's contacts, a list, a campaign (crmLeadGroups.service.js).
+router.get('/groups', h(function (req) { return groups.list(req.ctx); }));
+router.post('/groups', async function (req, res, next) { try { res.status(201).json(await groups.save(req.ctx, null, req.body)); } catch (e) { next(e); } });
+router.put('/groups/:id', h(function (req) { return groups.save(req.ctx, req.params.id, req.body); }));
+router.delete('/groups/:id', h(function (req) { return groups.remove(req.ctx, req.params.id); }));
+router.post('/groups/:id/leads', h(function (req) { return groups.addLeads(req.ctx, req.params.id, req.body); }));
+router.post('/groups/:id/leads/remove', h(function (req) { return groups.removeLeads(req.ctx, req.params.id, req.body); }));
+router.post('/groups/:id/import/preview', contactsUpload.single('file'), h(function (req) { return groups.importPreview(req.ctx, req.params.id, req.file, req.body && req.body.text); }));
+router.post('/groups/:id/import', contactsUpload.single('file'), h(function (req) { return groups.importRun(req.ctx, req.params.id, req.file, req.body && req.body.text, importOptions(req)); }));
 
 router.get('/invoices-to-link', h(function (req) { return crm.invoicesToLink(req.ctx, req.query); }));
 router.get('/deals', h(function (req) { return crm.listDeals(req.ctx, req.query); }));

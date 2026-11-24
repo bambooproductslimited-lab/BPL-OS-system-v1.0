@@ -150,6 +150,8 @@ var LEAD_SELECT =
   '(SELECT count(*)::int FROM crm_deals d WHERE d.lead_id = l.id) AS deal_count, ' +
   '(SELECT coalesce(sum(i.grand_total), 0) FROM crm_deals d JOIN invoices i ON i.id = d.invoice_id WHERE d.lead_id = l.id) AS deal_value, ' +
   '(SELECT json_build_object(\'body\', n.body, \'kind\', n.kind, \'at\', n.at) FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.kind IN (\'note\', \'call\') ORDER BY n.at DESC LIMIT 1) AS last_note, ' +
+  // Its groups (migration 0220, crmLeadGroups.service.js).
+  "(SELECT coalesce(json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name), '[]'::json) FROM crm_lead_group_members gm JOIN crm_lead_groups g ON g.id = gm.group_id WHERE gm.lead_id = l.id) AS lead_groups, " +
   PAID_SQL + ' AS paid, c.no_follow_up_at AS customer_nfu_at, c.no_follow_up_reason AS customer_nfu_reason, nf.first_name AS nfu_first, nf.last_name AS nfu_last ' +
   'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id LEFT JOIN employees pe ON pe.id = l.priority_by ' +
   'LEFT JOIN employees nf ON nf.id = l.no_follow_up_by ';
@@ -165,6 +167,7 @@ function rowToLead(r) {
     stageChangedAt: r.stage_changed_at, createdAt: r.created_at, updatedAt: r.updated_at,
     dealCount: r.deal_count || 0, dealValue: round2(r.deal_value), lastNote: r.last_note || null,
     paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid),
+    groups: r.lead_groups || [],
     manualPriority: r.manual_priority || null, priorityBy: r.priority_by ? personName(r.priority_first, r.priority_last) : null, priorityAt: r.priority_at || null,
     // Not to be followed up: this lead, or the person (their profile).
     noFollowUp: r.no_follow_up_at ? { at: r.no_follow_up_at, reason: r.no_follow_up_reason || '', by: r.nfu_first ? personName(r.nfu_first, r.nfu_last) : null, onProfile: false }
@@ -188,6 +191,7 @@ async function listLeads(ctx, q) {
   else if (q.rep === 'none') where.push("l.rep_id IS NULL AND l.rep_name = ''");
   else if (q.rep) where.push('l.rep_id = ' + arg(q.rep));
   if (q.source) where.push('l.source = ' + arg(q.source));
+  if (q.group) where.push('EXISTS (SELECT 1 FROM crm_lead_group_members gm WHERE gm.lead_id = l.id AND gm.group_id::text = ' + arg(String(q.group)) + ')');
   var today = todayISO();
   if (q.followUp === 'overdue') where.push('l.next_follow_up < ' + arg(today));
   else if (q.followUp === 'today') where.push('l.next_follow_up = ' + arg(today));
@@ -968,7 +972,7 @@ async function people(ctx) {
 }
 
 module.exports = {
-  STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, LEAD_STAGES: LEAD_STAGES, PROSPECT_STAGES: PROSPECT_STAGES, PAID_SQL: PAID_SQL, phaseOf: phaseOf, commission: money,
+  STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, LEAD_STAGES: LEAD_STAGES, PROSPECT_STAGES: PROSPECT_STAGES, PAID_SQL: PAID_SQL, phaseOf: phaseOf, phaseWhere: phaseWhere, commission: money,
   getSettings: getSettings, saveSettings: saveSettings, overview: overview, people: people,
   listLeads: listLeads, getLead: getLead, createLead: createLead, updateLead: updateLead, setStage: setStage, addNote: addNote,
   removeLead: removeLead, toCustomer: toCustomer, setPriority: setPriority, setNotLead: setNotLead, setLeadNoFollowUp: setLeadNoFollowUp,

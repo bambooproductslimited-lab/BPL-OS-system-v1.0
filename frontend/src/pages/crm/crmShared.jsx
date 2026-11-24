@@ -6,6 +6,7 @@ import ContactButtons from '../../components/ContactButtons';
 import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
+import LeadGroupsBox from './LeadGroupsBox';
 import { PriorityPanel } from './leadPriority';
 import { SendProductsButton } from './SendProducts';
 import { StopBanners, StopTiles } from './crmStop';
@@ -292,6 +293,9 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                     <div><dt>{tr('Sales rep')}</dt><dd>{lead.repName || tr('Nobody yet')}</dd></div>
                     <div><dt>{tr('Customer profile')}</dt><dd>{lead.customerName || tr('None yet')}</dd></div>
                   </dl>
+                  <LeadGroupsBox lead={lead} canManage={canManage} busy={busy}
+                    onAdd={(gid) => act(() => api.post('/crm/groups/' + gid + '/leads', { leadIds: [leadId] }))}
+                    onRemove={(gid) => act(() => api.post('/crm/groups/' + gid + '/leads/remove', { leadIds: [leadId] }))} />
                   <div className="crm-contact-row">
                     <ContactButtons name={lead.name} phone={lead.phone} email={lead.email} />
                     {isOpen && <SendProductsButton leadId={leadId} name={lead.name} phone={lead.phone} />}
