@@ -18854,5 +18854,16 @@ export default {
   "Done: {n} new leads.": "完成：{n} 条新线索。",
   "1 person already among the leads joined the group.": "1 位已是线索的人加入了群组。",
   "{n} people already among the leads joined the group.": "{n} 位已是线索的人加入了群组。",
-  "already a lead: joins the group": "已是线索：加入群组"
+  "already a lead: joins the group": "已是线索：加入群组",
+  "Their lead": "其线索",
+  "Their leads": "其线索",
+  "On WhatsApp · {when}": "在 WhatsApp 上 · {when}",
+  "Their chats": "其对话",
+  "The same person as {name} on WhatsApp ({number}).": "与 WhatsApp 上的 {name}（{number}）是同一个人。",
+  "On WhatsApp with the same number ({number}).": "在 WhatsApp 上使用同一号码（{number}）。",
+  "Open the chat": "打开对话",
+  "of the new ones already chat with us on WhatsApp: their chat goes on the lead": "位新联系人已在 WhatsApp 上与我们聊天：其对话会放到线索上",
+  "The same number as {name} on WhatsApp": "与 WhatsApp 上的 {name} 号码相同",
+  "On WhatsApp": "在 WhatsApp 上",
+  "of the new ones already chats with us on WhatsApp: their chat goes on the lead": "位新联系人已在 WhatsApp 上与我们聊天：其对话会放到线索上"
 };

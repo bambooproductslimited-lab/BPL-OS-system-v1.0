@@ -81,3 +81,5 @@
   .lg-table { min-width: 520px; }
   .lg-table th:nth-child(5), .lg-table td:nth-child(5), .lg-table th:nth-child(6), .lg-table td:nth-child(6) { display: none; }
 }
+.lg-counts li.is-wa { border-color: #25d366; }
+.lg-wa { display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, #25d366 16%, var(--color-bg)); color: #128c4b; font-size: 12px; font-weight: 600; }

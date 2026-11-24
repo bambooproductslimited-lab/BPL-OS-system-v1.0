@@ -297,6 +297,7 @@ export function AddContactsDialog({ group, leads, people, settings, meId, onClos
                 <ul className="lg-counts">
                   <li className="is-good"><b>{c.new}</b> {c.new === 1 ? tr('new lead') : tr('new leads')}</li>
                   {c.existing > 0 && <li className="is-info"><b>{c.existing}</b> {c.existing === 1 ? tr('already a lead: joins the group') : tr('already leads: they join the group')}</li>}
+                  {c.onWhatsapp > 0 && <li className="is-wa"><b>{c.onWhatsapp}</b> {c.onWhatsapp === 1 ? tr('of the new ones already chats with us on WhatsApp: their chat goes on the lead') : tr('of the new ones already chat with us on WhatsApp: their chat goes on the lead')}</li>}
                   {c.inGroup > 0 && <li><b>{c.inGroup}</b> {tr('already in this group')}</li>}
                   {c.repeat > 0 && <li><b>{c.repeat}</b> {tr('twice in the list: counted once')}</li>}
                   {c.empty > 0 && <li><b>{c.empty}</b> {tr('with nothing to go on: left out')}</li>}
@@ -319,7 +320,7 @@ export function AddContactsDialog({ group, leads, people, settings, meId, onClos
                             <td className="lg-nowrap">{r.phone}</td>
                             <td>{r.email}</td>
                             <td>{r.interest}</td>
-                            <td><span className={'dk-status is-' + s[0]}>{s[1]()}</span>{r.lead ? <span className="dk-muted tl-small"> {r.lead.ref}</span> : null}{r.warn === 'no_contact' && <span className="dk-status is-warn lg-warn">{tr('No phone or email')}</span>}</td>
+                            <td><span className={'dk-status is-' + s[0]}>{s[1]()}</span>{r.lead ? <span className="dk-muted tl-small"> {r.lead.ref}</span> : null}{r.warn === 'no_contact' && <span className="dk-status is-warn lg-warn">{tr('No phone or email')}</span>}{r.whatsapp && <span className="lg-wa" title={tr('The same number as {name} on WhatsApp', { name: r.whatsapp.name })}>{tr('On WhatsApp')}</span>}</td>
                           </tr>
                         );
                       })}

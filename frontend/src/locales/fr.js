@@ -18854,5 +18854,16 @@ export default {
   "Done: {n} new leads.": "Terminé : {n} nouvelles pistes.",
   "1 person already among the leads joined the group.": "1 personne déjà parmi les pistes a rejoint le groupe.",
   "{n} people already among the leads joined the group.": "{n} personnes déjà parmi les pistes ont rejoint le groupe.",
-  "already a lead: joins the group": "déjà une piste : rejoint le groupe"
+  "already a lead: joins the group": "déjà une piste : rejoint le groupe",
+  "Their lead": "Sa piste",
+  "Their leads": "Ses pistes",
+  "On WhatsApp · {when}": "Sur WhatsApp · {when}",
+  "Their chats": "Ses conversations",
+  "The same person as {name} on WhatsApp ({number}).": "La même personne que {name} sur WhatsApp ({number}).",
+  "On WhatsApp with the same number ({number}).": "Sur WhatsApp avec le même numéro ({number}).",
+  "Open the chat": "Ouvrir la conversation",
+  "of the new ones already chat with us on WhatsApp: their chat goes on the lead": "des nouveaux échangent déjà avec nous sur WhatsApp : leur conversation va sur la piste",
+  "The same number as {name} on WhatsApp": "Le même numéro que {name} sur WhatsApp",
+  "On WhatsApp": "Sur WhatsApp",
+  "of the new ones already chats with us on WhatsApp: their chat goes on the lead": "des nouveaux échange déjà avec nous sur WhatsApp : sa conversation va sur la piste"
 };

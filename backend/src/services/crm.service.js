@@ -3,6 +3,7 @@ var { fail } = require('../utils/errors');
 var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var priority = require('./crmLeadPriority.service');
+var match = require('./crmLeadMatch.service');
 
 // The CRM (migration 0102): the sales team's leads from the first message to
 // a won or lost deal, with follow-ups, site visits, referrals and the rep's
@@ -152,6 +153,8 @@ var LEAD_SELECT =
   '(SELECT json_build_object(\'body\', n.body, \'kind\', n.kind, \'at\', n.at) FROM crm_lead_notes n WHERE n.lead_id = l.id AND n.kind IN (\'note\', \'call\') ORDER BY n.at DESC LIMIT 1) AS last_note, ' +
   // Its groups (migration 0220, crmLeadGroups.service.js).
   "(SELECT coalesce(json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name), '[]'::json) FROM crm_lead_group_members gm JOIN crm_lead_groups g ON g.id = gm.group_id WHERE gm.lead_id = l.id) AS lead_groups, " +
+  // On WhatsApp: the last message in their chat (crmLeadMatch.service.js puts the lead on the chat's profile).
+  "(SELECT max(cv.last_message_at) FROM crm_conversations cv WHERE cv.customer_id = l.customer_id AND cv.channel = 'whatsapp' AND cv.status <> 'spam') AS wa_last, " +
   PAID_SQL + ' AS paid, c.no_follow_up_at AS customer_nfu_at, c.no_follow_up_reason AS customer_nfu_reason, nf.first_name AS nfu_first, nf.last_name AS nfu_last ' +
   'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id LEFT JOIN employees pe ON pe.id = l.priority_by ' +
   'LEFT JOIN employees nf ON nf.id = l.no_follow_up_by ';
@@ -168,6 +171,7 @@ function rowToLead(r) {
     dealCount: r.deal_count || 0, dealValue: round2(r.deal_value), lastNote: r.last_note || null,
     paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid),
     groups: r.lead_groups || [],
+    whatsapp: r.wa_last ? { lastAt: r.wa_last } : null,
     manualPriority: r.manual_priority || null, priorityBy: r.priority_by ? personName(r.priority_first, r.priority_last) : null, priorityAt: r.priority_at || null,
     // Not to be followed up: this lead, or the person (their profile).
     noFollowUp: r.no_follow_up_at ? { at: r.no_follow_up_at, reason: r.no_follow_up_reason || '', by: r.nfu_first ? personName(r.nfu_first, r.nfu_last) : null, onProfile: false }
@@ -238,11 +242,15 @@ async function getLead(ctx, id) {
   lead.deals = await dealsWhere(ctx, 'd.lead_id = $1', [id]);
   lead.visits = (await listVisitsWhere('v.lead_id = $1', [id]));
   lead.referrals = await referralsWhere('r.lead_id = $1', [id]);
-  if (lead.phone || lead.email) {
-    // Other leads with the same phone or email: probably the same person.
+  // Their chats — WhatsApp and the other channels — on the profile they are
+  // on, or with their number (crmLeadMatch.service.js).
+  lead.conversations = await match.conversationsOf(pool, { customer_id: lead.customerId, phone: lead.phone, email: lead.email });
+  var nums = match.numbersOf(lead.phone).map(function (n) { return n.slice(-9); });
+  if (nums.length || lead.email) {
+    // Other leads with the same phone (however it is written) or email: probably the same person.
     lead.sameContact = (await pool.query(
-      "SELECT id, ref, name, stage, received_on FROM crm_leads WHERE id <> $1 AND ((phone <> '' AND regexp_replace(phone, '\\D', '', 'g') = regexp_replace($2, '\\D', '', 'g')) OR (email <> '' AND lower(email) = lower($3))) ORDER BY received_on DESC LIMIT 5",
-      [id, lead.phone || '-', lead.email || '-'])).rows.map(function (r) { return { id: r.id, ref: r.ref, name: r.name, stage: r.stage, receivedOn: dateOnly(r.received_on) }; });
+      "SELECT id, ref, name, stage, received_on FROM crm_leads WHERE id <> $1 AND ((length(regexp_replace(phone, '\\D', '', 'g')) >= 9 AND right(regexp_replace(phone, '\\D', '', 'g'), 9) = ANY($2)) OR (email <> '' AND lower(email) = lower($3))) ORDER BY received_on DESC LIMIT 5",
+      [id, nums, lead.email || '-'])).rows.map(function (r) { return { id: r.id, ref: r.ref, name: r.name, stage: r.stage, receivedOn: dateOnly(r.received_on) }; });
   } else lead.sameContact = [];
   return lead;
 }
@@ -274,6 +282,8 @@ async function createLead(ctx, p) {
       [receivedOn, name, str(p.company, 120), str(p.phone, 40), str(p.email, 120), str(p.location, 120), str(p.source, 40), str(p.item, 200),
         stage, optDate(p.nextFollowUp, 'Next follow-up'), rep.id, rep.name, str(p.comments, 4000), stage === 'lost' ? str(p.lostReason, 300) : '', p.prospectId || null, me(ctx)])).rows[0];
     await note(db, ctx, r.id, 'stage', 'Lead added.', null, stage);
+    // Someone who already writes to us (on WhatsApp, say): on their profile.
+    await match.linkLead(db, r.id, me(ctx));
     await audit(db, ctx, 'crm.lead.create', 'crm_lead', r.id, 'Added lead ' + r.ref + ' (' + name + ').');
     return r;
   });
@@ -307,6 +317,8 @@ async function updateLead(ctx, id, p) {
         rep.id, rep.name, p.receivedOn === undefined ? cur.received_on : V.date(p.receivedOn, 'Date received'),
         stage, stage === 'lost' || stage === NOT_LEAD ? (p.lostReason === undefined ? cur.lost_reason : str(p.lostReason, 300)) : '']);
     if (stage !== cur.stage) await note(db, ctx, id, 'stage', str(p.stageNote, 2000), cur.stage, stage);
+    // A number or email written in now may be someone who writes to us.
+    if (!cur.customer_id && ((p.phone !== undefined && str(p.phone, 40) !== cur.phone) || (p.email !== undefined && str(p.email, 120) !== cur.email))) await match.linkLead(db, id, me(ctx));
     // Qualified, quoted, agreeing terms or won and not paid yet: their
     // profile says Prospect too (the payment makes it Customer).
     if (cur.customer_id && isProspectStage(stage)) await db.query("UPDATE customers SET category = 'prospect' WHERE id = $1 AND category = 'lead'", [cur.customer_id]);
@@ -434,11 +446,9 @@ async function toCustomer(ctx, id) {
   need(ctx, 'customer.manage');
   var cur = await leadRow(id);
   if (cur.customer_id) return getLead(ctx, id);
-  var existing = null;
-  if (cur.phone && cur.phone.replace(/\D/g, '').length >= 7) {
-    existing = (await pool.query("SELECT id FROM customers WHERE regexp_replace(phone, '\\D', '', 'g') = $1 LIMIT 1", [cur.phone.replace(/\D/g, '')])).rows[0];
-  }
-  if (!existing && cur.email) existing = (await pool.query('SELECT id FROM customers WHERE lower(email) = lower($1) LIMIT 1', [cur.email])).rows[0];
+  // The profile with the same number (however it is written) or email —
+  // their WhatsApp contact, say — rather than a second one.
+  var existing = await match.profileFor(pool, cur.phone, cur.email);
   await withTransaction(async function (db) {
     var customerId;
     if (existing) customerId = existing.id;

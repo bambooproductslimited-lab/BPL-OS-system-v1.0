@@ -12,6 +12,9 @@ import { SalesReviewButton } from './SalesPresent';
 import { PRIORITY_GLOSSARY, PriorityKey, PriorityRing, ReasonChips, TIERS, TierTag, estimate } from './leadPriority';
 import { AddContactsDialog, GroupDialog, GroupsSection } from './LeadGroups';
 import { useLeadGroups } from './leadGroupKinds';
+import { ChannelDot, ago } from './crmHubShared';
+import './CrmHub.css';
+import './LeadChats.css';
 import './LeadGroups.css';
 import '../EmployeesPage.css';
 import '../ToolRoomPage.css';
@@ -191,6 +194,7 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           <span className="dk-muted tl-small crm-card-want">{l.item || tr('What they want isn\'t written down yet.')}{p && p.value ? <span className="lp-card-value"> · {tr('about {amount}', { amount: estimate(p.value.amount) })}</span> : null}</span>
           <span className="dk-muted tl-small">{[l.source, l.repName, l.location].filter(Boolean).join(' · ') || '—'}</span>
           {!compact && l.groups && l.groups.length > 0 && <span className="lg-tags">{l.groups.map((g) => <span key={g.id} className="lg-tag">{g.name}</span>)}</span>}
+          {l.whatsapp && <span className="lm-tag"><ChannelDot channel="whatsapp" /> {tr('On WhatsApp · {when}', { when: ago(l.whatsapp.lastAt) })}</span>}
           {p && <ReasonChips priority={p} max={compact ? 1 : 2} />}
           {l.stage === 'not_lead' ? <span className="dk-muted tl-small crm-card-why">{reasonText(l.lostReason, NOT_LEAD_REASONS)}</span>
             : l.noFollowUp ? <StopPill noFollowUp={l.noFollowUp} />

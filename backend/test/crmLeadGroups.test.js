@@ -72,7 +72,7 @@ test('a group from an event: contacts from a spreadsheet, nobody twice, shared b
   await rejects(groups.importPreview(reader, g.id, file('v.xlsx', xlsx)), 'forbidden');
   var pre = await groups.importPreview(boss, g.id, file('visitors.xlsx', xlsx));
   assert.equal(pre.format, 'xlsx');
-  assert.deepEqual(pre.counts, { new: 3, existing: 1, inGroup: 0, repeat: 1, empty: 0, noContact: 1 });
+  assert.deepEqual(pre.counts, { new: 3, existing: 1, inGroup: 0, repeat: 1, empty: 0, noContact: 1, onWhatsapp: 0 });
   assert.equal(pre.rows.find(function (r) { return r.name === 'Zqg Old Friend'; }).lead.id, old.id);
   assert.equal(pre.rows.find(function (r) { return r.name === 'Zqg Kofi M.'; }).status, 'repeat');
   assert.equal(await pool.query("SELECT count(*)::int AS n FROM crm_leads WHERE name = 'Zqg Ama Owusu'").then(function (r) { return r.rows[0].n; }), 0, 'nothing saved by a preview');

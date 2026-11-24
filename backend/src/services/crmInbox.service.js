@@ -25,6 +25,7 @@ var { fail } = require('../utils/errors');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
 var { internationalNumber } = require('../utils/phone');
+var leadMatch = require('./crmLeadMatch.service');
 
 var CHANNELS = ['whatsapp', 'email', 'instagram', 'facebook', 'sms', 'call', 'visit', 'other'];
 var MANUAL_CHANNELS = ['call', 'visit', 'sms', 'other'];
@@ -201,6 +202,9 @@ async function ingest(input, opts) {
     }
     if (customerId) {
       await addIdentities(db, customerId, handles);
+      // A lead with this number or email (met at a fair, say): the same
+      // person — put on this profile (crmLeadMatch.service.js).
+      await leadMatch.linkLeadsOf(db, customerId, handles);
       await stampCustomer(db, customerId);
       if (addedIn && !input.imported) {
         var quietBefore = !before || !before.last_message_at || before.last_direction === 'out' || new Date(before.last_message_at) < new Date(Date.now() - 3600000);
@@ -285,7 +289,14 @@ async function getConversation(ctx, id) {
   var messages = (await pool.query(
     "SELECT m.*, e.first_name || ' ' || e.last_name AS sent_by_name FROM crm_messages m LEFT JOIN employees e ON e.id = m.sent_by " +
     'WHERE m.conversation_id = $1 ORDER BY m.sent_at, m.created_at LIMIT 1000', [id])).rows;
+  // The leads this person is: on their profile, or with their number or
+  // email while the chat is on no profile (crmLeadMatch.service.js).
+  var leads = (await pool.query(
+    "SELECT id, ref, name, item, stage FROM crm_leads WHERE ($1::uuid IS NOT NULL AND customer_id = $1) OR ($1::uuid IS NULL AND (" +
+    "($2 = 'phone' AND length(regexp_replace(phone, '\\D', '', 'g')) >= 9 AND right(regexp_replace(phone, '\\D', '', 'g'), 9) = right($3, 9)) OR ($2 = 'email' AND lower(email) = $3))) " +
+    'ORDER BY received_on DESC LIMIT 5', [r.customer_id || null, r.contact_kind || '', r.contact_key || '-'])).rows;
   return Object.assign(rowToConversation(r), {
+    leads: leads.map(function (l) { return { id: l.id, ref: l.ref, name: l.name, item: l.item, stage: l.stage }; }),
     canReply: await replyChannel(r) !== null,
     messages: messages.map(function (m) {
       return { id: m.id, direction: m.direction, author: m.author_name, body: m.body, attachments: m.attachments || [], sentAt: m.sent_at, sentBy: m.sent_by ? { id: m.sent_by, name: m.sent_by_name } : null };

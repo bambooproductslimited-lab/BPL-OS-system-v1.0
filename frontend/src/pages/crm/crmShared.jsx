@@ -7,6 +7,7 @@ import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { money } from '../../lib/currency';
 import { activeIntlLocale, msg, tr } from '../../lib/i18n.jsx';
 import LeadGroupsBox from './LeadGroupsBox';
+import LeadChats from './LeadChats';
 import { PriorityPanel } from './leadPriority';
 import { SendProductsButton } from './SendProducts';
 import { StopBanners, StopTiles } from './crmStop';
@@ -304,6 +305,8 @@ export function LeadDialog({ leadId, settings, people, onClose, onChanged, onVis
                 </>
               )}
             </section>
+            {/* their WhatsApp chat and the others, known by their number or email */}
+            <LeadChats conversations={lead.conversations} onOpen={(c) => navigate('/crminbox?c=' + c.id)} />
 
             {/* when to get back to them */}
             {isOpen && !lead.noFollowUp && (

@@ -9,7 +9,7 @@ import { msg, tr } from '../../lib/i18n.jsx';
 import CustomerProfile from './CustomerProfile';
 import { CHANNELS, CategoryTag, ChannelDot, CustMark, ago, channelLabel, ghsOr, ourAuthor, timeOf, useReps } from './crmHubShared';
 import { Confetti, Ring, WaitPill, spanText, weekdayShort } from './crmFun';
-import { Toast } from './crmShared';
+import { StageTag, Toast } from './crmShared';
 import { ReasonPicker } from './crmStop';
 import { NOT_LEAD_REASONS, reasonText } from './crmStopReasons';
 import '../EmployeesPage.css';
@@ -382,6 +382,7 @@ function Pulse({ pulse, reps }) {
 
 // ── one conversation ─────────────────────────────────────────────────
 function ConversationView({ id, canManage, reps, onChanged, onProfile, onToast, onClose }) {
+  const navigate = useNavigate();
   const [c, setC] = useState(null);
   const [error, setError] = useState(null);
   const [text, setText] = useState('');
@@ -427,6 +428,17 @@ function ConversationView({ id, canManage, reps, onChanged, onProfile, onToast, 
           </div>
         )}
         {c.customer && !c.customer.repName && <div className="crm-note is-warn"><Icon name="warn" /><span>{tr('{name} has no sales rep. Open the profile to give them one.', { name: c.customer.name })}</span></div>}
+        {c.leads && c.leads.length > 0 && (
+          // The same person as these leads, known by their number or email (backend crmLeadMatch.service.js).
+          <div className="ib-conv-leads" role="list" aria-label={c.leads.length === 1 ? tr('Their lead') : tr('Their leads')}>
+            <span className="dk-muted tl-small">{c.leads.length === 1 ? tr('Their lead') : tr('Their leads')}</span>
+            {c.leads.map((l) => (
+              <button key={l.id} type="button" role="listitem" className="ib-conv-lead" onClick={() => navigate('/crmleads?lead=' + l.id)}>
+                <b>{l.ref}</b> <span>{l.item || l.name}</span> <StageTag value={l.stage} /> <Icon name="arrow" />
+              </button>
+            ))}
+          </div>
+        )}
 
         <ol className="ib-msgs" aria-label={tr('Messages')}>
           {c.messages.map((m, i) => {

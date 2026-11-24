@@ -372,7 +372,11 @@ async function run(ctx, file) {
         [l.sheetRef || '', l.receivedOn, l.name, l.phone, l.location, l.source, l.item, l.stage,
           ['won', 'lost'].indexOf(l.stage) >= 0 ? null : l.nextFollowUp, repId, repId ? '' : (l.rep || ''),
           [l.comments, extraComment].filter(Boolean).join('\n'), l.key, meId])).rows[0];
-      if (r) await db.query("INSERT INTO crm_lead_notes (lead_id, kind, body, to_stage, by_employee) VALUES ($1, 'stage', 'Imported from the spreadsheet.', $2, $3)", [r.id, l.stage, meId]);
+      if (r) {
+        await db.query("INSERT INTO crm_lead_notes (lead_id, kind, body, to_stage, by_employee) VALUES ($1, 'stage', 'Imported from the spreadsheet.', $2, $3)", [r.id, l.stage, meId]);
+        // Someone who already writes to us (on WhatsApp, say): on their profile.
+        await require('./crmLeadMatch.service').linkLead(db, r.id, meId);
+      }
       return r;
     }
 

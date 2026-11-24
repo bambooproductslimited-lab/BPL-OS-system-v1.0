@@ -4,6 +4,7 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var crm = require('./crm.service');
 var contactRows = require('../lib/contactRows');
+var leadMatch = require('./crmLeadMatch.service');
 
 // Groups of leads (migration 0220): the people met at a fair or an event
 // (GEXPO 2026), a business list, a campaign. A lead can be in several
@@ -163,7 +164,7 @@ async function sortOut(db, groupId, contacts) {
     if (l.in_group) byNameInGroup[nameKey(l.name, '')] = l;
   });
   var seen = {};
-  return contacts.map(function (c, i) {
+  var rows = contacts.map(function (c, i) {
     var row = Object.assign({ n: i + 1 }, c);
     var pk = contactRows.phoneKey(c.phone);
     var em = c.email;
@@ -184,10 +185,27 @@ async function sortOut(db, groupId, contacts) {
     if (row.status === 'new' && !c.name) row.warn = row.warn || 'no_name';
     return row;
   });
+  // New ones who already write to us on WhatsApp: the lead goes on their
+  // chat's profile when added (crmLeadMatch.service.js).
+  var nums = {};
+  rows.forEach(function (r) { if (r.status === 'new') leadMatch.numbersOf(r.phone).forEach(function (n) { nums[n] = true; }); });
+  if (Object.keys(nums).length) {
+    var wa = {};
+    (await db.query(
+      "SELECT i.value, c.name, max(cv.last_message_at) AS last_at FROM customer_identities i JOIN customers c ON c.id = i.customer_id " +
+      "JOIN crm_conversations cv ON cv.customer_id = c.id AND cv.channel = 'whatsapp' AND cv.status <> 'spam' WHERE i.kind = 'phone' AND i.value = ANY($1) GROUP BY i.value, c.name",
+      [Object.keys(nums)])).rows.forEach(function (x) { wa[x.value] = { name: x.name, lastAt: x.last_at }; });
+    rows.forEach(function (r) {
+      if (r.status !== 'new') return;
+      var hit = leadMatch.numbersOf(r.phone).map(function (n) { return wa[n]; }).filter(Boolean)[0];
+      if (hit) r.whatsapp = hit;
+    });
+  }
+  return rows;
 }
 
 function tally(rows) {
-  var t = { new: 0, existing: 0, inGroup: 0, repeat: 0, empty: 0, noContact: 0 };
+  var t = { new: 0, existing: 0, inGroup: 0, repeat: 0, empty: 0, noContact: 0, onWhatsapp: 0 };
   rows.forEach(function (r) {
     if (r.status === 'new') t.new++;
     else if (r.status === 'existing') t.existing++;
@@ -195,6 +213,7 @@ function tally(rows) {
     else if (r.status === 'repeat') t.repeat++;
     else t.empty++;
     if (r.warn === 'no_contact') t.noContact++;
+    if (r.whatsapp) t.onWhatsapp++;
   });
   return t;
 }
@@ -238,7 +257,7 @@ async function importRun(ctx, id, file, text, options) {
   var out = await withTransaction(async function (db) {
     var reps = await repsOf(db, o.repIds);
     var rows = await sortOut(db, id, read.contacts);
-    var added = 0, joined = 0, perRep = {};
+    var added = 0, joined = 0, onWhatsapp = 0, perRep = {};
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       if (r.status === 'new') {
@@ -250,6 +269,8 @@ async function importRun(ctx, id, file, text, options) {
           [receivedOn, r.name || r.company || 'No name given', r.name ? r.company : '', r.phone, r.email, r.location, source, r.interest, followUpOn, rep, comments.slice(0, 4000), me(ctx)])).rows[0];
         await db.query("INSERT INTO crm_lead_notes (lead_id, kind, body, to_stage, by_employee) VALUES ($1, 'stage', $2, 'new', $3)", [lead.id, 'Added from the group "' + g.name + '".', me(ctx)]);
         await db.query('INSERT INTO crm_lead_group_members (group_id, lead_id, added_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [id, lead.id, me(ctx)]);
+        // Already writing to us on WhatsApp: on their chat's profile.
+        if (await leadMatch.linkLead(db, lead.id, me(ctx))) onWhatsapp++;
         if (rep) perRep[rep] = (perRep[rep] || 0) + 1;
         added++;
       } else if (r.status === 'existing') {
@@ -264,7 +285,7 @@ async function importRun(ctx, id, file, text, options) {
     await audit(db, ctx, 'crm.group.import', 'crm_lead_group', id,
       'Added contacts to the group "' + g.name + '" (' + read.format + '): ' + added + ' new leads, ' + joined + ' leads already in the OS joined.');
     var c = tally(rows);
-    return { added: added, joined: joined, inGroup: c.inGroup, repeat: c.repeat, empty: c.empty, perRep: perRep };
+    return { added: added, joined: joined, linked: onWhatsapp, inGroup: c.inGroup, repeat: c.repeat, empty: c.empty, perRep: perRep };
   });
   if (Object.keys(out.perRep).length) {
     var names = (await pool.query('SELECT id, first_name, last_name FROM employees WHERE id = ANY($1)', [Object.keys(out.perRep)])).rows;

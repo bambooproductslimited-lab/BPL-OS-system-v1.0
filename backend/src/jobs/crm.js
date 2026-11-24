@@ -5,7 +5,8 @@ var health = require('../services/crmHealth.service');
 
 // The CRM's background work:
 //   every 3 minutes — read new email and Facebook/Instagram messages (the restaurants' too);
-//   every hour     — phone numbers on profiles become identities, and look-alike profiles are found;
+//   every hour     — phone numbers on profiles become identities, leads go on the profile with their
+//                    number (their WhatsApp chat), and look-alike profiles are found;
 //   from 8 a.m.    — sales managers are told once a day about customers with no rep.
 var SYNC_MS = 3 * 60 * 1000;
 var HOUR_MS = 60 * 60 * 1000;
@@ -32,6 +33,8 @@ async function syncChannels() {
 async function hourly() {
   try {
     await inbox.backfillIdentities();
+    // Leads who are someone that writes to us (WhatsApp above all): on their profile.
+    await require('../services/crmLeadMatch.service').linkAll();
     await health.scanDuplicates();
     if (new Date().getUTCHours() >= 8) await health.raiseCoverageConcern();
   } catch (err) {

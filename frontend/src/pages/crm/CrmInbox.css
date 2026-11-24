@@ -419,3 +419,11 @@ button.ib-tile:hover { background: rgba(255, 255, 255, .17); transform: translat
   .fx-round-foot .tl-small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .fx .hub-fu, .fx-clear-art, .fx-lane.is-now .fx-lane-dot, .fx-round .hub-fu { animation: none; transition: none; } }
+
+/* the same person's leads, on their chat */
+.ib-conv-leads { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ib-conv-lead { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 10px; border: 1px solid var(--color-border); border-radius: 999px; font-size: 13px; cursor: pointer; }
+.ib-conv-lead > span:not(.dk-status) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+.ib-conv-lead:hover { border-color: var(--color-accent); }
+.ib-conv-lead:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ib-conv-lead .dk-icon { width: 14px; height: 14px; }
