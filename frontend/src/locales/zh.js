@@ -18886,7 +18886,20 @@ export default {
   "{ref} given to {name}. They have been told.": "{ref} 已交给 {name}，并已通知对方。",
   "{ref} added. Give it to someone when you know who.": "{ref} 已添加。确定人选后再分配。",
   "{name} given to {who}. They have been told.": "{name} 已交给 {who}，并已通知对方。",
-  "Given out": "已分配",
   "Jobs": "工作",
-  "Jobs and routines you give to others show here, so you can see how they are getting on.": "您分配给他人的工作和例行工作会显示在这里，方便查看进展。"
+  "Open in Google Maps": "在 Google 地图中打开",
+  "On the map": "已标在地图上",
+  "This phone cannot give its location here. Paste a Google Maps link instead.": "此手机无法在这里提供位置。请改为粘贴 Google 地图链接。",
+  "The phone did not allow its location. Allow location for this site in the browser, or paste a Google Maps link.": "手机未允许获取位置。请在浏览器中允许此网站使用位置，或粘贴 Google 地图链接。",
+  "The location could not be found. Try again outside, or paste a Google Maps link.": "无法找到位置。请到室外再试，或粘贴 Google 地图链接。",
+  "Location on the map added": "已添加地图位置",
+  "to within {m} m": "精度约 {m} 米",
+  "Use my location (GPS)": "使用我的位置（GPS）",
+  "Google Maps link (optional)": "Google 地图链接（可选）",
+  "or paste a Google Maps link": "或粘贴 Google 地图链接",
+  "Created by me": "我创建的",
+  "Jobs and routines you create show here, with who has each, so you can see how they are getting on.": "您创建的工作和例行工作会显示在这里，并注明由谁负责，方便查看进展。",
+  "No open jobs in the team.": "团队中没有进行中的工作。",
+  "{n} done this week": "本周完成 {n} 项",
+  "Nothing open.": "没有进行中的工作。"
 };

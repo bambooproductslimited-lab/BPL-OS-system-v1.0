@@ -118,7 +118,7 @@ function JobPanel({ job, can, myId, busy, onAct, onEdit, onDelete, onClose }) {
         </div>
         <h2 id="mw-job-title" className="mw-job-title">{job.description}</h2>
         <dl className="mw-job-grid">
-          <div><dt>{tr('Place')}</dt><dd>📍 {job.location || '—'}{job.companyName && job.companyName !== job.location ? <small> · {job.companyName}</small> : null}</dd></div>
+          <div><dt>{tr('Place')}</dt><dd>📍 {job.location || '—'}{job.companyName && job.companyName !== job.location ? <small> · {job.companyName}</small> : null}{job.map && job.map.mapUrl ? <> · <a href={job.map.mapUrl} target="_blank" rel="noopener noreferrer">🗺️ {tr('Open in Google Maps')}</a></> : null}</dd></div>
           <div><dt>{tr('Asked for by')}</dt><dd><Person p={job.requestedBy && job.requestedBy.name ? job.requestedBy : null} /> <small>{fmtDate(job.requestedOn)}</small></dd></div>
           <div><dt>{tr('Given to')}</dt><dd><Person p={job.assignedTo} /></dd></div>
           <div><dt>{tr('Scheduled')}</dt><dd className={job.overdue ? 'is-late' : ''}>{job.scheduledOn ? fmtDate(job.scheduledOn) : '—'}</dd></div>

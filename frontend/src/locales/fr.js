@@ -18886,7 +18886,20 @@ export default {
   "{ref} given to {name}. They have been told.": "{ref} confié à {name}. La personne a été prévenue.",
   "{ref} added. Give it to someone when you know who.": "{ref} ajouté. Confiez-le à quelqu’un quand vous saurez qui.",
   "{name} given to {who}. They have been told.": "{name} confiée à {who}. La personne a été prévenue.",
-  "Given out": "Confiés",
   "Jobs": "Travaux",
-  "Jobs and routines you give to others show here, so you can see how they are getting on.": "Les travaux et routines que vous confiez aux autres apparaissent ici, pour suivre leur avancement."
+  "Open in Google Maps": "Ouvrir dans Google Maps",
+  "On the map": "Sur la carte",
+  "This phone cannot give its location here. Paste a Google Maps link instead.": "Ce téléphone ne peut pas donner sa position ici. Collez plutôt un lien Google Maps.",
+  "The phone did not allow its location. Allow location for this site in the browser, or paste a Google Maps link.": "Le téléphone n’a pas autorisé sa position. Autorisez la localisation pour ce site dans le navigateur, ou collez un lien Google Maps.",
+  "The location could not be found. Try again outside, or paste a Google Maps link.": "La position est introuvable. Réessayez à l’extérieur, ou collez un lien Google Maps.",
+  "Location on the map added": "Position sur la carte ajoutée",
+  "to within {m} m": "à {m} m près",
+  "Use my location (GPS)": "Utiliser ma position (GPS)",
+  "Google Maps link (optional)": "Lien Google Maps (facultatif)",
+  "or paste a Google Maps link": "ou coller un lien Google Maps",
+  "Created by me": "Créés par moi",
+  "Jobs and routines you create show here, with who has each, so you can see how they are getting on.": "Les travaux et routines que vous créez apparaissent ici, avec qui s’en charge, pour suivre leur avancement.",
+  "No open jobs in the team.": "Aucun travail en cours dans l’équipe.",
+  "{n} done this week": "{n} terminés cette semaine",
+  "Nothing open.": "Rien en cours."
 };

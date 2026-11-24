@@ -183,11 +183,42 @@ test('a manager or supervisor signed in with their kiosk code gives jobs and rou
   assert.equal((await call('PATCH', '/api/myjobs/routines/' + rid, { everyDays: 14 }, token)).data.everyDays, 14);
   assert.equal((await call('POST', '/api/myjobs/routines/' + rid + '/stop', {}, token)).status, 200);
 
+  // Where it is: the phone's GPS position, or a Google Maps link read for its position.
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin fence down by the gate', assignedToId: worker.employee.id, placeLat: 5.6037, placeLng: -0.187 }, token);
+  assert.deepEqual([r.data.map.lat, r.data.map.lng], [5.6037, -0.187]);
+  assert.match(r.data.map.mapUrl, /^https:\/\/www\.google\.com\/maps\/search\/\?api=1&query=5\.6037%2C-0\.187$/);
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin pump at the farm', placeLink: 'https://www.google.com/maps/place/Farm/@6.6885,-1.6244,17z' }, token);
+  assert.deepEqual([r.data.map.lat, r.data.map.lng], [6.6885, -1.6244]);
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin roof at the depot', placeLink: 'https://maps.app.goo.gl/Zq1234' }, token);
+  assert.equal(r.data.map.lat, null);
+  assert.equal(r.data.map.mapUrl, 'https://maps.app.goo.gl/Zq1234', 'a short link is kept as it is');
+  assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin nope', placeLink: 'javascript:alert(1)' }, token)).status, 400);
+  assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin nope', placeLat: 95, placeLng: 0 }, token)).status, 400);
+  r = await call('POST', '/api/myjobs/routines', { name: 'Zqpin check the borehole', everyDays: 7, placeLink: '5.55, -0.2' }, token);
+  assert.deepEqual([r.data.map.lat, r.data.map.lng, r.data.map.link], [5.55, -0.2, '']);
+  var bore = await mwo.routineOrder(boss, r.data.id, {});
+  assert.deepEqual([bore.map.lat, bore.map.lng], [5.55, -0.2], 'the routine\'s place goes with its job');
+  r = await call('GET', '/api/myjobs/mine', undefined, token);
+  assert.ok(r.data.allJobs.some(function (o) { return o.assignedTo && o.assignedTo.id === worker.employee.id; }), 'the whole team\'s jobs');
+  assert.ok(r.data.given.jobs.some(function (o) { return /pump at the farm/.test(o.description); }), 'created by them, nobody on it yet');
+
   // A technician cannot give work out.
   var wt = (await call('POST', '/api/myjobs/sign-in', { team: team, pin: PIN })).data.token;
-  assert.equal((await call('GET', '/api/myjobs/mine', undefined, wt)).data.given, null);
+  var techMine = (await call('GET', '/api/myjobs/mine', undefined, wt)).data;
+  assert.equal(techMine.given, null);
+  assert.equal(techMine.allJobs, null, 'nor see everyone\'s jobs');
   assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin nope', assignedToId: boss.employee.id }, wt)).status, 403);
   assert.equal((await call('POST', '/api/myjobs/routines', { name: 'Zqpin nope', everyDays: 7, assignedToId: boss.employee.id }, wt)).status, 403);
+});
+
+test('the MD creates and gives out jobs, and sees the whole team\'s', async function () {
+  var md = await ctxFor('andy.chou@bplghana.com');
+  assert.equal(md.can('task.manage'), true, 'Executive (MD) may create and assign work orders');
+  var job = await mwo.addJob(md, { description: 'Zqpin MD: repaint the reception', assignedToId: worker.employee.id });
+  assert.equal(job.assignedTo.id, worker.employee.id);
+  var m = await mwo.mine(md);
+  assert.ok(m.given.jobs.some(function (o) { return o.id === job.id; }));
+  assert.ok(m.allJobs.some(function (o) { return o.id === job.id; }));
 });
 
 test('a new team code or a changed kiosk code signs the phone out', async function () {

@@ -39,6 +39,43 @@ var MAX_DONE_PHOTOS = 3;
 // Photos of the problem when a job is added, or of what a routine looks
 // after (migration 0221): at most this many.
 var MAX_REPORT_PHOTOS = 4;
+
+// Where it is on the map (migration 0222): the phone's GPS position, or a
+// Google Maps link — its coordinates read from it where it has them ("@5.6,-0.18",
+// "?q=5.6,-0.18", "!3d5.6!4d-0.18"), or coordinates typed in ("5.6037, -0.1870").
+var COORDS = [/@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/, /[?&](?:q|query|ll|destination|daddr|center)=(-?\d{1,2}\.\d+)(?:,|%2C)\s*(-?\d{1,3}\.\d+)/i,
+  /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/, /^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/];
+function onMap(lat, lng) { return isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180; }
+function coordsIn(s) {
+  for (var i = 0; i < COORDS.length; i++) {
+    var m = COORDS[i].exec(s);
+    if (m && onMap(Number(m[1]), Number(m[2]))) return { lat: Number(m[1]), lng: Number(m[2]) };
+  }
+  return null;
+}
+// { placeLat, placeLng, placeLink } -> the columns, or null when the place on
+// the map isn't being set at all.
+function placeFrom(body) {
+  if (body.placeLat === undefined && body.placeLng === undefined && body.placeLink === undefined) return null;
+  var num = function (v) { return v === undefined || v === null || v === '' ? null : Number(v); };
+  var lat = num(body.placeLat), lng = num(body.placeLng);
+  if ((lat === null) !== (lng === null) || (lat !== null && !onMap(lat, lng))) fail('invalid', 'That map position is not on the map.');
+  var link = text(body.placeLink, 500);
+  if (link) {
+    var c = coordsIn(link);
+    if (c && lat === null) { lat = c.lat; lng = c.lng; }
+    if (COORDS[3].test(link)) link = '';
+    else if (!/^https?:\/\/\S+$/i.test(link)) fail('invalid', 'Paste a Google Maps link (it starts with https://), or the position as numbers, like 5.6037, -0.1870.');
+  }
+  return { place_lat: lat, place_lng: lng, place_link: link };
+}
+// How the place shows: its position and a link that opens it in Google Maps.
+function placeOf(r) {
+  var has = r.place_lat !== null && r.place_lat !== undefined && r.place_lng !== null && r.place_lng !== undefined;
+  if (!has && !r.place_link) return null;
+  var lat = has ? Number(r.place_lat) : null, lng = has ? Number(r.place_lng) : null;
+  return { lat: lat, lng: lng, link: r.place_link || '', mapUrl: has ? 'https://www.google.com/maps/search/?api=1&query=' + lat + '%2C' + lng : r.place_link };
+}
 var PHOTO_NEEDED = 'Take a photo of the finished work first: a job is marked done only with a photo of it.';
 // A routine becomes a work order this many days before its next day (less
 // for one that comes round sooner: a daily routine on the day itself).
@@ -136,6 +173,8 @@ function shapeOrder(r, ctx) {
     donePhotos: (r.done_photos || []).map(function (p, n) { return { n: n, at: p.at || null }; }),
     // Photos from when it was added — the problem — or its routine's (GET /:id/report-photos/:n).
     photos: (r.photos || []).map(function (p, n) { return { n: n, at: p.at || null }; }),
+    // On the map: GPS or a Google Maps link.
+    map: placeOf(r),
     open: open,
     // The sheet's columns: Days Open, Days (planned → done), and late.
     daysOpen: r.status === 'cancelled' ? null : daysBetween(asked, done || today),
@@ -166,7 +205,8 @@ function shapeRoutine(r) {
     late: !!(next && next < today && !r.archived_at),
     fromSheet: !!r.sheet_key,
     // What it looks after and how (GET /routines/:id/photos/:n).
-    photos: (r.photos || []).map(function (p, n) { return { n: n, at: p.at || null }; })
+    photos: (r.photos || []).map(function (p, n) { return { n: n, at: p.at || null }; }),
+    map: placeOf(r)
   };
 }
 
@@ -656,9 +696,10 @@ async function routineOrder(ctx, id, body) {
     var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
     var row = (await client.query(
       'INSERT INTO maint_work_orders (ref, requested_on, requested_by_id, location, company_id, category, description, priority, status, ' +
-      "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, created_by, photos) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, $2, $12) RETURNING *",
+      "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, created_by, photos, place_lat, place_lng, place_link) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, $2, $12, $13, $14, $15) RETURNING *",
       [ref, ctx.employee.id, r.location, r.company_id, r.category, (r.name + (r.description ? ' — ' + r.description : '')).slice(0, 2000),
-        r.assigned_to_id, r.assigned_to_name, on, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id, JSON.stringify(r.photos || [])])).rows[0];
+        r.assigned_to_id, r.assigned_to_name, on, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id, JSON.stringify(r.photos || []),
+        r.place_lat, r.place_lng, r.place_link || ''])).rows[0];
     await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Made ' + ref + ' from routine ' + r.ref + ' "' + r.name + '".');
     await tellAssigned(client, ctx, row, '🔁 Routine job');
     return (await loadOrder(ctx, row.id, client)).order;
@@ -688,16 +729,20 @@ async function mine(ctx) {
     "SELECT location, count(*)::int AS n FROM (SELECT location FROM maint_work_orders UNION ALL SELECT location FROM maint_routines) x WHERE location <> '' GROUP BY location ORDER BY n DESC, location LIMIT 60")).rows;
   var late = todo.filter(function (o) { return o.overdue; }).length;
   var now = todo.filter(function (o) { return !o.overdue && dayOf(o) <= today; }).length;
-  // Managers and supervisors (task.manage): what they gave out, and who to give jobs to.
-  var given = null, team = null, everyone = null;
+  // Managers, supervisors and the MD (task.manage): every job of the team,
+  // the jobs and routines they created, and who to give jobs to.
+  var given = null, team = null, everyone = null, allJobs = null;
   if (canManage(ctx)) {
     given = {
       jobs: (await pool.query(SELECT_WO +
-        "WHERE w.requested_by_id = $1 AND w.assigned_to_id IS DISTINCT FROM $1 AND (w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $2::date)) " +
+        "WHERE w.requested_by_id = $1 AND (w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $2::date)) " +
         'ORDER BY w.status = \'completed\', w.scheduled_on NULLS LAST, w.created_at DESC LIMIT 200', [me, addDays(today, -7)])).rows.map(function (r) { return shapeOrder(r, ctx); }),
-      routines: (await pool.query(SELECT_RT + 'WHERE r.created_by = $1 AND r.assigned_to_id IS DISTINCT FROM $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows
+      routines: (await pool.query(SELECT_RT + 'WHERE r.created_by = $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows
         .map(function (r) { return Object.assign(shapeRoutine(r), { addedByMe: true }); })
     };
+    allJobs = (await pool.query(SELECT_WO +
+      "WHERE w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $1::date) " +
+      'ORDER BY w.scheduled_on NULLS LAST, w.created_at DESC LIMIT 500', [addDays(today, -7)])).rows.map(function (r) { return shapeOrder(r, ctx); });
     // The maintenance & IT team: whoever had jobs or routines this past year, busiest first.
     team = (await pool.query(
       "SELECT e.id, e.first_name, e.last_name, (SELECT count(*)::int FROM maint_work_orders w WHERE w.assigned_to_id = e.id AND w.status IN ('new', 'scheduled', 'in_progress', 'on_hold')) AS open " +
@@ -710,7 +755,7 @@ async function mine(ctx) {
   return {
     today: today,
     me: { id: me, name: nameOf(ctx.employee.first_name, ctx.employee.last_name) },
-    todo: todo, done: done, routines: routines, given: given,
+    todo: todo, done: done, routines: routines, given: given, allJobs: allJobs,
     counts: { late: late, today: now, later: todo.length - late - now, doneThisWeek: done.length },
     options: { categories: CATEGORIES, priorities: PRIORITIES, places: places.map(function (p) { return p.location; }), team: team, everyone: everyone },
     can: { manage: canManage(ctx), seeAll: seesAll(ctx) }
@@ -730,8 +775,10 @@ async function tellManagers(client, ctx, title, body, link) {
 function whoName(ctx) { return nameOf(ctx.employee.first_name, ctx.employee.last_name) || 'Someone'; }
 
 // POST /mine/jobs (and /api/myjobs/jobs) { description, location?, category?,
-// priority?, scheduledOn?, notes?, forMe?, photos? } — photos: up to 4 of the
-// problem (JPEG data URLs, made small on the phone) — a job added from My Jobs by
+// priority?, scheduledOn?, notes?, forMe?, photos?, assignedToId?, placeLat?,
+// placeLng?, placeLink? } — photos: up to 4 of the problem (JPEG data URLs,
+// made small on the phone); the place on the map: the phone's GPS position or
+// a Google Maps link — a job added from My Jobs by
 // whoever is signed in, a kiosk-code sign-in included: given to them and
 // planned for its day (today unless said), or, with forMe false, left for
 // the managers to give to someone. The managers hear of it either way.
@@ -751,12 +798,13 @@ async function addJob(ctx, body) {
     if (day && day < addDays(todayISO(), -30)) fail('invalid', 'The day is too far back.');
     var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
     var shots = await photosFrom(ctx, body.photos, ref.toLowerCase(), MAX_REPORT_PHOTOS);
+    var pl = placeFrom(body) || { place_lat: null, place_lng: null, place_link: '' };
     var row = (await client.query(
       'INSERT INTO maint_work_orders (ref, requested_on, requested_by_id, location, company_id, category, description, priority, status, ' +
-      'assigned_to_id, scheduled_on, notes, created_by, photos) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $2, $12) RETURNING *',
+      'assigned_to_id, scheduled_on, notes, created_by, photos, place_lat, place_lng, place_link) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $2, $12, $13, $14, $15) RETURNING *',
       [ref, ctx.employee.id, location, (await companyMatcher(client))(location), pick(body.category, CATEGORIES, 'Kind of job', 'other'), description,
         pick(body.priority, PRIORITIES, 'How urgent', 'medium'), who || day ? 'scheduled' : 'new',
-        who, day, longText(body.notes, 2000), JSON.stringify(shots)])).rows[0];
+        who, day, longText(body.notes, 2000), JSON.stringify(shots), pl.place_lat, pl.place_lng, pl.place_link])).rows[0];
     await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Added ' + ref + ' from My Jobs' +
       (to ? ', given to someone' : forMe ? ', given to themselves' : ', for the managers to give out') +
       (shots.length ? ', with ' + shots.length + ' photo(s)' : '') + ': ' + text(description, 120));
@@ -810,6 +858,9 @@ async function saveMyRoutine(ctx, id, body) {
     var room = MAX_REPORT_PHOTOS - kept.length;
     var added = room > 0 && Array.isArray(body.photos) && body.photos.length ? await photosFrom(ctx, body.photos, 'routine', room) : [];
     if (!was || drop.length || added.length) f.photos = JSON.stringify(kept.concat(added));
+    // On the map.
+    var pl = placeFrom(body);
+    if (pl) Object.assign(f, pl);
     // Who does it: whoever adds it, or the one a manager gives it to.
     if (body.assignedToId) { f.assigned_to_id = (await personOr(client, body.assignedToId)).id; f.assigned_to_name = ''; }
     var row;
@@ -879,9 +930,10 @@ async function runDue(on) {
       var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
       var row = (await client.query(
         'INSERT INTO maint_work_orders (ref, requested_on, requested_by_name, location, company_id, category, description, priority, status, ' +
-        "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, auto_made, photos) VALUES ($1, $2::date, 'Routine', $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, true, $12) RETURNING *",
+        "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, auto_made, photos, place_lat, place_lng, place_link) VALUES ($1, $2::date, 'Routine', $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, true, $12, $13, $14, $15) RETURNING *",
         [ref, today, r.location, r.company_id, r.category, (r.name + (r.description ? ' — ' + r.description : '')).slice(0, 2000),
-          r.assigned_to_id, r.assigned_to_name, r.next_day, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id, JSON.stringify(r.photos || [])])).rows[0];
+          r.assigned_to_id, r.assigned_to_name, r.next_day, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id, JSON.stringify(r.photos || []),
+          r.place_lat, r.place_lng, r.place_link || ''])).rows[0];
       await audit(client, null, 'maintwo.create', 'maint_work_order', row.id, 'Made ' + ref + ' by itself from routine ' + r.ref + ' "' + r.name + '", due ' + r.next_day + '.');
       if (row.assigned_to_id) {
         await notify(client, row.assigned_to_id, '🔁 Routine job ' + ref + (row.location ? ' · ' + row.location : ''),

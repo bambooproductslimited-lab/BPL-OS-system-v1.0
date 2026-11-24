@@ -145,6 +145,7 @@ function JobCard({ job, today, onOpen, showWho }) {
           <span className="mj-card-what">{job.description}</span>
           <span className="mj-card-meta">
             {job.location && <span>📍 {job.location}</span>}
+            {job.map && <span>🗺️ {tr('On the map')}</span>}
             {day && <span className={job.overdue ? 'is-late' : ''}>📅 {niceDay(day)} · {dayWords(day, today)}</span>}
             {job.status === 'completed' && job.completedOn && <span>✅ {niceDay(job.completedOn)}</span>}
           </span>
@@ -157,7 +158,7 @@ function JobCard({ job, today, onOpen, showWho }) {
 
 // One job, full screen on the phone: what, where, who asked; start, hold,
 // note; done with photos.
-function JobSheet({ job, today, busy, client, onMove, onClose }) {
+function JobSheet({ job, today, busy, client, meId, onMove, onClose }) {
   const [step, setStep] = useState(null); // 'done' | 'hold' | 'note'
   const [photos, setPhotos] = useState([]);
   const [note, setNote] = useState('');
@@ -183,8 +184,10 @@ function JobSheet({ job, today, busy, client, onMove, onClose }) {
         </div>
         <h2 id="mj-sheet-title" className="mj-sheet-what">{job.description}</h2>
         <dl className="mj-facts">
-          <div><dt>{tr('Place')}</dt><dd>📍 {job.location || '—'}{job.companyName && job.companyName !== job.location ? ' · ' + job.companyName : ''}</dd></div>
+          <div><dt>{tr('Place')}</dt><dd>📍 {job.location || '—'}{job.companyName && job.companyName !== job.location ? ' · ' + job.companyName : ''} <MapLink map={job.map} /></dd></div>
           <div><dt>{tr('Planned for')}</dt><dd className={job.overdue ? 'is-late' : ''}>{job.scheduledOn ? niceDay(job.scheduledOn) + ' · ' + dayWords(job.scheduledOn, today) : tr('No day set')}</dd></div>
+          {job.assignedTo && job.assignedTo.id !== meId && <div><dt>{tr('Given to')}</dt><dd>👷 {job.assignedTo.name}</dd></div>}
+          {!job.assignedTo && <div><dt>{tr('Given to')}</dt><dd>📋 {tr('Nobody yet')}</dd></div>}
           <div><dt>{tr('Asked for by')}</dt><dd>{(job.requestedBy && job.requestedBy.name) || '—'} · {niceDay(job.requestedOn)}</dd></div>
           {job.routineName && <div><dt>{tr('Routine')}</dt><dd>🔁 {job.routineName}</dd></div>}
           {job.completedOn && <div><dt>{tr('Done on')}</dt><dd>✅ {niceDay(job.completedOn)}</dd></div>}
@@ -269,7 +272,7 @@ function RoutineDone({ routine, client, busy, onDone, onClose }) {
       <div className="mj-sheet-body">
         <h2 id="mj-rt-title" className="mj-sheet-what">🔁 {routine.name}</h2>
         <dl className="mj-facts">
-          <div><dt>{tr('Place')}</dt><dd>📍 {routine.location || '—'}</dd></div>
+          <div><dt>{tr('Place')}</dt><dd>📍 {routine.location || '—'} <MapLink map={routine.map} /></dd></div>
           {routine.everyDays && <div><dt>{tr('Comes round')}</dt><dd>{tr('Every {n} days', { n: routine.everyDays })}{routine.scheduleNote ? ' · ' + routine.scheduleNote : ''}</dd></div>}
         </dl>
         {routine.description && <p className="mj-notes">{routine.description}</p>}
@@ -316,6 +319,52 @@ const MAX_ADD_PHOTOS = 4;
 
 // Adding a job from the phone: one they do themselves (planned for its day,
 // today unless changed), or one sent to the managers to give to someone.
+// Where it is on the map: the phone's GPS position (one tap), or a Google
+// Maps link pasted in. value: { lat, lng, acc, link }.
+function mapUrlOf(v) { return v.lat != null ? 'https://www.google.com/maps/search/?api=1&query=' + v.lat + '%2C' + v.lng : v.link; }
+function geoBody(v) { return { placeLat: v.lat != null ? v.lat : null, placeLng: v.lng != null ? v.lng : null, placeLink: v.link || '' }; }
+function MapPlace({ value, onChange, disabled }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [paste, setPaste] = useState(!!value.link);
+  function gps() {
+    setErr(null);
+    if (!navigator.geolocation) { setErr(tr('This phone cannot give its location here. Paste a Google Maps link instead.')); setPaste(true); return; }
+    setBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setBusy(false); onChange({ ...value, lat: Number(pos.coords.latitude.toFixed(6)), lng: Number(pos.coords.longitude.toFixed(6)), acc: Math.round(pos.coords.accuracy || 0) || null }); },
+      (e) => {
+        setBusy(false); setPaste(true);
+        setErr(e && e.code === 1 ? tr('The phone did not allow its location. Allow location for this site in the browser, or paste a Google Maps link.') : tr('The location could not be found. Try again outside, or paste a Google Maps link.'));
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+  }
+  const has = value.lat != null;
+  return (
+    <div className="mj-geo">
+      {has ? (
+        <div className="mj-geo-set">
+          <span>📍 {tr('Location on the map added')}{value.acc ? ' · ' + tr('to within {m} m', { m: value.acc }) : ''}</span>
+          <a href={mapUrlOf(value)} target="_blank" rel="noopener noreferrer">{tr('See it')}</a>
+          <button type="button" className="mj-link" disabled={disabled} onClick={() => onChange({ ...value, lat: null, lng: null, acc: null })}>{tr('Remove')}</button>
+        </div>
+      ) : (
+        <button type="button" className="mj-small mj-geo-gps" disabled={busy || disabled} onClick={gps}>📍 {busy ? tr('Finding where you are…') : tr('Use my location (GPS)')}</button>
+      )}
+      {paste || value.link ? (
+        <label className="mj-field"><span>{tr('Google Maps link (optional)')}</span>
+          <input className="input" type="url" inputMode="url" value={value.link} disabled={disabled} onChange={(e) => onChange({ ...value, link: e.target.value })} placeholder="https://maps.app.goo.gl/…" />
+        </label>
+      ) : <button type="button" className="mj-link mj-geo-paste" onClick={() => setPaste(true)}>{tr('or paste a Google Maps link')}</button>}
+      {err && <p className="mj-geo-err" role="alert">{err}</p>}
+    </div>
+  );
+}
+function MapLink({ map }) {
+  if (!map || !map.mapUrl) return null;
+  return <a className="mj-map-link" href={map.mapUrl} target="_blank" rel="noopener noreferrer">🗺️ {tr('Open in Google Maps')}</a>;
+}
+
 // Who to give a job or routine to, for a manager or supervisor: the
 // maintenance & IT team first (with how many jobs each has open), then
 // everyone else.
@@ -344,6 +393,7 @@ function AddJobSheet({ today, places, crew, busy, onSave, onClose }) {
   // (no one yet: the managers give it out).
   const [f, setF] = useState({ description: '', location: '', category: 'other', priority: 'medium', scheduledOn: today, notes: '', who: 'me', assignedToId: '' });
   const [photos, setPhotos] = useState([]);
+  const [geo, setGeo] = useState({ lat: null, lng: null, acc: null, link: '' });
   const [err, setErr] = useState(null);
   const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
   function who(w) {
@@ -356,7 +406,7 @@ function AddJobSheet({ today, places, crew, busy, onSave, onClose }) {
     if (!f.description.trim()) { setErr(tr('Say what needs doing.')); return; }
     if (f.who === 'other' && !f.assignedToId) { setErr(tr('Choose who does it.')); return; }
     const { who: w, assignedToId, ...rest } = f;
-    const body = { ...rest, forMe: w === 'me', scheduledOn: f.scheduledOn || null, photos };
+    const body = { ...rest, forMe: w === 'me', scheduledOn: f.scheduledOn || null, photos, ...geoBody(geo) };
     if (w === 'other') body.assignedToId = assignedToId;
     try { await onSave(body, w === 'other' ? personName(crew, assignedToId) : null); } catch (x) { setErr(x.message); }
   }
@@ -385,6 +435,7 @@ function AddJobSheet({ today, places, crew, busy, onSave, onClose }) {
             <input className="input" list="mj-places" maxLength={80} value={f.location} onChange={(e) => set('location', e.target.value)} placeholder={tr('e.g. BPL factory, the canteen')} />
           </label>
           <Places places={places} />
+          <MapPlace value={geo} onChange={setGeo} disabled={busy} />
           <Chips label={tr('Kind of job')} value={f.category} onChange={(v) => set('category', v)} options={KINDS.map((k) => [k, kindIcon(k) + ' ' + kindName(k)])} />
           <Chips label={tr('How urgent?')} value={f.priority} onChange={(v) => set('priority', v)} options={PRIORITIES.map((p) => [p, priorityName(p)])} />
           <div className="mj-field">
@@ -434,6 +485,7 @@ function RoutineForm({ routine, client, crew, today, places, busy, onSave, onSto
   const [err, setErr] = useState(null);
   const [photos, setPhotos] = useState([]);
   const [drop, setDrop] = useState([]); // its photos taken out (their numbers)
+  const [geo, setGeo] = useState(() => ({ lat: routine && routine.map ? routine.map.lat : null, lng: routine && routine.map ? routine.map.lng : null, acc: null, link: routine && routine.map ? routine.map.link : '' }));
   const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
   const every = Number(f.everyDays);
   const had = routine ? (routine.photos || []).filter((p) => !drop.includes(p.n)) : [];
@@ -443,7 +495,7 @@ function RoutineForm({ routine, client, crew, today, places, busy, onSave, onSto
     setErr(null);
     if (!f.name.trim()) { setErr(tr('Say what is done each time.')); return; }
     if (!everyOk) { setErr(tr('Say every how many days it comes round: a whole number from 1 to 3660.')); return; }
-    const body = { ...f, everyDays: every, photos };
+    const body = { ...f, everyDays: every, photos, ...geoBody(geo) };
     if (drop.length) body.dropPhotos = drop;
     if (crew.lead) {
       if (who === 'other' && !toId) { setErr(tr('Choose who does it.')); return; }
@@ -477,6 +529,7 @@ function RoutineForm({ routine, client, crew, today, places, busy, onSave, onSto
             <input className="input" list="mj-places" maxLength={80} value={f.location} onChange={(e) => set('location', e.target.value)} placeholder={tr('e.g. BPL factory, the canteen')} />
           </label>
           <Places places={places} />
+          <MapPlace value={geo} onChange={setGeo} disabled={busy} />
           <Chips label={tr('Kind of job')} value={f.category} onChange={(v) => set('category', v)} options={KINDS.map((k) => [k, kindIcon(k) + ' ' + kindName(k)])} />
           {crew.lead && (
             <div className="mj-field">
@@ -586,7 +639,7 @@ function Jobs({ client, onSignOut }) {
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
   }, [navigate, load]);
 
-  const all = useMemo(() => (data ? data.todo.concat(data.done, data.given ? data.given.jobs : []) : []), [data]);
+  const all = useMemo(() => (data ? data.todo.concat(data.done, data.given ? data.given.jobs : [], data.allJobs || []) : []), [data]);
   const listed = jobId ? all.find((j) => j.id === jobId) : null;
   useEffect(() => {
     if (!jobId || !data || listed) { setExtraJob(null); return; }
@@ -662,7 +715,7 @@ function Jobs({ client, onSignOut }) {
   const later = data ? data.todo.filter((o) => !o.overdue && dayOf(o) > today) : [];
   const first = (data && data.me.name ? data.me.name : '').split(' ')[0];
 
-  if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} onMove={move} onClose={closeJob} />;
+  if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} meId={data ? data.me.id : null} onMove={move} onClose={closeJob} />;
   if (routineOpen) return <RoutineDone routine={routineOpen} client={client} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
   const places = data && data.options ? data.options.places : [];
   if (form && form.kind === 'job') return <AddJobSheet today={today} places={places} crew={crew} busy={busy} onSave={addJob} onClose={() => setForm(null)} />;
@@ -710,7 +763,8 @@ function Jobs({ client, onSignOut }) {
             </section>
             <nav className="mj-tabs" role="tablist">
               {[['todo', tr('To do'), data.todo.length], ['routines', tr('Routines'), data.routines.length], ['done', tr('Done'), data.done.length]]
-                .concat(data.given ? [['given', tr('Given out'), data.given.jobs.length + data.given.routines.length]] : []).map(([k, label, n]) => (
+                .concat(data.allJobs ? [['team', tr('Team'), data.allJobs.filter((o) => o.open).length]] : [])
+                .concat(data.given ? [['given', tr('Created by me'), data.given.jobs.length + data.given.routines.length]] : []).map(([k, label, n]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{label} <small>{n}</small></button>
               ))}
             </nav>
@@ -749,6 +803,7 @@ function Jobs({ client, onSignOut }) {
                 </ul>
               ) : <p className="mj-empty">{tr('No routines are given to you. Add your own with “Add a routine” above.')}</p>
             )}
+            {tab === 'team' && data.allJobs && <TeamJobs jobs={data.allJobs} today={today} onOpen={openJob} />}
             {tab === 'given' && data.given && (
               data.given.jobs.length + data.given.routines.length ? <>
                 {data.given.jobs.length > 0 && (
@@ -781,7 +836,7 @@ function Jobs({ client, onSignOut }) {
                     </ul>
                   </section>
                 )}
-              </> : <p className="mj-empty">{tr('Jobs and routines you give to others show here, so you can see how they are getting on.')}</p>
+              </> : <p className="mj-empty">{tr('Jobs and routines you create show here, with who has each, so you can see how they are getting on.')}</p>
             )}
             {tab === 'done' && (
               data.done.length ? <ul className="mj-list">{data.done.map((o) => <JobCard key={o.id} job={o} today={today} onOpen={openJob} />)}</ul>
@@ -794,6 +849,32 @@ function Jobs({ client, onSignOut }) {
       {toast && <div className="mj-toast" role="status">✅ {toast}</div>}
     </div>
   );
+}
+
+// Everyone's jobs, for a manager, supervisor or the MD: one group per
+// person — the jobs nobody has yet first, then the busiest and latest.
+function TeamJobs({ jobs, today, onOpen }) {
+  const groups = useMemo(() => {
+    const by = new Map();
+    jobs.forEach((o) => {
+      const key = o.assignedTo ? (o.assignedTo.id || o.assignedTo.name) : '';
+      if (!by.has(key)) by.set(key, { key, name: o.assignedTo ? o.assignedTo.name : '', open: [], done: 0, late: 0 });
+      const g = by.get(key);
+      if (o.open) { g.open.push(o); if (o.overdue) g.late++; } else if (o.status === 'completed') g.done++;
+    });
+    return [...by.values()].sort((a, b) => (a.key === '' ? -1 : b.key === '' ? 1 : 0) || b.late - a.late || b.open.length - a.open.length || a.name.localeCompare(b.name));
+  }, [jobs]);
+  if (!groups.length) return <p className="mj-empty">{tr('No open jobs in the team.')}</p>;
+  return groups.map((g) => (
+    <section key={g.key || 'nobody'} className={'mj-group mj-team' + (g.key === '' ? ' is-nobody' : '')}>
+      <h2>
+        <span>{g.key === '' ? '📋 ' + tr('Nobody yet') : '👷 ' + g.name}</span>
+        <small>{tr('{n} open', { n: g.open.length })}{g.late ? <b className="is-late"> · {tr('{n} late', { n: g.late })}</b> : null}{g.done ? ' · ' + tr('{n} done this week', { n: g.done }) : ''}</small>
+      </h2>
+      {g.open.length ? <ul className="mj-list">{g.open.map((o) => <JobCard key={o.id} job={o} today={today} onOpen={onOpen} />)}</ul>
+        : <p className="mj-muted mj-team-none">{tr('Nothing open.')}</p>}
+    </section>
+  ));
 }
 
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'back'];

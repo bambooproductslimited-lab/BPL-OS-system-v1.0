@@ -167,3 +167,23 @@
 .mj-tag.is-who { background: var(--color-bg); color: var(--color-text); }
 .mj-tag.is-who.is-nobody { background: var(--color-warning-100); border-color: transparent; }
 .mj-tabs button { min-width: 0; padding: 0 4px; }
+
+/* where it is on the map */
+.mj-geo { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: -4px; }
+.mj-geo .mj-field { align-self: stretch; }
+.mj-geo-set { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; border-radius: 10px; background: var(--color-accent-100); color: var(--color-accent-800); font-size: 14px; font-weight: 600; }
+.mj-geo-set a { color: inherit; }
+.mj-geo-set .mj-link { padding: 0; color: var(--color-text-muted); }
+.mj-geo-paste { align-self: flex-start; padding: 0; }
+.mj-geo-err { margin: 0; font-size: 13px; color: var(--color-danger); }
+.mj-map-link { display: inline-block; margin-left: 4px; font-weight: 600; color: var(--color-accent-700); white-space: nowrap; }
+/* tabs: as many as fit, the rest a swipe away */
+.mj-tabs { overflow-x: auto; scrollbar-width: none; }
+.mj-tabs::-webkit-scrollbar { display: none; }
+.mj-tabs button { flex: 1 0 auto; white-space: nowrap; padding: 0 10px; }
+.mj-group.is-nobody h2 { color: var(--color-warning); }
+.mj-team-none { margin: 0 0 8px; font-size: 14px; }
+.mj-team h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-transform: none; letter-spacing: 0; font-size: 17px; color: var(--color-text); }
+.mj-team h2 small { font-size: 13px; font-weight: 600; color: var(--color-text-muted); }
+.mj-team h2 .is-late { color: var(--color-danger); }
+.mj-team.is-nobody h2 > span { color: var(--color-warning); }
