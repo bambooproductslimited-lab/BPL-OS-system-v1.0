@@ -126,7 +126,7 @@ function isInstalled() {
 }
 function isIos() { return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
 
-function JobCard({ job, today, onOpen }) {
+function JobCard({ job, today, onOpen, showWho }) {
   const day = job.scheduledOn || null;
   return (
     <li>
@@ -140,6 +140,7 @@ function JobCard({ job, today, onOpen }) {
             {job.status === 'on_hold' && <span className="mj-tag is-hold">{tr('On hold')}</span>}
             {job.routineId && <span className="mj-tag">🔁 {tr('Routine')}</span>}
             {job.photos && job.photos.length > 0 && <span className="mj-tag" aria-label={tr('{n} photos', { n: job.photos.length })}>📷 {job.photos.length}</span>}
+            {showWho && <span className={'mj-tag is-who' + (job.assignedTo ? '' : ' is-nobody')}>👷 {job.assignedTo ? job.assignedTo.name : tr('Nobody yet')}</span>}
           </span>
           <span className="mj-card-what">{job.description}</span>
           <span className="mj-card-meta">
@@ -315,21 +316,53 @@ const MAX_ADD_PHOTOS = 4;
 
 // Adding a job from the phone: one they do themselves (planned for its day,
 // today unless changed), or one sent to the managers to give to someone.
-function AddJobSheet({ today, places, busy, onSave, onClose }) {
-  const [f, setF] = useState({ description: '', location: '', category: 'other', priority: 'medium', scheduledOn: today, notes: '', forMe: true });
+// Who to give a job or routine to, for a manager or supervisor: the
+// maintenance & IT team first (with how many jobs each has open), then
+// everyone else.
+function PersonPick({ crew, value, onChange }) {
+  const others = crew.everyone.filter((p) => !crew.team.some((t) => t.id === p.id));
+  return (
+    <label className="mj-field"><span>{tr('Who?')}</span>
+      <select className="input" value={value} onChange={(e) => onChange(e.target.value)} required>
+        <option value="">{tr('Choose someone…')}</option>
+        {crew.team.length > 0 && (
+          <optgroup label={tr('The maintenance & IT team')}>
+            {crew.team.map((p) => <option key={p.id} value={p.id}>{p.open ? tr('{name} · {n} open', { name: p.name, n: p.open }) : p.name}</option>)}
+          </optgroup>
+        )}
+        <optgroup label={crew.team.length ? tr('Everyone else') : tr('Everyone')}>
+          {others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </optgroup>
+      </select>
+    </label>
+  );
+}
+function personName(crew, id) { const p = crew.everyone.find((x) => x.id === id); return p ? p.name : ''; }
+
+function AddJobSheet({ today, places, crew, busy, onSave, onClose }) {
+  // who: 'me', 'other' (a manager or supervisor gives it to someone), 'later'
+  // (no one yet: the managers give it out).
+  const [f, setF] = useState({ description: '', location: '', category: 'other', priority: 'medium', scheduledOn: today, notes: '', who: 'me', assignedToId: '' });
   const [photos, setPhotos] = useState([]);
   const [err, setErr] = useState(null);
   const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
-  function who(forMe) {
-    // A job for the managers has no day unless one is wanted; one for me is today.
-    setF((o) => ({ ...o, forMe, scheduledOn: forMe ? (o.scheduledOn || today) : (o.scheduledOn === today ? '' : o.scheduledOn) }));
+  function who(w) {
+    // A job nobody has yet has no day unless one is wanted; one given to someone is today.
+    setF((o) => ({ ...o, who: w, scheduledOn: w === 'later' ? (o.scheduledOn === today ? '' : o.scheduledOn) : (o.scheduledOn || today) }));
   }
   async function send(e) {
     e.preventDefault();
     setErr(null);
     if (!f.description.trim()) { setErr(tr('Say what needs doing.')); return; }
-    try { await onSave({ ...f, scheduledOn: f.scheduledOn || null, photos }); } catch (x) { setErr(x.message); }
+    if (f.who === 'other' && !f.assignedToId) { setErr(tr('Choose who does it.')); return; }
+    const { who: w, assignedToId, ...rest } = f;
+    const body = { ...rest, forMe: w === 'me', scheduledOn: f.scheduledOn || null, photos };
+    if (w === 'other') body.assignedToId = assignedToId;
+    try { await onSave(body, w === 'other' ? personName(crew, assignedToId) : null); } catch (x) { setErr(x.message); }
   }
+  const opts = crew.lead
+    ? [['me', '🙋 ' + tr('Me'), tr('It goes on my list')], ['other', '👷 ' + tr('Someone else'), tr('I give it to someone')], ['later', '📋 ' + tr('Not decided yet'), tr('It waits for someone to be given it')]]
+    : [['me', '🙋 ' + tr('Me'), tr('It goes on my list')], ['later', '📨 ' + tr('The managers'), tr('They give it to someone')]];
   return (
     <form className="mj-sheet" role="dialog" aria-modal="true" aria-labelledby="mj-add-title" onSubmit={send}>
       <header className="mj-sheet-bar">
@@ -356,24 +389,26 @@ function AddJobSheet({ today, places, busy, onSave, onClose }) {
           <Chips label={tr('How urgent?')} value={f.priority} onChange={(v) => set('priority', v)} options={PRIORITIES.map((p) => [p, priorityName(p)])} />
           <div className="mj-field">
             <span>{tr('Who does it?')}</span>
-            <div className="mj-who" role="radiogroup" aria-label={tr('Who does it?')}>
-              <button type="button" role="radio" aria-checked={f.forMe} className={'mj-who-opt' + (f.forMe ? ' is-on' : '')} onClick={() => who(true)}>
-                <b>🙋 {tr('Me')}</b><small>{tr('It goes on my list')}</small>
-              </button>
-              <button type="button" role="radio" aria-checked={!f.forMe} className={'mj-who-opt' + (!f.forMe ? ' is-on' : '')} onClick={() => who(false)}>
-                <b>📨 {tr('The managers')}</b><small>{tr('They give it to someone')}</small>
-              </button>
+            <div className={'mj-who' + (opts.length > 2 ? ' is-three' : '')} role="radiogroup" aria-label={tr('Who does it?')}>
+              {opts.map(([k, label, help]) => (
+                <button key={k} type="button" role="radio" aria-checked={f.who === k} className={'mj-who-opt' + (f.who === k ? ' is-on' : '')} onClick={() => who(k)}>
+                  <b>{label}</b><small>{help}</small>
+                </button>
+              ))}
             </div>
           </div>
-          <label className="mj-field"><span>{f.forMe ? tr('Which day?') : tr('Needed by (optional)')}</span>
-            <input type="date" className="input" value={f.scheduledOn} min={today} onChange={(e) => set('scheduledOn', e.target.value)} required={f.forMe} />
+          {f.who === 'other' && <PersonPick crew={crew} value={f.assignedToId} onChange={(v) => set('assignedToId', v)} />}
+          <label className="mj-field"><span>{f.who === 'later' ? tr('Needed by (optional)') : tr('Which day?')}</span>
+            <input type="date" className="input" value={f.scheduledOn} min={today} onChange={(e) => set('scheduledOn', e.target.value)} required={f.who !== 'later'} />
           </label>
           <label className="mj-field"><span>{tr('Note (optional)')}</span>
             <textarea className="input" rows={2} maxLength={2000} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder={tr('Parts needed, who reported it…')} />
           </label>
           {err && <p className="mj-error" role="alert">{err}</p>}
           <button type="submit" className="mj-big is-done" disabled={busy || !f.description.trim()}>
-            {busy ? tr('Sending…') : f.forMe ? '＋ ' + tr('Add to my jobs') : '📨 ' + tr('Send to the managers')}
+            {busy ? tr('Sending…') : f.who === 'me' ? '＋ ' + tr('Add to my jobs')
+              : f.who === 'other' ? '👷 ' + (f.assignedToId ? tr('Give the job to {name}', { name: personName(crew, f.assignedToId) }) : tr('Give the job'))
+                : crew.lead ? '＋ ' + tr('Add the job') : '📨 ' + tr('Send to the managers')}
           </button>
           <button type="button" className="mj-link" onClick={onClose}>{tr('Cancel')}</button>
         </div>
@@ -386,7 +421,11 @@ const EVERY = [[1, () => tr('Every day')], [7, () => tr('Every week')], [14, () 
 
 // A routine of one's own: added from the phone, changed or stopped later.
 // Close to each time it becomes a job on their list (backend runDue).
-function RoutineForm({ routine, client, today, places, busy, onSave, onStop, onClose }) {
+function RoutineForm({ routine, client, crew, today, places, busy, onSave, onStop, onClose }) {
+  // A manager or supervisor may give it to someone else.
+  const givenTo = routine && routine.assignedTo && routine.assignedTo.id && routine.assignedTo.id !== crew.meId ? routine.assignedTo.id : '';
+  const [who, setWho] = useState(givenTo ? 'other' : 'me');
+  const [toId, setToId] = useState(givenTo);
   const [f, setF] = useState(() => ({
     name: routine ? routine.name : '', location: routine ? routine.location || '' : '', category: routine ? routine.category || 'other' : 'other',
     everyDays: routine && routine.everyDays ? String(routine.everyDays) : '7', nextOn: routine ? routine.nextOn || today : today,
@@ -406,10 +445,14 @@ function RoutineForm({ routine, client, today, places, busy, onSave, onStop, onC
     if (!everyOk) { setErr(tr('Say every how many days it comes round: a whole number from 1 to 3660.')); return; }
     const body = { ...f, everyDays: every, photos };
     if (drop.length) body.dropPhotos = drop;
+    if (crew.lead) {
+      if (who === 'other' && !toId) { setErr(tr('Choose who does it.')); return; }
+      body.assignedToId = who === 'other' ? toId : crew.meId;
+    }
     // A late routine keeps its day unless it is changed.
     if (routine && f.nextOn === routine.nextOn) delete body.nextOn;
     else if (f.nextOn < today) { setErr(tr('The next time must be today or later.')); return; }
-    try { await onSave(routine, body); } catch (x) { setErr(x.message); }
+    try { await onSave(routine, body, crew.lead && who === 'other' ? personName(crew, toId) : null); } catch (x) { setErr(x.message); }
   }
   async function stop() {
     if (!window.confirm(tr('Stop {name}? It will not come round again.', { name: routine.name }))) return;
@@ -435,6 +478,19 @@ function RoutineForm({ routine, client, today, places, busy, onSave, onStop, onC
           </label>
           <Places places={places} />
           <Chips label={tr('Kind of job')} value={f.category} onChange={(v) => set('category', v)} options={KINDS.map((k) => [k, kindIcon(k) + ' ' + kindName(k)])} />
+          {crew.lead && (
+            <div className="mj-field">
+              <span>{tr('Who does it?')}</span>
+              <div className="mj-who" role="radiogroup" aria-label={tr('Who does it?')}>
+                {[['me', '🙋 ' + tr('Me'), tr('It goes on my list')], ['other', '👷 ' + tr('Someone else'), tr('I give it to someone')]].map(([k, label, help]) => (
+                  <button key={k} type="button" role="radio" aria-checked={who === k} className={'mj-who-opt' + (who === k ? ' is-on' : '')} onClick={() => setWho(k)}>
+                    <b>{label}</b><small>{help}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {crew.lead && who === 'other' && <PersonPick crew={crew} value={toId} onChange={setToId} />}
           <Chips label={tr('How often?')} value={quick ? every : 'other'} onChange={(v) => set('everyDays', v === 'other' ? (quick ? '' : f.everyDays) : String(v))}
             options={EVERY.map(([n, t]) => [n, t()]).concat([['other', tr('Other…')]])} />
           {!quick && (
@@ -530,7 +586,7 @@ function Jobs({ client, onSignOut }) {
     return () => navigator.serviceWorker.removeEventListener('message', onMsg);
   }, [navigate, load]);
 
-  const all = useMemo(() => (data ? data.todo.concat(data.done) : []), [data]);
+  const all = useMemo(() => (data ? data.todo.concat(data.done, data.given ? data.given.jobs : []) : []), [data]);
   const listed = jobId ? all.find((j) => j.id === jobId) : null;
   useEffect(() => {
     if (!jobId || !data || listed) { setExtraJob(null); return; }
@@ -564,23 +620,26 @@ function Jobs({ client, onSignOut }) {
     } finally { setBusy(false); }
   }
 
-  async function addJob(body) {
+  async function addJob(body, toName) {
     setBusy(true);
     try {
       const out = await client.addJob(body);
       await load();
       setForm(null);
-      if (body.forMe) { setTab('todo'); say(tr('{ref} is on your list.', { ref: out.ref })); } else say(tr('{ref} sent to the managers.', { ref: out.ref }));
+      if (body.assignedToId) { setTab('given'); say(tr('{ref} given to {name}. They have been told.', { ref: out.ref, name: toName || '' })); }
+      else if (body.forMe) { setTab('todo'); say(tr('{ref} is on your list.', { ref: out.ref })); }
+      else if (lead) { setTab('given'); say(tr('{ref} added. Give it to someone when you know who.', { ref: out.ref })); }
+      else say(tr('{ref} sent to the managers.', { ref: out.ref }));
     } finally { setBusy(false); }
   }
-  async function saveRoutine(r, body) {
+  async function saveRoutine(r, body, toName) {
     setBusy(true);
     try {
       const out = r ? await client.saveRoutine(r.id, body) : await client.addRoutine(body);
       await load();
       setForm(null);
-      setTab('routines');
-      say(r ? tr('{name} saved.', { name: out.name }) : tr('{name} added to your routines.', { name: out.name }));
+      setTab(toName ? 'given' : 'routines');
+      say(r ? tr('{name} saved.', { name: out.name }) : toName ? tr('{name} given to {who}. They have been told.', { name: out.name, who: toName }) : tr('{name} added to your routines.', { name: out.name }));
     } finally { setBusy(false); }
   }
   async function stopRoutine(r) {
@@ -594,6 +653,9 @@ function Jobs({ client, onSignOut }) {
   }
 
   const today = data ? data.today : new Date().toISOString().slice(0, 10);
+  // A manager or supervisor (task.manage): gives jobs and routines out too.
+  const lead = !!(data && data.can && data.can.manage);
+  const crew = { lead, meId: data ? data.me.id : null, team: (data && data.options && data.options.team) || [], everyone: (data && data.options && data.options.everyone) || [] };
   const dayOf = (o) => o.scheduledOn || o.requestedOn || today;
   const late = data ? data.todo.filter((o) => o.overdue) : [];
   const now = data ? data.todo.filter((o) => !o.overdue && dayOf(o) <= today) : [];
@@ -603,8 +665,8 @@ function Jobs({ client, onSignOut }) {
   if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} onMove={move} onClose={closeJob} />;
   if (routineOpen) return <RoutineDone routine={routineOpen} client={client} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
   const places = data && data.options ? data.options.places : [];
-  if (form && form.kind === 'job') return <AddJobSheet today={today} places={places} busy={busy} onSave={addJob} onClose={() => setForm(null)} />;
-  if (form && form.kind === 'routine') return <RoutineForm routine={form.routine} client={client} today={today} places={places} busy={busy} onSave={saveRoutine} onStop={stopRoutine} onClose={() => setForm(null)} />;
+  if (form && form.kind === 'job') return <AddJobSheet today={today} places={places} crew={crew} busy={busy} onSave={addJob} onClose={() => setForm(null)} />;
+  if (form && form.kind === 'routine') return <RoutineForm routine={form.routine} client={client} crew={crew} today={today} places={places} busy={busy} onSave={saveRoutine} onStop={stopRoutine} onClose={() => setForm(null)} />;
 
   const group = (title, list, tone) => list.length > 0 && (
     <section className={'mj-group' + (tone ? ' is-' + tone : '')}>
@@ -647,7 +709,8 @@ function Jobs({ client, onSignOut }) {
               </button>
             </section>
             <nav className="mj-tabs" role="tablist">
-              {[['todo', tr('To do'), data.todo.length], ['routines', tr('Routines'), data.routines.length], ['done', tr('Done'), data.done.length]].map(([k, label, n]) => (
+              {[['todo', tr('To do'), data.todo.length], ['routines', tr('Routines'), data.routines.length], ['done', tr('Done'), data.done.length]]
+                .concat(data.given ? [['given', tr('Given out'), data.given.jobs.length + data.given.routines.length]] : []).map(([k, label, n]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{label} <small>{n}</small></button>
               ))}
             </nav>
@@ -685,6 +748,40 @@ function Jobs({ client, onSignOut }) {
                   })}
                 </ul>
               ) : <p className="mj-empty">{tr('No routines are given to you. Add your own with “Add a routine” above.')}</p>
+            )}
+            {tab === 'given' && data.given && (
+              data.given.jobs.length + data.given.routines.length ? <>
+                {data.given.jobs.length > 0 && (
+                  <section className="mj-group">
+                    <h2>{tr('Jobs')} <small>{data.given.jobs.length}</small></h2>
+                    <ul className="mj-list">{data.given.jobs.map((o) => <JobCard key={o.id} job={o} today={today} onOpen={openJob} showWho />)}</ul>
+                  </section>
+                )}
+                {data.given.routines.length > 0 && (
+                  <section className="mj-group">
+                    <h2>{tr('Routines')} <small>{data.given.routines.length}</small></h2>
+                    <ul className="mj-list">
+                      {data.given.routines.map((r) => (
+                        <li key={r.id} className={'mj-routine' + (r.late ? ' is-late' : '')}>
+                          <span className="mj-card-ico" aria-hidden="true">{kindIcon(r.category)}</span>
+                          <span className="mj-card-main">
+                            <span className="mj-card-top"><b>{r.ref}</b>{r.everyDays && <span className="mj-tag">{tr('Every {n} days', { n: r.everyDays })}</span>}<span className="mj-tag is-who">👷 {r.assignedTo ? r.assignedTo.name : tr('Nobody yet')}</span></span>
+                            <span className="mj-card-what">{r.name}</span>
+                            <span className="mj-card-meta">
+                              {r.location && <span>📍 {r.location}</span>}
+                              {r.nextOn && <span className={r.late ? 'is-late' : ''}>📅 {tr('Next')}: {niceDay(r.nextOn)} · {dayWords(r.nextOn, today)}</span>}
+                            </span>
+                            <span className="mj-routine-acts">
+                              {r.openOrderId && <button type="button" className="mj-small is-on" onClick={() => navigate('/myjobs?job=' + r.openOrderId)}>{tr('It is a work order now: open it')}</button>}
+                              <button type="button" className="mj-small" onClick={() => setForm({ kind: 'routine', routine: r })}>✎ {tr('Change')}</button>
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </> : <p className="mj-empty">{tr('Jobs and routines you give to others show here, so you can see how they are getting on.')}</p>
             )}
             {tab === 'done' && (
               data.done.length ? <ul className="mj-list">{data.done.map((o) => <JobCard key={o.id} job={o} today={today} onOpen={openJob} />)}</ul>

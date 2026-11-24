@@ -688,12 +688,31 @@ async function mine(ctx) {
     "SELECT location, count(*)::int AS n FROM (SELECT location FROM maint_work_orders UNION ALL SELECT location FROM maint_routines) x WHERE location <> '' GROUP BY location ORDER BY n DESC, location LIMIT 60")).rows;
   var late = todo.filter(function (o) { return o.overdue; }).length;
   var now = todo.filter(function (o) { return !o.overdue && dayOf(o) <= today; }).length;
+  // Managers and supervisors (task.manage): what they gave out, and who to give jobs to.
+  var given = null, team = null, everyone = null;
+  if (canManage(ctx)) {
+    given = {
+      jobs: (await pool.query(SELECT_WO +
+        "WHERE w.requested_by_id = $1 AND w.assigned_to_id IS DISTINCT FROM $1 AND (w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $2::date)) " +
+        'ORDER BY w.status = \'completed\', w.scheduled_on NULLS LAST, w.created_at DESC LIMIT 200', [me, addDays(today, -7)])).rows.map(function (r) { return shapeOrder(r, ctx); }),
+      routines: (await pool.query(SELECT_RT + 'WHERE r.created_by = $1 AND r.assigned_to_id IS DISTINCT FROM $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows
+        .map(function (r) { return Object.assign(shapeRoutine(r), { addedByMe: true }); })
+    };
+    // The maintenance & IT team: whoever had jobs or routines this past year, busiest first.
+    team = (await pool.query(
+      "SELECT e.id, e.first_name, e.last_name, (SELECT count(*)::int FROM maint_work_orders w WHERE w.assigned_to_id = e.id AND w.status IN ('new', 'scheduled', 'in_progress', 'on_hold')) AS open " +
+      "FROM employees e WHERE e.status = 'active' AND e.id <> $1 AND (e.id IN (SELECT assigned_to_id FROM maint_work_orders WHERE assigned_to_id IS NOT NULL AND created_at > now() - interval '365 days') " +
+      'OR e.id IN (SELECT assigned_to_id FROM maint_routines WHERE assigned_to_id IS NOT NULL AND archived_at IS NULL)) ORDER BY e.first_name, e.last_name', [me])).rows
+      .map(function (e) { return { id: e.id, name: nameOf(e.first_name, e.last_name), open: e.open }; });
+    everyone = (await pool.query("SELECT id, first_name, last_name FROM employees WHERE status = 'active' AND id <> $1 ORDER BY first_name, last_name", [me])).rows
+      .map(function (e) { return { id: e.id, name: nameOf(e.first_name, e.last_name) }; });
+  }
   return {
     today: today,
     me: { id: me, name: nameOf(ctx.employee.first_name, ctx.employee.last_name) },
-    todo: todo, done: done, routines: routines,
+    todo: todo, done: done, routines: routines, given: given,
     counts: { late: late, today: now, later: todo.length - late - now, doneThisWeek: done.length },
-    options: { categories: CATEGORIES, priorities: PRIORITIES, places: places.map(function (p) { return p.location; }) },
+    options: { categories: CATEGORIES, priorities: PRIORITIES, places: places.map(function (p) { return p.location; }), team: team, everyone: everyone },
     can: { manage: canManage(ctx), seeAll: seesAll(ctx) }
   };
 }
@@ -720,10 +739,15 @@ async function addJob(ctx, body) {
   body = body || {};
   var description = longText(body.description, 2000);
   if (!description) fail('invalid', 'Say what needs doing.');
-  var forMe = body.forMe !== false;
+  var manage = canManage(ctx);
+  if (body.assignedToId && !manage) fail('forbidden', 'Only work order managers and supervisors can give a job to someone else.');
   return withTransaction(async function (client) {
+    // A manager or supervisor may give it to someone (assignedToId).
+    var to = body.assignedToId ? (await personOr(client, body.assignedToId)).id : null;
+    var forMe = !to && body.forMe !== false;
+    var who = to || (forMe ? ctx.employee.id : null);
     var location = text(body.location, 80);
-    var day = dayOr(body.scheduledOn, 'The day') || (forMe ? todayISO() : null);
+    var day = dayOr(body.scheduledOn, 'The day') || (who ? todayISO() : null);
     if (day && day < addDays(todayISO(), -30)) fail('invalid', 'The day is too far back.');
     var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
     var shots = await photosFrom(ctx, body.photos, ref.toLowerCase(), MAX_REPORT_PHOTOS);
@@ -731,12 +755,17 @@ async function addJob(ctx, body) {
       'INSERT INTO maint_work_orders (ref, requested_on, requested_by_id, location, company_id, category, description, priority, status, ' +
       'assigned_to_id, scheduled_on, notes, created_by, photos) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $2, $12) RETURNING *',
       [ref, ctx.employee.id, location, (await companyMatcher(client))(location), pick(body.category, CATEGORIES, 'Kind of job', 'other'), description,
-        pick(body.priority, PRIORITIES, 'How urgent', 'medium'), forMe ? 'scheduled' : (day ? 'scheduled' : 'new'),
-        forMe ? ctx.employee.id : null, day, longText(body.notes, 2000), JSON.stringify(shots)])).rows[0];
-    await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Added ' + ref + ' from My Jobs' + (forMe ? ', given to themselves' : ', for the managers to give out') +
+        pick(body.priority, PRIORITIES, 'How urgent', 'medium'), who || day ? 'scheduled' : 'new',
+        who, day, longText(body.notes, 2000), JSON.stringify(shots)])).rows[0];
+    await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Added ' + ref + ' from My Jobs' +
+      (to ? ', given to someone' : forMe ? ', given to themselves' : ', for the managers to give out') +
       (shots.length ? ', with ' + shots.length + ' photo(s)' : '') + ': ' + text(description, 120));
-    await tellManagers(client, ctx, (forMe ? '🛠️ ' + whoName(ctx) + ' added a job: ' : '🛠️ Job asked for: ') + ref + (location ? ' · ' + location : '') + (shots.length ? ' 📷' : ''),
-      text(description, 140) + (forMe ? ' — they are doing it' + (day ? ' on ' + day : '') + '.' : ' — give it to someone.'), LINK + row.id);
+    // Whoever it is given to hears of it; the managers hear of what the team adds.
+    if (to) await tellAssigned(client, ctx, row);
+    if (!manage) {
+      await tellManagers(client, ctx, (forMe ? '🛠️ ' + whoName(ctx) + ' added a job: ' : '🛠️ Job asked for: ') + ref + (location ? ' · ' + location : '') + (shots.length ? ' 📷' : ''),
+        text(description, 140) + (forMe ? ' — they are doing it' + (day ? ' on ' + day : '') + '.' : ' — give it to someone.'), LINK + row.id);
+    }
     return (await loadOrder(ctx, row.id, client)).order;
   });
 }
@@ -751,12 +780,14 @@ async function addJob(ctx, body) {
 async function saveMyRoutine(ctx, id, body) {
   body = body || {};
   return withTransaction(async function (client) {
-    var was = null;
+    var was = null, manage = canManage(ctx);
     if (id) {
       was = await loadRoutine(id, client);
-      if (was.created_by !== ctx.employee.id || was.assigned_to_id !== ctx.employee.id) fail('forbidden', 'Only a routine you added yourself can be changed here. Ask a work order manager for the others.');
+      // One's own; a manager's or supervisor's, the ones they gave out too.
+      if (was.created_by !== ctx.employee.id || (was.assigned_to_id !== ctx.employee.id && !manage)) fail('forbidden', 'Only a routine you added yourself can be changed here. Ask a work order manager for the others.');
       if (was.archived_at) fail('conflict', 'This routine has been stopped.');
     }
+    if (body.assignedToId && body.assignedToId !== ctx.employee.id && !manage) fail('forbidden', 'Only work order managers and supervisors can give a routine to someone else.');
     var has = function (k) { return !was || body[k] !== undefined; };
     var f = {};
     if (has('name')) { f.name = text(body.name, 120); if (!f.name) fail('invalid', 'Say what is done each time.'); }
@@ -779,23 +810,35 @@ async function saveMyRoutine(ctx, id, body) {
     var room = MAX_REPORT_PHOTOS - kept.length;
     var added = room > 0 && Array.isArray(body.photos) && body.photos.length ? await photosFrom(ctx, body.photos, 'routine', room) : [];
     if (!was || drop.length || added.length) f.photos = JSON.stringify(kept.concat(added));
+    // Who does it: whoever adds it, or the one a manager gives it to.
+    if (body.assignedToId) { f.assigned_to_id = (await personOr(client, body.assignedToId)).id; f.assigned_to_name = ''; }
     var row;
     if (!was) {
       f.ref = await nextRef(client, 'maint_routines', 'RT', 0, 3);
-      f.assigned_to_id = ctx.employee.id;
+      f.assigned_to_id = f.assigned_to_id || ctx.employee.id;
       f.created_by = ctx.employee.id;
       var keys = Object.keys(f);
       row = (await client.query('INSERT INTO maint_routines (' + keys.join(', ') + ') VALUES (' + keys.map(function (k, i) { return '$' + (i + 1); }).join(', ') + ') RETURNING id',
         keys.map(function (k) { return f[k]; }))).rows[0];
-      await audit(client, ctx, 'maintwo.routine.create', 'maint_routine', row.id, 'Added routine ' + f.ref + ' "' + f.name + '" from My Jobs, every ' + f.every_days + ' days.');
-      await tellManagers(client, ctx, '🔁 ' + whoName(ctx) + ' added a routine: ' + f.ref + (f.location ? ' · ' + f.location : ''),
-        f.name + ' — every ' + f.every_days + ' days, next on ' + f.next_on + '.', '/tasks?side=maint');
+      await audit(client, ctx, 'maintwo.routine.create', 'maint_routine', row.id, 'Added routine ' + f.ref + ' "' + f.name + '" from My Jobs, every ' + f.every_days + ' days' +
+        (f.assigned_to_id !== ctx.employee.id ? ', given to someone' : '') + '.');
+      if (!manage) {
+        await tellManagers(client, ctx, '🔁 ' + whoName(ctx) + ' added a routine: ' + f.ref + (f.location ? ' · ' + f.location : ''),
+          f.name + ' — every ' + f.every_days + ' days, next on ' + f.next_on + '.', '/tasks?side=maint');
+      }
     } else {
       var ks = Object.keys(f);
       if (ks.length) await client.query('UPDATE maint_routines SET ' + ks.map(function (k, i) { return k + ' = $' + (i + 2); }).join(', ') + ', updated_at = now() WHERE id = $1',
         [id].concat(ks.map(function (k) { return f[k]; })));
       row = { id: id };
       await audit(client, ctx, 'maintwo.routine.update', 'maint_routine', id, 'Changed routine ' + was.ref + ' "' + (f.name || was.name) + '" from My Jobs.');
+    }
+    // Given to someone else (or to someone new): they hear of it.
+    var to = f.assigned_to_id;
+    if (to && to !== ctx.employee.id && (!was || was.assigned_to_id !== to)) {
+      var rt = await loadRoutine(row.id, client);
+      await notify(client, to, '🔁 A routine for you: ' + rt.ref + (rt.location ? ' · ' + rt.location : ''),
+        rt.name + ' — every ' + rt.every_days + ' days, next on ' + rt.next_day + '. ' + whoName(ctx) + ' gave it to you.', '/myjobs');
     }
     return Object.assign(shapeRoutine(await loadRoutine(row.id, client)), { addedByMe: true });
   });
@@ -804,7 +847,7 @@ async function saveMyRoutine(ctx, id, body) {
 async function stopMyRoutine(ctx, id) {
   return withTransaction(async function (client) {
     var r = await loadRoutine(id, client);
-    if (r.created_by !== ctx.employee.id || r.assigned_to_id !== ctx.employee.id) fail('forbidden', 'Only a routine you added yourself can be stopped here. Ask a work order manager for the others.');
+    if (r.created_by !== ctx.employee.id || (r.assigned_to_id !== ctx.employee.id && !canManage(ctx))) fail('forbidden', 'Only a routine you added yourself can be stopped here. Ask a work order manager for the others.');
     await client.query('UPDATE maint_routines SET archived_at = now(), updated_at = now() WHERE id = $1', [id]);
     await audit(client, ctx, 'maintwo.routine.archive', 'maint_routine', id, 'Stopped routine ' + r.ref + ' "' + r.name + '" from My Jobs.');
     await tellManagers(client, ctx, '🔁 ' + whoName(ctx) + ' stopped a routine: ' + r.ref, r.name + '.', '/tasks?side=maint');

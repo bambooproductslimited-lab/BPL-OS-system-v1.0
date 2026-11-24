@@ -117,7 +117,8 @@ async function signIn(team, pin, ip, userAgent) {
 }
 
 // The person behind a My Jobs sign-in, as the maintenance service takes it:
-// their own jobs only, no permissions.
+// their own jobs only, no permissions — except that a manager or supervisor
+// (task.manage in the OS) may give jobs and routines out.
 async function contextOf(token) {
   if (!token || !/^[0-9a-f]{64}$/.test(token)) fail('auth', SIGN_IN_AGAIN);
   var r = (await pool.query(
@@ -130,10 +131,15 @@ async function contextOf(token) {
   if (Date.now() - new Date(r.last_seen_at).getTime() > 5 * 60 * 1000) {
     await pool.query('UPDATE myjobs_sessions SET last_seen_at = now() WHERE id = $1', [r.session_id]);
   }
+  // Managers and supervisors — whose OS role may create and assign work
+  // orders (task.manage) — give out jobs and routines from My Jobs too; that
+  // right alone comes with the kiosk code, nothing else of the OS.
+  var full = r.user_id ? await require('./context.service').buildContext(r.user_id) : null;
+  var lead = !!(full && full.can('task.manage'));
   return {
     user: { id: r.user_id || null },
     employee: { id: r.id, first_name: r.first_name, last_name: r.last_name },
-    can: function () { return false; },
+    can: function (p) { return lead && p === 'task.manage'; },
     myJobs: true
   };
 }

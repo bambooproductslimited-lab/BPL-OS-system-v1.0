@@ -18872,5 +18872,21 @@ export default {
   "Add a photo of the problem": "Ajouter une photo du problème",
   "Photo {n} of the problem": "Photo {n} du problème",
   "Photos (optional)": "Photos (facultatif)",
-  "the machine, the place, what to check": "la machine, l’endroit, ce qu’il faut vérifier"
+  "the machine, the place, what to check": "la machine, l’endroit, ce qu’il faut vérifier",
+  "Choose someone…": "Choisir quelqu’un…",
+  "The maintenance & IT team": "L’équipe maintenance et informatique",
+  "{name} · {n} open": "{name} · {n} en cours",
+  "Everyone else": "Tous les autres",
+  "Choose who does it.": "Choisissez qui s’en charge.",
+  "I give it to someone": "Je le confie à quelqu’un",
+  "Not decided yet": "Pas encore décidé",
+  "It waits for someone to be given it": "Il attend d’être confié à quelqu’un",
+  "Give the job to {name}": "Confier le travail à {name}",
+  "Give the job": "Confier le travail",
+  "{ref} given to {name}. They have been told.": "{ref} confié à {name}. La personne a été prévenue.",
+  "{ref} added. Give it to someone when you know who.": "{ref} ajouté. Confiez-le à quelqu’un quand vous saurez qui.",
+  "{name} given to {who}. They have been told.": "{name} confiée à {who}. La personne a été prévenue.",
+  "Given out": "Confiés",
+  "Jobs": "Travaux",
+  "Jobs and routines you give to others show here, so you can see how they are getting on.": "Les travaux et routines que vous confiez aux autres apparaissent ici, pour suivre leur avancement."
 };

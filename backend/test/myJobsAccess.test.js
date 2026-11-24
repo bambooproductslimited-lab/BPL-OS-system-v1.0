@@ -11,8 +11,8 @@ var access = require('../src/services/myJobsAccess.service');
 var mwo = require('../src/services/maintenanceWorkOrders.service');
 var { buildContext } = require('../src/services/context.service');
 
-var server, base, boss, worker, reader, workerPinWas, WRONG;
-var PIN = '7302';
+var server, base, boss, worker, reader, workerPinWas, bossPinWas, WRONG;
+var PIN = '7302', BOSS_PIN = '7304';
 var PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 async function ctxFor(email) { return buildContext((await pool.query('SELECT id FROM users WHERE email = $1', [email])).rows[0].id); }
 async function rejects(p, code) { await assert.rejects(p, function (e) { return e.code === code; }); }
@@ -36,12 +36,16 @@ async function cleanUp() {
 test.before(async function () {
   await new Promise(function (done) { server = app.listen(0, function () { base = 'http://127.0.0.1:' + server.address().port; done(); }); });
   boss = await ctxFor('kelvin.duho@bplghana.com');
-  worker = await ctxFor('samuel.kiptoo@bplghana.com');
-  reader = await ctxFor('alice.kamau@bplghana.com');
+  // A technician: no right to give out work orders (task.manage).
+  worker = await ctxFor('alice.kamau@bplghana.com');
+  assert.equal(worker.can('task.manage'), false);
+  reader = worker;
   workerPinWas = (await pool.query('SELECT kiosk_pin_hash FROM employees WHERE id = $1', [worker.employee.id])).rows[0].kiosk_pin_hash;
-  // The test's kiosk code is the worker's alone.
-  await pool.query('UPDATE employees SET kiosk_pin_hash = NULL WHERE kiosk_pin_hash = $1', [pinAuth.hashPin(PIN)]);
+  bossPinWas = (await pool.query('SELECT kiosk_pin_hash FROM employees WHERE id = $1', [boss.employee.id])).rows[0].kiosk_pin_hash;
+  // The test's kiosk codes are theirs alone.
+  await pool.query('UPDATE employees SET kiosk_pin_hash = NULL WHERE kiosk_pin_hash = ANY($1)', [[pinAuth.hashPin(PIN), pinAuth.hashPin(BOSS_PIN)]]);
   await pool.query('UPDATE employees SET kiosk_pin_hash = $2 WHERE id = $1', [worker.employee.id, pinAuth.hashPin(PIN)]);
+  await pool.query('UPDATE employees SET kiosk_pin_hash = $2 WHERE id = $1', [boss.employee.id, pinAuth.hashPin(BOSS_PIN)]);
   // A kiosk code nobody has.
   var used = new Set((await pool.query('SELECT kiosk_pin_hash FROM employees WHERE kiosk_pin_hash IS NOT NULL')).rows.map(function (r) { return r.kiosk_pin_hash; }));
   WRONG = ['0491', '5837', '6624', '3159', '8076'].find(function (p) { return !used.has(pinAuth.hashPin(p)); });
@@ -50,6 +54,7 @@ test.before(async function () {
 test.after(async function () {
   await cleanUp();
   await pool.query('UPDATE employees SET kiosk_pin_hash = $2 WHERE id = $1', [worker.employee.id, workerPinWas]);
+  await pool.query('UPDATE employees SET kiosk_pin_hash = $2 WHERE id = $1', [boss.employee.id, bossPinWas]);
   server.close();
   await pool.end();
 });
@@ -148,6 +153,41 @@ test('signed in with a kiosk code: own jobs only, no permissions; done needs a p
   // Signed out: the token is no good.
   assert.equal((await call('POST', '/api/myjobs/sign-out', {}, token)).status, 200);
   assert.equal((await call('GET', '/api/myjobs/mine', undefined, token)).status, 401);
+});
+
+test('a manager or supervisor signed in with their kiosk code gives jobs and routines out', async function () {
+  var team = (await access.teamCode(boss)).code;
+  var token = (await call('POST', '/api/myjobs/sign-in', { team: team, pin: BOSS_PIN })).data.token;
+  var r = await call('GET', '/api/myjobs/mine', undefined, token);
+  assert.deepEqual(r.data.can, { manage: true, seeAll: true });
+  assert.ok(r.data.options.everyone.some(function (p) { return p.id === worker.employee.id; }), 'anyone can be picked');
+  assert.ok(Array.isArray(r.data.given.jobs));
+
+  // A job for the technician: theirs, and they hear of it.
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin change the bulb in the store', assignedToId: worker.employee.id, photos: [PHOTO] }, token);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.assignedTo.id, worker.employee.id);
+  assert.equal(r.data.status, 'scheduled');
+  var told = (await pool.query('SELECT title FROM notifications WHERE employee_id = $1 AND link = $2', [worker.employee.id, '/myjobs?job=' + r.data.id])).rows;
+  assert.equal(told.length, 1, 'the technician is told, with a link to the job in My Jobs');
+  var mineNow = await mwo.mine(worker);
+  assert.ok(mineNow.todo.some(function (o) { return o.id === r.data.id; }), 'on the technician\'s list');
+
+  // A routine for the technician; changed and stopped by the one who gave it.
+  r = await call('POST', '/api/myjobs/routines', { name: 'Zqpin clean the A/C filters', everyDays: 30, assignedToId: worker.employee.id }, token);
+  assert.equal(r.data.assignedTo.id, worker.employee.id);
+  var rid = r.data.id;
+  r = await call('GET', '/api/myjobs/mine', undefined, token);
+  assert.ok(r.data.given.jobs.some(function (o) { return /change the bulb/.test(o.description); }), 'in what they gave out');
+  assert.ok(r.data.given.routines.some(function (x) { return x.id === rid; }));
+  assert.equal((await call('PATCH', '/api/myjobs/routines/' + rid, { everyDays: 14 }, token)).data.everyDays, 14);
+  assert.equal((await call('POST', '/api/myjobs/routines/' + rid + '/stop', {}, token)).status, 200);
+
+  // A technician cannot give work out.
+  var wt = (await call('POST', '/api/myjobs/sign-in', { team: team, pin: PIN })).data.token;
+  assert.equal((await call('GET', '/api/myjobs/mine', undefined, wt)).data.given, null);
+  assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin nope', assignedToId: boss.employee.id }, wt)).status, 403);
+  assert.equal((await call('POST', '/api/myjobs/routines', { name: 'Zqpin nope', everyDays: 7, assignedToId: boss.employee.id }, wt)).status, 403);
 });
 
 test('a new team code or a changed kiosk code signs the phone out', async function () {

@@ -253,46 +253,48 @@ test('routines become work orders by themselves when close; the morning list onc
 });
 
 test('My Jobs: adding a job for oneself or for the managers; routines of one\'s own, changed and stopped', async function () {
-  await rejects(mwo.addJob(worker, { description: '' }), 'invalid');
-  var mineJob = await mwo.addJob(worker, { description: 'Zq loose socket in the store', location: 'BPL', category: 'electrical', priority: 'high' });
+  // A technician: no right to give work out (task.manage) — the managers hear of what they add.
+  var tech = Object.assign({}, worker, { can: function (p) { return p !== 'task.manage' && worker.can(p); } });
+  await rejects(mwo.addJob(tech, { description: '' }), 'invalid');
+  var mineJob = await mwo.addJob(tech, { description: 'Zq loose socket in the store', location: 'BPL', category: 'electrical', priority: 'high' });
   assert.equal(mineJob.assignedTo.id, worker.employee.id, 'given to whoever added it');
   assert.equal(mineJob.status, 'scheduled');
   assert.equal(mineJob.scheduledOn, today());
   assert.equal(mineJob.requestedBy.id, worker.employee.id);
-  assert.ok((await mwo.mine(worker)).todo.some(function (o) { return o.id === mineJob.id; }), 'on their list at once');
+  assert.ok((await mwo.mine(tech)).todo.some(function (o) { return o.id === mineJob.id; }), 'on their list at once');
   var told = (await pool.query("SELECT count(*)::int AS n FROM notifications WHERE title LIKE '%added a job%' AND body LIKE '%Zq loose socket%'")).rows[0].n;
   assert.ok(told >= 1, 'the managers hear of it');
 
-  var asked = await mwo.addJob(worker, { description: 'Zq roof leaking over the kiln', location: 'BPL', forMe: false });
+  var asked = await mwo.addJob(tech, { description: 'Zq roof leaking over the kiln', location: 'BPL', forMe: false });
   assert.equal(asked.assignedTo, null);
   assert.equal(asked.status, 'new');
-  assert.ok(!(await mwo.mine(worker)).todo.some(function (o) { return o.id === asked.id; }), 'not on their list');
+  assert.ok(!(await mwo.mine(tech)).todo.some(function (o) { return o.id === asked.id; }), 'not on their list');
 
-  await rejects(mwo.saveMyRoutine(worker, null, { name: 'Zq check the pumps', everyDays: 0 }), 'invalid');
-  await rejects(mwo.saveMyRoutine(worker, null, { name: 'Zq check the pumps', everyDays: 7, nextOn: addDays(today(), -1) }), 'invalid');
-  var rt = await mwo.saveMyRoutine(worker, null, { name: 'Zq check the pumps', location: 'BPL', category: 'plumbing', everyDays: 7, nextOn: addDays(today(), 3), scheduleNote: 'Monday morning' });
+  await rejects(mwo.saveMyRoutine(tech, null, { name: 'Zq check the pumps', everyDays: 0 }), 'invalid');
+  await rejects(mwo.saveMyRoutine(tech, null, { name: 'Zq check the pumps', everyDays: 7, nextOn: addDays(today(), -1) }), 'invalid');
+  var rt = await mwo.saveMyRoutine(tech, null, { name: 'Zq check the pumps', location: 'BPL', category: 'plumbing', everyDays: 7, nextOn: addDays(today(), 3), scheduleNote: 'Monday morning' });
   assert.equal(rt.assignedTo.id, worker.employee.id);
   assert.equal(rt.nextOn, addDays(today(), 3));
   assert.equal(rt.everyDays, 7);
   assert.equal(rt.addedByMe, true);
-  var m = await mwo.mine(worker);
+  var m = await mwo.mine(tech);
   assert.ok(m.routines.some(function (r) { return r.id === rt.id && r.addedByMe; }));
   assert.ok(m.options.categories.indexOf('plumbing') >= 0);
-  var changed = await mwo.saveMyRoutine(worker, rt.id, { everyDays: 14 });
+  var changed = await mwo.saveMyRoutine(tech, rt.id, { everyDays: 14 });
   assert.equal(changed.everyDays, 14);
   assert.equal(changed.name, 'Zq check the pumps', 'what is not sent stays');
 
   // A routine the managers gave them is not theirs to change or stop here.
   var given = await mwo.saveRoutine(boss, null, { name: 'Zq generator oil', everyDays: 30, lastDoneOn: today(), assignedToId: worker.employee.id });
-  await rejects(mwo.saveMyRoutine(worker, given.id, { everyDays: 60 }), 'forbidden');
-  await rejects(mwo.stopMyRoutine(worker, given.id), 'forbidden');
-  assert.equal((await mwo.mine(worker)).routines.find(function (r) { return r.id === given.id; }).addedByMe, false);
+  await rejects(mwo.saveMyRoutine(tech, given.id, { everyDays: 60 }), 'forbidden');
+  await rejects(mwo.stopMyRoutine(tech, given.id), 'forbidden');
+  assert.equal((await mwo.mine(tech)).routines.find(function (r) { return r.id === given.id; }).addedByMe, false);
   // Nor someone else's own.
   await rejects(mwo.saveMyRoutine(reader, rt.id, { everyDays: 3 }), 'forbidden');
 
-  assert.deepEqual(await mwo.stopMyRoutine(worker, rt.id), { ok: true });
-  assert.ok(!(await mwo.mine(worker)).routines.some(function (r) { return r.id === rt.id; }), 'stopped: off their list');
-  await rejects(mwo.saveMyRoutine(worker, rt.id, { everyDays: 5 }), 'conflict');
+  assert.deepEqual(await mwo.stopMyRoutine(tech, rt.id), { ok: true });
+  assert.ok(!(await mwo.mine(tech)).routines.some(function (r) { return r.id === rt.id; }), 'stopped: off their list');
+  await rejects(mwo.saveMyRoutine(tech, rt.id, { everyDays: 5 }), 'conflict');
 });
 
 async function sheet(opts) {

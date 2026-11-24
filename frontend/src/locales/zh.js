@@ -18872,5 +18872,21 @@ export default {
   "Add a photo of the problem": "添加问题照片",
   "Photo {n} of the problem": "问题照片 {n}",
   "Photos (optional)": "照片（可选）",
-  "the machine, the place, what to check": "设备、地点、要检查的内容"
+  "the machine, the place, what to check": "设备、地点、要检查的内容",
+  "Choose someone…": "选择一个人…",
+  "The maintenance & IT team": "维护与 IT 团队",
+  "{name} · {n} open": "{name} · {n} 项进行中",
+  "Everyone else": "其他所有人",
+  "Choose who does it.": "请选择由谁来做。",
+  "I give it to someone": "我分配给某人",
+  "Not decided yet": "尚未决定",
+  "It waits for someone to be given it": "等待分配给某人",
+  "Give the job to {name}": "将工作交给 {name}",
+  "Give the job": "分配工作",
+  "{ref} given to {name}. They have been told.": "{ref} 已交给 {name}，并已通知对方。",
+  "{ref} added. Give it to someone when you know who.": "{ref} 已添加。确定人选后再分配。",
+  "{name} given to {who}. They have been told.": "{name} 已交给 {who}，并已通知对方。",
+  "Given out": "已分配",
+  "Jobs": "工作",
+  "Jobs and routines you give to others show here, so you can see how they are getting on.": "您分配给他人的工作和例行工作会显示在这里，方便查看进展。"
 };
