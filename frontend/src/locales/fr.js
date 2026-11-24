@@ -18865,5 +18865,12 @@ export default {
   "of the new ones already chat with us on WhatsApp: their chat goes on the lead": "des nouveaux échangent déjà avec nous sur WhatsApp : leur conversation va sur la piste",
   "The same number as {name} on WhatsApp": "Le même numéro que {name} sur WhatsApp",
   "On WhatsApp": "Sur WhatsApp",
-  "of the new ones already chats with us on WhatsApp: their chat goes on the lead": "des nouveaux échange déjà avec nous sur WhatsApp : sa conversation va sur la piste"
+  "of the new ones already chats with us on WhatsApp: their chat goes on the lead": "des nouveaux échange déjà avec nous sur WhatsApp : sa conversation va sur la piste",
+  "Photos of the routine": "Photos de la routine",
+  "Photos from when it was added": "Photos prises à l’ajout",
+  "Photos of the problem (optional)": "Photos du problème (facultatif)",
+  "Add a photo of the problem": "Ajouter une photo du problème",
+  "Photo {n} of the problem": "Photo {n} du problème",
+  "Photos (optional)": "Photos (facultatif)",
+  "the machine, the place, what to check": "la machine, l’endroit, ce qu’il faut vérifier"
 };

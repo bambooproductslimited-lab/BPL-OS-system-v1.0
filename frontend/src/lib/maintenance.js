@@ -31,3 +31,14 @@ export function statusName(s) { return (STATUS[s] || (() => s))(); }
 export function jobPhotoPaths(job, base = '/maint-work-orders/') {
   return (job.donePhotos || []).map((p) => base + job.id + '/photos/' + p.n);
 }
+
+// The photos from when a job was added — the problem — or its routine's
+// (backend GET /:id/report-photos/:n).
+export function jobReportPhotoPaths(job, base = '/maint-work-orders/') {
+  return (job.photos || []).map((p) => base + job.id + '/report-photos/' + p.n);
+}
+// A routine's photos: what it looks after (backend GET /routines/:id/photos/:n).
+// base: '/maint-work-orders/routines/', or '/myjobs/routines/' signed in with a kiosk code.
+export function routinePhotoPaths(routine, base = '/maint-work-orders/routines/') {
+  return (routine.photos || []).map((p) => base + routine.id + '/photos/' + p.n);
+}

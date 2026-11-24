@@ -119,6 +119,32 @@ test('signed in with a kiosk code: own jobs only, no permissions; done needs a p
   assert.equal((await call('POST', '/api/myjobs/routines/' + rid + '/stop', {}, token)).status, 200);
   assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin no sign-in' })).status, 401);
 
+  // Photos with what they add: of the problem, of what a routine looks after.
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin socket burnt in the store', photos: [PHOTO, PHOTO] }, token);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.photos.length, 2);
+  var burnt = r.data.id;
+  shot = await fetch(base + '/api/myjobs/jobs/' + burnt + '/report-photos/1', { headers: { Authorization: 'Bearer ' + token } });
+  assert.equal(shot.status, 200);
+  assert.match(shot.headers.get('content-type'), /^image\/png/);
+  assert.equal((await fetch(base + '/api/myjobs/jobs/' + burnt + '/report-photos/5', { headers: { Authorization: 'Bearer ' + token } })).status, 404);
+  r = await call('POST', '/api/myjobs/routines', { name: 'Zqpin check the fire extinguishers', everyDays: 90, photos: [PHOTO] }, token);
+  assert.equal(r.data.photos.length, 1);
+  var fire = r.data.id;
+  assert.equal((await fetch(base + '/api/myjobs/routines/' + fire + '/photos/0', { headers: { Authorization: 'Bearer ' + token } })).status, 200);
+  assert.equal((await fetch(base + '/api/maint-work-orders/routines/' + fire + '/photos/0')).status, 401, 'not without signing in');
+  // The routine's photos go with the job it becomes.
+  var made = await mwo.routineOrder(boss, fire, {});
+  assert.equal(made.photos.length, 1);
+  assert.ok(await mwo.reportPhotoOf(worker, made.id, 0));
+  // Changed: one taken out, two added; four at most.
+  r = await call('PATCH', '/api/myjobs/routines/' + fire, { dropPhotos: [0], photos: [PHOTO, PHOTO, PHOTO, PHOTO, PHOTO] }, token);
+  assert.equal(r.data.photos.length, 4);
+  // Someone who neither sees every job nor does this routine: not theirs to see.
+  var outsider = Object.assign({}, await ctxFor('faith.wanjiru@bplghana.com'));
+  outsider.can = function (p) { return p !== 'task.read' && p !== 'task.manage'; };
+  await rejects(mwo.routineRefPhotoOf(outsider, fire, 0), 'notfound');
+
   // Signed out: the token is no good.
   assert.equal((await call('POST', '/api/myjobs/sign-out', {}, token)).status, 200);
   assert.equal((await call('GET', '/api/myjobs/mine', undefined, token)).status, 401);

@@ -4,7 +4,7 @@ import Photo from '../components/Photo';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { Insights, Section, fmtDate } from '../components/DashKit';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
-import { KINDS, PRIORITIES, STATUSES, jobPhotoPaths, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance.js';
+import { KINDS, PRIORITIES, STATUSES, jobPhotoPaths, jobReportPhotoPaths, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance.js';
 import { WoBanner } from './WorkOrdersFun.jsx';
 import MaintenancePresent from './MaintenancePresent';
 import { DonePhotoField, DonePhotoStrip } from '../components/DonePhotos';
@@ -128,6 +128,12 @@ function JobPanel({ job, can, myId, busy, onAct, onEdit, onDelete, onClose }) {
           {job.routineName && <div><dt>{tr('Routine')}</dt><dd>🔁 {job.routineName}{job.autoMade && <small> · {tr('made by itself as its day came close')}</small>}</dd></div>}
         </dl>
         {job.notes && <p className="mw-job-notes">{job.notes}</p>}
+        {job.photos && job.photos.length > 0 && (
+          <div className="mw-done-photos">
+            <h4>📷 {job.routineId ? tr('Photos of the routine') : tr('Photos from when it was added')}</h4>
+            <DonePhotoStrip paths={jobReportPhotoPaths(job)} altFor={(n) => tr('Photo {n}', { n })} />
+          </div>
+        )}
         {job.donePhotos && job.donePhotos.length > 0 && (
           <div className="mw-done-photos">
             <h4>📷 {tr('Photos of the finished work')}</h4>

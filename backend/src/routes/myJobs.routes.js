@@ -47,5 +47,7 @@ router.patch('/routines/:id', signedIn(function (ctx, req) { return mwo.saveMyRo
 router.post('/routines/:id/stop', signedIn(function (ctx, req) { return mwo.stopMyRoutine(ctx, req.params.id); }));
 router.get('/jobs/:id/photos/:n', photo(function (ctx, req) { return mwo.photoOf(ctx, req.params.id, req.params.n); }));
 router.get('/routines/log/:id/photos/:n', photo(function (ctx, req) { return mwo.routinePhotoOf(ctx, req.params.id, req.params.n); }));
+router.get('/jobs/:id/report-photos/:n', photo(function (ctx, req) { return mwo.reportPhotoOf(ctx, req.params.id, req.params.n); }));
+router.get('/routines/:id/photos/:n', photo(function (ctx, req) { return mwo.routineRefPhotoOf(ctx, req.params.id, req.params.n); }));
 
 module.exports = router;

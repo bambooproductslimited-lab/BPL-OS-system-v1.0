@@ -45,7 +45,9 @@ function sendPhoto(find) {
   };
 }
 router.get('/routines/log/:id/photos/:n', sendPhoto(function (req) { return mwo.routinePhotoOf(req.ctx, req.params.id, req.params.n); }));
+router.get('/routines/:id/photos/:n', sendPhoto(function (req) { return mwo.routineRefPhotoOf(req.ctx, req.params.id, req.params.n); }));
 router.get('/:id/photos/:n', sendPhoto(function (req) { return mwo.photoOf(req.ctx, req.params.id, req.params.n); }));
+router.get('/:id/report-photos/:n', sendPhoto(function (req) { return mwo.reportPhotoOf(req.ctx, req.params.id, req.params.n); }));
 
 // The IT work order sheet: preview what a workbook holds, then import it.
 router.post('/import/preview', sheetUpload.single('file'), run(function (req) { return mwoImport.preview(req.ctx, req.file, req.body); }));

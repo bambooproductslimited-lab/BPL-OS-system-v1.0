@@ -28,3 +28,5 @@
 }
 .dp-big img { max-width: 100%; max-height: calc(100vh - 100px); border-radius: 8px; object-fit: contain; }
 .dp-big-x { border: 0; border-radius: 999px; padding: 10px 22px; font: inherit; font-weight: 600; background: #fff; color: #111; cursor: pointer; }
+.dp-shot-wrap { position: relative; display: inline-block; }
+.dp-shot-wrap .dp-x { top: 2px; right: 2px; width: 24px; height: 24px; font-size: 16px; }

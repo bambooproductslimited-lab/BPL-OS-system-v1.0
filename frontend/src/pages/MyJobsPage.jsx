@@ -5,7 +5,7 @@ import { api, API_URL } from '../api/client';
 import LoginPage from './LoginPage';
 import ForcedPasswordChangePage from './ForcedPasswordChangePage';
 import { DonePhotoField, DonePhotoStrip } from '../components/DonePhotos';
-import { KINDS, PRIORITIES, jobPhotoPaths, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance';
+import { KINDS, PRIORITIES, jobPhotoPaths, jobReportPhotoPaths, kindIcon, kindName, priorityName, routinePhotoPaths, statusName } from '../lib/maintenance';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './MyJobsPage.css';
 
@@ -86,7 +86,7 @@ function osClient() {
     addRoutine: (body) => api.post('/maint-work-orders/mine/routines', body),
     saveRoutine: (id, body) => api.patch('/maint-work-orders/mine/routines/' + id, body),
     stopRoutine: (id) => api.post('/maint-work-orders/mine/routines/' + id + '/stop', {}),
-    photoBase: '/maint-work-orders/', token: null, team: null
+    photoBase: '/maint-work-orders/', routineBase: '/maint-work-orders/routines/', token: null, team: null
   };
 }
 function pinClient(token, team, onEnded) {
@@ -100,7 +100,7 @@ function pinClient(token, team, onEnded) {
     addRoutine: (body) => call('POST', '/routines', body),
     saveRoutine: (id, body) => call('PATCH', '/routines/' + id, body),
     stopRoutine: (id) => call('POST', '/routines/' + id + '/stop', {}),
-    photoBase: '/myjobs/jobs/', token, team
+    photoBase: '/myjobs/jobs/', routineBase: '/myjobs/routines/', token, team
   };
 }
 
@@ -139,6 +139,7 @@ function JobCard({ job, today, onOpen }) {
             {job.status === 'in_progress' && <span className="mj-tag is-going">{tr('Started')}</span>}
             {job.status === 'on_hold' && <span className="mj-tag is-hold">{tr('On hold')}</span>}
             {job.routineId && <span className="mj-tag">🔁 {tr('Routine')}</span>}
+            {job.photos && job.photos.length > 0 && <span className="mj-tag" aria-label={tr('{n} photos', { n: job.photos.length })}>📷 {job.photos.length}</span>}
           </span>
           <span className="mj-card-what">{job.description}</span>
           <span className="mj-card-meta">
@@ -188,6 +189,12 @@ function JobSheet({ job, today, busy, client, onMove, onClose }) {
           {job.completedOn && <div><dt>{tr('Done on')}</dt><dd>✅ {niceDay(job.completedOn)}</dd></div>}
         </dl>
         {job.notes && <p className="mj-notes">{job.notes}</p>}
+        {job.photos && job.photos.length > 0 && (
+          <section className="mj-sec">
+            <h3>{job.routineId ? tr('Photos of the routine') : tr('Photos from when it was added')}</h3>
+            <DonePhotoStrip paths={jobReportPhotoPaths(job, client.photoBase)} token={client.token} altFor={(n) => tr('Photo {n}', { n })} />
+          </section>
+        )}
         {job.donePhotos && job.donePhotos.length > 0 && (
           <section className="mj-sec">
             <h3>{tr('Photos of the finished work')}</h3>
@@ -244,7 +251,7 @@ function JobSheet({ job, today, busy, client, onMove, onClose }) {
 }
 
 // A routine done early, by hand: photos required, as for a job.
-function RoutineDone({ routine, busy, onDone, onClose }) {
+function RoutineDone({ routine, client, busy, onDone, onClose }) {
   const [photos, setPhotos] = useState([]);
   const [note, setNote] = useState('');
   const [err, setErr] = useState(null);
@@ -265,6 +272,12 @@ function RoutineDone({ routine, busy, onDone, onClose }) {
           {routine.everyDays && <div><dt>{tr('Comes round')}</dt><dd>{tr('Every {n} days', { n: routine.everyDays })}{routine.scheduleNote ? ' · ' + routine.scheduleNote : ''}</dd></div>}
         </dl>
         {routine.description && <p className="mj-notes">{routine.description}</p>}
+        {routine.photos && routine.photos.length > 0 && (
+          <section className="mj-sec">
+            <h3>{tr('Photos of the routine')}</h3>
+            <DonePhotoStrip paths={routinePhotoPaths(routine, client.routineBase)} token={client.token} altFor={(n) => tr('Photo {n}', { n })} />
+          </section>
+        )}
         <section className="mj-done">
           <h3>✓ {tr('Done today')}</h3>
           <DonePhotoField value={photos} onChange={setPhotos} disabled={busy} />
@@ -297,10 +310,14 @@ function Places({ places }) {
   return <datalist id="mj-places">{(places || []).map((p) => <option key={p} value={p} />)}</datalist>;
 }
 
+// Photos with a new job (the problem) or routine (what it looks after), at most.
+const MAX_ADD_PHOTOS = 4;
+
 // Adding a job from the phone: one they do themselves (planned for its day,
 // today unless changed), or one sent to the managers to give to someone.
 function AddJobSheet({ today, places, busy, onSave, onClose }) {
   const [f, setF] = useState({ description: '', location: '', category: 'other', priority: 'medium', scheduledOn: today, notes: '', forMe: true });
+  const [photos, setPhotos] = useState([]);
   const [err, setErr] = useState(null);
   const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
   function who(forMe) {
@@ -311,7 +328,7 @@ function AddJobSheet({ today, places, busy, onSave, onClose }) {
     e.preventDefault();
     setErr(null);
     if (!f.description.trim()) { setErr(tr('Say what needs doing.')); return; }
-    try { await onSave({ ...f, scheduledOn: f.scheduledOn || null }); } catch (x) { setErr(x.message); }
+    try { await onSave({ ...f, scheduledOn: f.scheduledOn || null, photos }); } catch (x) { setErr(x.message); }
   }
   return (
     <form className="mj-sheet" role="dialog" aria-modal="true" aria-labelledby="mj-add-title" onSubmit={send}>
@@ -326,6 +343,11 @@ function AddJobSheet({ today, places, busy, onSave, onClose }) {
           <label className="mj-field"><span>{tr('What needs doing?')}</span>
             <textarea className="input" rows={3} maxLength={2000} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder={tr('e.g. The tap in the canteen is dripping')} autoFocus />
           </label>
+          <div className="mj-field">
+            <span>{tr('Photos of the problem (optional)')}</span>
+            <DonePhotoField value={photos} onChange={setPhotos} disabled={busy} max={MAX_ADD_PHOTOS} camera={false} required={false}
+              takeLabel={tr('Add a photo of the problem')} altFor={(n) => tr('Photo {n} of the problem', { n })} />
+          </div>
           <label className="mj-field"><span>{tr('Where?')}</span>
             <input className="input" list="mj-places" maxLength={80} value={f.location} onChange={(e) => set('location', e.target.value)} placeholder={tr('e.g. BPL factory, the canteen')} />
           </label>
@@ -364,22 +386,26 @@ const EVERY = [[1, () => tr('Every day')], [7, () => tr('Every week')], [14, () 
 
 // A routine of one's own: added from the phone, changed or stopped later.
 // Close to each time it becomes a job on their list (backend runDue).
-function RoutineForm({ routine, today, places, busy, onSave, onStop, onClose }) {
+function RoutineForm({ routine, client, today, places, busy, onSave, onStop, onClose }) {
   const [f, setF] = useState(() => ({
     name: routine ? routine.name : '', location: routine ? routine.location || '' : '', category: routine ? routine.category || 'other' : 'other',
     everyDays: routine && routine.everyDays ? String(routine.everyDays) : '7', nextOn: routine ? routine.nextOn || today : today,
     scheduleNote: routine ? routine.scheduleNote || '' : '', description: routine ? routine.description || '' : ''
   }));
   const [err, setErr] = useState(null);
+  const [photos, setPhotos] = useState([]);
+  const [drop, setDrop] = useState([]); // its photos taken out (their numbers)
   const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
   const every = Number(f.everyDays);
+  const had = routine ? (routine.photos || []).filter((p) => !drop.includes(p.n)) : [];
   const everyOk = Number.isInteger(every) && every >= 1 && every <= 3660;
   async function send(e) {
     e.preventDefault();
     setErr(null);
     if (!f.name.trim()) { setErr(tr('Say what is done each time.')); return; }
     if (!everyOk) { setErr(tr('Say every how many days it comes round: a whole number from 1 to 3660.')); return; }
-    const body = { ...f, everyDays: every };
+    const body = { ...f, everyDays: every, photos };
+    if (drop.length) body.dropPhotos = drop;
     // A late routine keeps its day unless it is changed.
     if (routine && f.nextOn === routine.nextOn) delete body.nextOn;
     else if (f.nextOn < today) { setErr(tr('The next time must be today or later.')); return; }
@@ -422,6 +448,15 @@ function RoutineForm({ routine, today, places, busy, onSave, onStop, onClose }) 
           <label className="mj-field"><span>{tr('What time of day? (optional)')}</span>
             <input className="input" maxLength={80} value={f.scheduleNote} onChange={(e) => set('scheduleNote', e.target.value)} placeholder={tr('e.g. Saturday morning, before work starts')} />
           </label>
+          <div className="mj-field">
+            <span>{tr('Photos (optional)')} <small>· {tr('the machine, the place, what to check')}</small></span>
+            {had.length > 0 && (
+              <DonePhotoStrip paths={routinePhotoPaths({ id: routine.id, photos: had }, client.routineBase)} token={client.token}
+                altFor={(n) => tr('Photo {n}', { n })} onRemove={(i) => setDrop((d) => d.concat(had[i].n))} />
+            )}
+            <DonePhotoField value={photos} onChange={setPhotos} disabled={busy} max={Math.max(0, MAX_ADD_PHOTOS - had.length)} camera={false} required={false}
+              takeLabel={tr('Add a photo')} altFor={(n) => tr('Photo {n}', { n })} />
+          </div>
           <label className="mj-field"><span>{tr('How it is done (optional)')}</span>
             <textarea className="input" rows={3} maxLength={1000} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder={tr('Steps, parts, what to check…')} />
           </label>
@@ -566,10 +601,10 @@ function Jobs({ client, onSignOut }) {
   const first = (data && data.me.name ? data.me.name : '').split(' ')[0];
 
   if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} onMove={move} onClose={closeJob} />;
-  if (routineOpen) return <RoutineDone routine={routineOpen} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
+  if (routineOpen) return <RoutineDone routine={routineOpen} client={client} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
   const places = data && data.options ? data.options.places : [];
   if (form && form.kind === 'job') return <AddJobSheet today={today} places={places} busy={busy} onSave={addJob} onClose={() => setForm(null)} />;
-  if (form && form.kind === 'routine') return <RoutineForm routine={form.routine} today={today} places={places} busy={busy} onSave={saveRoutine} onStop={stopRoutine} onClose={() => setForm(null)} />;
+  if (form && form.kind === 'routine') return <RoutineForm routine={form.routine} client={client} today={today} places={places} busy={busy} onSave={saveRoutine} onStop={stopRoutine} onClose={() => setForm(null)} />;
 
   const group = (title, list, tone) => list.length > 0 && (
     <section className={'mj-group' + (tone ? ' is-' + tone : '')}>
@@ -632,7 +667,7 @@ function Jobs({ client, onSignOut }) {
                       <li key={r.id} className={'mj-routine' + (r.late ? ' is-late' : '')}>
                         <span className="mj-card-ico" aria-hidden="true">{kindIcon(r.category)}</span>
                         <span className="mj-card-main">
-                          <span className="mj-card-top"><b>{r.ref}</b>{r.everyDays && <span className="mj-tag">{tr('Every {n} days', { n: r.everyDays })}</span>}{r.addedByMe && <span className="mj-tag is-mine">{tr('Added by you')}</span>}</span>
+                          <span className="mj-card-top"><b>{r.ref}</b>{r.everyDays && <span className="mj-tag">{tr('Every {n} days', { n: r.everyDays })}</span>}{r.addedByMe && <span className="mj-tag is-mine">{tr('Added by you')}</span>}{r.photos && r.photos.length > 0 && <span className="mj-tag">📷 {r.photos.length}</span>}</span>
                           <span className="mj-card-what">{r.name}</span>
                           <span className="mj-card-meta">
                             {r.location && <span>📍 {r.location}</span>}

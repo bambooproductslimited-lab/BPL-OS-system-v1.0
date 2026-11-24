@@ -18865,5 +18865,12 @@ export default {
   "of the new ones already chat with us on WhatsApp: their chat goes on the lead": "位新联系人已在 WhatsApp 上与我们聊天：其对话会放到线索上",
   "The same number as {name} on WhatsApp": "与 WhatsApp 上的 {name} 号码相同",
   "On WhatsApp": "在 WhatsApp 上",
-  "of the new ones already chats with us on WhatsApp: their chat goes on the lead": "位新联系人已在 WhatsApp 上与我们聊天：其对话会放到线索上"
+  "of the new ones already chats with us on WhatsApp: their chat goes on the lead": "位新联系人已在 WhatsApp 上与我们聊天：其对话会放到线索上",
+  "Photos of the routine": "例行工作的照片",
+  "Photos from when it was added": "添加时拍的照片",
+  "Photos of the problem (optional)": "问题照片（可选）",
+  "Add a photo of the problem": "添加问题照片",
+  "Photo {n} of the problem": "问题照片 {n}",
+  "Photos (optional)": "照片（可选）",
+  "the machine, the place, what to check": "设备、地点、要检查的内容"
 };

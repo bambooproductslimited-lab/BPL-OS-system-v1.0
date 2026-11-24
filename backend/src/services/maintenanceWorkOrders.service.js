@@ -36,6 +36,9 @@ var LINK = '/tasks?side=maint&job=';
 var MY_LINK = '/myjobs?job=';
 // Photos of the finished work, at most this many each time.
 var MAX_DONE_PHOTOS = 3;
+// Photos of the problem when a job is added, or of what a routine looks
+// after (migration 0221): at most this many.
+var MAX_REPORT_PHOTOS = 4;
 var PHOTO_NEEDED = 'Take a photo of the finished work first: a job is marked done only with a photo of it.';
 // A routine becomes a work order this many days before its next day (less
 // for one that comes round sooner: a daily routine on the day itself).
@@ -131,6 +134,8 @@ function shapeOrder(r, ctx) {
     routineId: r.routine_id || null, routineName: r.routine_name || null, fromSheet: !!r.sheet_key, autoMade: !!r.auto_made,
     // Photos of the finished work (GET /:id/photos/:n).
     donePhotos: (r.done_photos || []).map(function (p, n) { return { n: n, at: p.at || null }; }),
+    // Photos from when it was added — the problem — or its routine's (GET /:id/report-photos/:n).
+    photos: (r.photos || []).map(function (p, n) { return { n: n, at: p.at || null }; }),
     open: open,
     // The sheet's columns: Days Open, Days (planned → done), and late.
     daysOpen: r.status === 'cancelled' ? null : daysBetween(asked, done || today),
@@ -159,7 +164,9 @@ function shapeRoutine(r) {
     archived: !!r.archived_at, openOrderId: r.open_order_id || null, timesDone: r.times_done || 0,
     dueIn: next ? daysBetween(today, next) : null,
     late: !!(next && next < today && !r.archived_at),
-    fromSheet: !!r.sheet_key
+    fromSheet: !!r.sheet_key,
+    // What it looks after and how (GET /routines/:id/photos/:n).
+    photos: (r.photos || []).map(function (p, n) { return { n: n, at: p.at || null }; })
   };
 }
 
@@ -319,8 +326,8 @@ async function tellAssigned(client, ctx, row, verb) {
 
 // The photos sent with "done" (JPEG data URLs, made small on the phone),
 // kept in file storage: [{ key, type, at, by }].
-async function photosFrom(ctx, given, name) {
-  var list = Array.isArray(given) ? given.filter(Boolean).slice(0, MAX_DONE_PHOTOS) : [];
+async function photosFrom(ctx, given, name, max) {
+  var list = Array.isArray(given) ? given.filter(Boolean).slice(0, max || MAX_DONE_PHOTOS) : [];
   var photoFrom = require('./restaurantCashOffice.service').photoFrom;
   var out = [];
   for (var i = 0; i < list.length; i++) {
@@ -337,6 +344,27 @@ async function photoOf(ctx, id, n) {
   var p = (row.done_photos || [])[Number(n)];
   if (!p) fail('notfound', 'No such photo.');
   return { key: p.key, name: photoName(String(row.ref || 'job').toLowerCase() + '-done', n, p) };
+}
+
+// GET /:id/report-photos/:n — the photos from when the job was added (or
+// its routine's), to whoever may see the job.
+async function reportPhotoOf(ctx, id, n) {
+  var row = (await loadOrder(ctx, id)).row;
+  var p = (row.photos || [])[Number(n)];
+  if (!p) fail('notfound', 'No such photo.');
+  return { key: p.key, name: photoName(String(row.ref || 'job').toLowerCase(), n, p) };
+}
+
+// GET /routines/:id/photos/:n — a routine's photos, to whoever sees every
+// job, does the routine or added it.
+async function routineRefPhotoOf(ctx, id, n) {
+  if (!isUuid(id)) fail('notfound', 'No such photo.');
+  var r = (await pool.query('SELECT ref, photos, assigned_to_id, created_by FROM maint_routines WHERE id = $1', [id])).rows[0];
+  if (!r) fail('notfound', 'No such photo.');
+  if (!seesAll(ctx) && r.assigned_to_id !== ctx.employee.id && r.created_by !== ctx.employee.id) fail('notfound', 'No such photo.');
+  var p = (r.photos || [])[Number(n)];
+  if (!p) fail('notfound', 'No such photo.');
+  return { key: p.key, name: photoName(String(r.ref || 'routine').toLowerCase(), n, p) };
 }
 
 // GET /routines/log/:id/photos/:n — whoever sees every job, does the
@@ -628,9 +656,9 @@ async function routineOrder(ctx, id, body) {
     var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
     var row = (await client.query(
       'INSERT INTO maint_work_orders (ref, requested_on, requested_by_id, location, company_id, category, description, priority, status, ' +
-      "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, created_by) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, $2) RETURNING *",
+      "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, created_by, photos) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, $2, $12) RETURNING *",
       [ref, ctx.employee.id, r.location, r.company_id, r.category, (r.name + (r.description ? ' — ' + r.description : '')).slice(0, 2000),
-        r.assigned_to_id, r.assigned_to_name, on, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id])).rows[0];
+        r.assigned_to_id, r.assigned_to_name, on, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id, JSON.stringify(r.photos || [])])).rows[0];
     await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Made ' + ref + ' from routine ' + r.ref + ' "' + r.name + '".');
     await tellAssigned(client, ctx, row, '🔁 Routine job');
     return (await loadOrder(ctx, row.id, client)).order;
@@ -683,7 +711,8 @@ async function tellManagers(client, ctx, title, body, link) {
 function whoName(ctx) { return nameOf(ctx.employee.first_name, ctx.employee.last_name) || 'Someone'; }
 
 // POST /mine/jobs (and /api/myjobs/jobs) { description, location?, category?,
-// priority?, scheduledOn?, notes?, forMe? } — a job added from My Jobs by
+// priority?, scheduledOn?, notes?, forMe?, photos? } — photos: up to 4 of the
+// problem (JPEG data URLs, made small on the phone) — a job added from My Jobs by
 // whoever is signed in, a kiosk-code sign-in included: given to them and
 // planned for its day (today unless said), or, with forMe false, left for
 // the managers to give to someone. The managers hear of it either way.
@@ -697,21 +726,25 @@ async function addJob(ctx, body) {
     var day = dayOr(body.scheduledOn, 'The day') || (forMe ? todayISO() : null);
     if (day && day < addDays(todayISO(), -30)) fail('invalid', 'The day is too far back.');
     var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
+    var shots = await photosFrom(ctx, body.photos, ref.toLowerCase(), MAX_REPORT_PHOTOS);
     var row = (await client.query(
       'INSERT INTO maint_work_orders (ref, requested_on, requested_by_id, location, company_id, category, description, priority, status, ' +
-      'assigned_to_id, scheduled_on, notes, created_by) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $2) RETURNING *',
+      'assigned_to_id, scheduled_on, notes, created_by, photos) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $2, $12) RETURNING *',
       [ref, ctx.employee.id, location, (await companyMatcher(client))(location), pick(body.category, CATEGORIES, 'Kind of job', 'other'), description,
         pick(body.priority, PRIORITIES, 'How urgent', 'medium'), forMe ? 'scheduled' : (day ? 'scheduled' : 'new'),
-        forMe ? ctx.employee.id : null, day, longText(body.notes, 2000)])).rows[0];
-    await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Added ' + ref + ' from My Jobs' + (forMe ? ', given to themselves' : ', for the managers to give out') + ': ' + text(description, 120));
-    await tellManagers(client, ctx, (forMe ? '🛠️ ' + whoName(ctx) + ' added a job: ' : '🛠️ Job asked for: ') + ref + (location ? ' · ' + location : ''),
+        forMe ? ctx.employee.id : null, day, longText(body.notes, 2000), JSON.stringify(shots)])).rows[0];
+    await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Added ' + ref + ' from My Jobs' + (forMe ? ', given to themselves' : ', for the managers to give out') +
+      (shots.length ? ', with ' + shots.length + ' photo(s)' : '') + ': ' + text(description, 120));
+    await tellManagers(client, ctx, (forMe ? '🛠️ ' + whoName(ctx) + ' added a job: ' : '🛠️ Job asked for: ') + ref + (location ? ' · ' + location : '') + (shots.length ? ' 📷' : ''),
       text(description, 140) + (forMe ? ' — they are doing it' + (day ? ' on ' + day : '') + '.' : ' — give it to someone.'), LINK + row.id);
     return (await loadOrder(ctx, row.id, client)).order;
   });
 }
 
 // POST /mine/routines (and /api/myjobs/routines) { name, description?,
-// location?, category?, everyDays, nextOn?, scheduleNote? } — a routine of
+// location?, category?, everyDays, nextOn?, scheduleNote?, photos? } — photos:
+// new ones to add (data URLs); on a change, dropPhotos: [n] takes some out;
+// up to 4 in all — a routine of
 // one's own, added from My Jobs: given to whoever adds it, its first time on
 // nextOn (today unless said). PATCH changes one they added; POST
 // …/:id/stop puts it away. Routines given by the managers are theirs to change.
@@ -740,6 +773,12 @@ async function saveMyRoutine(ctx, id, body) {
       f.next_on = dayOr(body.nextOn, 'The next time') || todayISO();
       if (f.next_on < todayISO()) fail('invalid', 'The next time must be today or later.');
     }
+    // Its photos: the ones kept, then the new ones.
+    var drop = Array.isArray(body.dropPhotos) ? body.dropPhotos.map(Number) : [];
+    var kept = (was ? was.photos || [] : []).filter(function (p, n) { return drop.indexOf(n) < 0; });
+    var room = MAX_REPORT_PHOTOS - kept.length;
+    var added = room > 0 && Array.isArray(body.photos) && body.photos.length ? await photosFrom(ctx, body.photos, 'routine', room) : [];
+    if (!was || drop.length || added.length) f.photos = JSON.stringify(kept.concat(added));
     var row;
     if (!was) {
       f.ref = await nextRef(client, 'maint_routines', 'RT', 0, 3);
@@ -797,9 +836,9 @@ async function runDue(on) {
       var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
       var row = (await client.query(
         'INSERT INTO maint_work_orders (ref, requested_on, requested_by_name, location, company_id, category, description, priority, status, ' +
-        "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, auto_made) VALUES ($1, $2::date, 'Routine', $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, true) RETURNING *",
+        "assigned_to_id, assigned_to_name, scheduled_on, notes, routine_id, auto_made, photos) VALUES ($1, $2::date, 'Routine', $3, $4, $5, $6, 'medium', 'scheduled', $7, $8, $9, $10, $11, true, $12) RETURNING *",
         [ref, today, r.location, r.company_id, r.category, (r.name + (r.description ? ' — ' + r.description : '')).slice(0, 2000),
-          r.assigned_to_id, r.assigned_to_name, r.next_day, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id])).rows[0];
+          r.assigned_to_id, r.assigned_to_name, r.next_day, r.schedule_note ? 'When: ' + r.schedule_note : '', r.id, JSON.stringify(r.photos || [])])).rows[0];
       await audit(client, null, 'maintwo.create', 'maint_work_order', row.id, 'Made ' + ref + ' by itself from routine ' + r.ref + ' "' + r.name + '", due ' + r.next_day + '.');
       if (row.assigned_to_id) {
         await notify(client, row.assigned_to_id, '🔁 Routine job ' + ref + (row.location ? ' · ' + row.location : ''),
@@ -873,7 +912,7 @@ async function removeRoutine(ctx, id) {
 module.exports = {
   list: list, get: get, create: create, update: update, setStatus: setStatus, setAudited: setAudited, remove: remove,
   saveRoutine: saveRoutine, routineDone: routineDone, routineOrder: routineOrder, archiveRoutine: archiveRoutine, removeRoutine: removeRoutine,
-  mine: mine, addJob: addJob, saveMyRoutine: saveMyRoutine, stopMyRoutine: stopMyRoutine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
+  mine: mine, addJob: addJob, saveMyRoutine: saveMyRoutine, stopMyRoutine: stopMyRoutine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, reportPhotoOf: reportPhotoOf, routineRefPhotoOf: routineRefPhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
   companyMatcher: companyMatcher, summarize: summarize,
   CATEGORIES: CATEGORIES, PRIORITIES: PRIORITIES, STATUSES: STATUSES
 };
