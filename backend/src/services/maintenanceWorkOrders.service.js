@@ -654,7 +654,10 @@ async function mine(ctx) {
     return (dayOf(a) < dayOf(b) ? -1 : dayOf(a) > dayOf(b) ? 1 : 0) || ((PRIORITY_RANK[a.priority] || 2) - (PRIORITY_RANK[b.priority] || 2)) || (a.ref < b.ref ? -1 : 1);
   });
   var done = orders.filter(function (o) { return o.status === 'completed'; }).sort(function (a, b) { return a.completedOn < b.completedOn ? 1 : a.completedOn > b.completedOn ? -1 : 0; });
-  var routines = (await pool.query(SELECT_RT + 'WHERE r.assigned_to_id = $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows.map(shapeRoutine);
+  var routines = (await pool.query(SELECT_RT + 'WHERE r.assigned_to_id = $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows
+    .map(function (r) { return Object.assign(shapeRoutine(r), { addedByMe: r.created_by === me }); });
+  var places = (await pool.query(
+    "SELECT location, count(*)::int AS n FROM (SELECT location FROM maint_work_orders UNION ALL SELECT location FROM maint_routines) x WHERE location <> '' GROUP BY location ORDER BY n DESC, location LIMIT 60")).rows;
   var late = todo.filter(function (o) { return o.overdue; }).length;
   var now = todo.filter(function (o) { return !o.overdue && dayOf(o) <= today; }).length;
   return {
@@ -662,8 +665,112 @@ async function mine(ctx) {
     me: { id: me, name: nameOf(ctx.employee.first_name, ctx.employee.last_name) },
     todo: todo, done: done, routines: routines,
     counts: { late: late, today: now, later: todo.length - late - now, doneThisWeek: done.length },
+    options: { categories: CATEGORIES, priorities: PRIORITIES, places: places.map(function (p) { return p.location; }) },
     can: { manage: canManage(ctx), seeAll: seesAll(ctx) }
   };
+}
+
+// ── My Jobs: adding jobs and routines from the phone ────────────────────
+
+// The work order managers hear what was added from My Jobs.
+async function tellManagers(client, ctx, title, body, link) {
+  var holders = await require('./staffAlerts.service').holdersOf(['task.manage']);
+  for (var i = 0; i < holders.length; i++) {
+    if (holders[i].employee_id === ctx.employee.id) continue;
+    await notify(client, holders[i].employee_id, title, body, link);
+  }
+}
+function whoName(ctx) { return nameOf(ctx.employee.first_name, ctx.employee.last_name) || 'Someone'; }
+
+// POST /mine/jobs (and /api/myjobs/jobs) { description, location?, category?,
+// priority?, scheduledOn?, notes?, forMe? } — a job added from My Jobs by
+// whoever is signed in, a kiosk-code sign-in included: given to them and
+// planned for its day (today unless said), or, with forMe false, left for
+// the managers to give to someone. The managers hear of it either way.
+async function addJob(ctx, body) {
+  body = body || {};
+  var description = longText(body.description, 2000);
+  if (!description) fail('invalid', 'Say what needs doing.');
+  var forMe = body.forMe !== false;
+  return withTransaction(async function (client) {
+    var location = text(body.location, 80);
+    var day = dayOr(body.scheduledOn, 'The day') || (forMe ? todayISO() : null);
+    if (day && day < addDays(todayISO(), -30)) fail('invalid', 'The day is too far back.');
+    var ref = await nextRef(client, 'maint_work_orders', 'WO', 1000, 4);
+    var row = (await client.query(
+      'INSERT INTO maint_work_orders (ref, requested_on, requested_by_id, location, company_id, category, description, priority, status, ' +
+      'assigned_to_id, scheduled_on, notes, created_by) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $2) RETURNING *',
+      [ref, ctx.employee.id, location, (await companyMatcher(client))(location), pick(body.category, CATEGORIES, 'Kind of job', 'other'), description,
+        pick(body.priority, PRIORITIES, 'How urgent', 'medium'), forMe ? 'scheduled' : (day ? 'scheduled' : 'new'),
+        forMe ? ctx.employee.id : null, day, longText(body.notes, 2000)])).rows[0];
+    await audit(client, ctx, 'maintwo.create', 'maint_work_order', row.id, 'Added ' + ref + ' from My Jobs' + (forMe ? ', given to themselves' : ', for the managers to give out') + ': ' + text(description, 120));
+    await tellManagers(client, ctx, (forMe ? '🛠️ ' + whoName(ctx) + ' added a job: ' : '🛠️ Job asked for: ') + ref + (location ? ' · ' + location : ''),
+      text(description, 140) + (forMe ? ' — they are doing it' + (day ? ' on ' + day : '') + '.' : ' — give it to someone.'), LINK + row.id);
+    return (await loadOrder(ctx, row.id, client)).order;
+  });
+}
+
+// POST /mine/routines (and /api/myjobs/routines) { name, description?,
+// location?, category?, everyDays, nextOn?, scheduleNote? } — a routine of
+// one's own, added from My Jobs: given to whoever adds it, its first time on
+// nextOn (today unless said). PATCH changes one they added; POST
+// …/:id/stop puts it away. Routines given by the managers are theirs to change.
+async function saveMyRoutine(ctx, id, body) {
+  body = body || {};
+  return withTransaction(async function (client) {
+    var was = null;
+    if (id) {
+      was = await loadRoutine(id, client);
+      if (was.created_by !== ctx.employee.id || was.assigned_to_id !== ctx.employee.id) fail('forbidden', 'Only a routine you added yourself can be changed here. Ask a work order manager for the others.');
+      if (was.archived_at) fail('conflict', 'This routine has been stopped.');
+    }
+    var has = function (k) { return !was || body[k] !== undefined; };
+    var f = {};
+    if (has('name')) { f.name = text(body.name, 120); if (!f.name) fail('invalid', 'Say what is done each time.'); }
+    if (has('description')) f.description = longText(body.description, 1000);
+    if (has('location')) { f.location = text(body.location, 80); f.company_id = (await companyMatcher(client))(f.location); }
+    if (has('category')) f.category = pick(body.category, CATEGORIES, 'Kind of job', 'other');
+    if (has('scheduleNote')) f.schedule_note = text(body.scheduleNote, 80);
+    if (has('everyDays')) {
+      var n = Number(body.everyDays);
+      if (!(Number.isInteger(n) && n >= 1 && n <= 3660)) fail('invalid', 'Say every how many days it comes round: a whole number from 1 to 3660.');
+      f.every_days = n;
+    }
+    if (has('nextOn')) {
+      f.next_on = dayOr(body.nextOn, 'The next time') || todayISO();
+      if (f.next_on < todayISO()) fail('invalid', 'The next time must be today or later.');
+    }
+    var row;
+    if (!was) {
+      f.ref = await nextRef(client, 'maint_routines', 'RT', 0, 3);
+      f.assigned_to_id = ctx.employee.id;
+      f.created_by = ctx.employee.id;
+      var keys = Object.keys(f);
+      row = (await client.query('INSERT INTO maint_routines (' + keys.join(', ') + ') VALUES (' + keys.map(function (k, i) { return '$' + (i + 1); }).join(', ') + ') RETURNING id',
+        keys.map(function (k) { return f[k]; }))).rows[0];
+      await audit(client, ctx, 'maintwo.routine.create', 'maint_routine', row.id, 'Added routine ' + f.ref + ' "' + f.name + '" from My Jobs, every ' + f.every_days + ' days.');
+      await tellManagers(client, ctx, '🔁 ' + whoName(ctx) + ' added a routine: ' + f.ref + (f.location ? ' · ' + f.location : ''),
+        f.name + ' — every ' + f.every_days + ' days, next on ' + f.next_on + '.', '/tasks?side=maint');
+    } else {
+      var ks = Object.keys(f);
+      if (ks.length) await client.query('UPDATE maint_routines SET ' + ks.map(function (k, i) { return k + ' = $' + (i + 2); }).join(', ') + ', updated_at = now() WHERE id = $1',
+        [id].concat(ks.map(function (k) { return f[k]; })));
+      row = { id: id };
+      await audit(client, ctx, 'maintwo.routine.update', 'maint_routine', id, 'Changed routine ' + was.ref + ' "' + (f.name || was.name) + '" from My Jobs.');
+    }
+    return Object.assign(shapeRoutine(await loadRoutine(row.id, client)), { addedByMe: true });
+  });
+}
+
+async function stopMyRoutine(ctx, id) {
+  return withTransaction(async function (client) {
+    var r = await loadRoutine(id, client);
+    if (r.created_by !== ctx.employee.id || r.assigned_to_id !== ctx.employee.id) fail('forbidden', 'Only a routine you added yourself can be stopped here. Ask a work order manager for the others.');
+    await client.query('UPDATE maint_routines SET archived_at = now(), updated_at = now() WHERE id = $1', [id]);
+    await audit(client, ctx, 'maintwo.routine.archive', 'maint_routine', id, 'Stopped routine ' + r.ref + ' "' + r.name + '" from My Jobs.');
+    await tellManagers(client, ctx, '🔁 ' + whoName(ctx) + ' stopped a routine: ' + r.ref, r.name + '.', '/tasks?side=maint');
+    return { ok: true };
+  });
 }
 
 // ── routines that become work orders by themselves ──────────────────────
@@ -766,7 +873,7 @@ async function removeRoutine(ctx, id) {
 module.exports = {
   list: list, get: get, create: create, update: update, setStatus: setStatus, setAudited: setAudited, remove: remove,
   saveRoutine: saveRoutine, routineDone: routineDone, routineOrder: routineOrder, archiveRoutine: archiveRoutine, removeRoutine: removeRoutine,
-  mine: mine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
+  mine: mine, addJob: addJob, saveMyRoutine: saveMyRoutine, stopMyRoutine: stopMyRoutine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
   companyMatcher: companyMatcher, summarize: summarize,
   CATEGORIES: CATEGORIES, PRIORITIES: PRIORITIES, STATUSES: STATUSES
 };

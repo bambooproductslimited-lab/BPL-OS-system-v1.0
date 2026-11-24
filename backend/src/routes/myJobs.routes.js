@@ -40,6 +40,11 @@ router.get('/mine', signedIn(function (ctx) { return mwo.mine(ctx); }));
 router.get('/jobs/:id', signedIn(function (ctx, req) { return mwo.get(ctx, req.params.id); }));
 router.post('/jobs/:id/status', signedIn(function (ctx, req) { return mwo.setStatus(ctx, req.params.id, req.body); }));
 router.post('/routines/:id/done', signedIn(function (ctx, req) { return mwo.routineDone(ctx, req.params.id, req.body); }));
+// Jobs and routines of one's own, added from the phone.
+router.post('/jobs', signedIn(function (ctx, req) { return mwo.addJob(ctx, req.body); }));
+router.post('/routines', signedIn(function (ctx, req) { return mwo.saveMyRoutine(ctx, null, req.body); }));
+router.patch('/routines/:id', signedIn(function (ctx, req) { return mwo.saveMyRoutine(ctx, req.params.id, req.body); }));
+router.post('/routines/:id/stop', signedIn(function (ctx, req) { return mwo.stopMyRoutine(ctx, req.params.id); }));
 router.get('/jobs/:id/photos/:n', photo(function (ctx, req) { return mwo.photoOf(ctx, req.params.id, req.params.n); }));
 router.get('/routines/log/:id/photos/:n', photo(function (ctx, req) { return mwo.routinePhotoOf(ctx, req.params.id, req.params.n); }));
 

@@ -63,7 +63,34 @@
 .mj-card-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--color-text-muted); }
 .mj-card-meta .is-late { color: var(--color-danger); font-weight: 600; }
 .mj-card-go { font-size: 26px; color: var(--color-text-faint); align-self: center; }
-.mj-routine .mj-small { align-self: flex-start; margin-top: 4px; }
+.mj-routine-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.mj-tag.is-mine { background: var(--color-accent-100); color: var(--color-accent-800); border-color: transparent; }
+
+/* adding work: a job, a routine */
+.mj-add { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.mj-add-btn {
+  display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 10px 12px; text-align: left;
+  border: 1px dashed var(--color-accent); border-radius: 12px; background: var(--color-bg); color: var(--color-text); font: inherit; cursor: pointer;
+}
+.mj-add-btn:active { background: var(--color-accent-100); }
+.mj-add-btn > span:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mj-add-btn b { font-size: 15px; }
+.mj-add-btn small { font-size: 12px; color: var(--color-text-muted); line-height: 1.3; }
+.mj-add-ico { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; background: var(--color-accent-100); color: var(--color-accent-800); font-size: 20px; font-weight: 700; }
+.mj-hint { margin: -4px 0 14px; font-size: 14px; line-height: 1.45; color: var(--color-text-muted); }
+.mj-form { display: flex; flex-direction: column; gap: 14px; padding: 14px; border-radius: 12px; background: var(--color-bg); border: 1px solid var(--color-border); }
+.mj-form .mj-field > span { font-weight: 600; }
+.mj-form input[type="date"] { min-height: 44px; }
+.mj-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mj-chip { min-height: 40px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg-subtle); color: var(--color-text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.mj-chip.is-on { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.mj-who { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mj-who-opt { display: flex; flex-direction: column; gap: 3px; padding: 12px; text-align: left; border-radius: 12px; border: 2px solid var(--color-border); background: var(--color-bg-subtle); color: var(--color-text); font: inherit; cursor: pointer; }
+.mj-who-opt b { font-size: 15px; }
+.mj-who-opt small { font-size: 12px; color: var(--color-text-muted); }
+.mj-who-opt.is-on { border-color: var(--color-accent); background: var(--color-accent-100); }
+.mj-every { max-width: 220px; }
+.mj-small.is-stop { color: var(--color-danger); border-color: var(--color-danger); background: var(--color-bg); }
 
 .mj-tag, .mj-prio, .mj-status { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--color-bg-subtle); color: var(--color-text-muted); border: 1px solid var(--color-border); }
 .mj-tag.is-late { background: var(--color-danger-100); color: var(--color-danger); border-color: transparent; }

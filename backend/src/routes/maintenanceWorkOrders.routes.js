@@ -28,6 +28,11 @@ router.get('/', run(function (req) { return mwo.list(req.ctx, req.query); }));
 
 // My Jobs, the team's phone app: the jobs given to me and my routines.
 router.get('/mine', run(function (req) { return mwo.mine(req.ctx); }));
+// …and adding jobs and routines of one's own from it.
+router.post('/mine/jobs', run(function (req) { return mwo.addJob(req.ctx, req.body); }, 201));
+router.post('/mine/routines', run(function (req) { return mwo.saveMyRoutine(req.ctx, null, req.body); }, 201));
+router.patch('/mine/routines/:id', run(function (req) { return mwo.saveMyRoutine(req.ctx, req.params.id, req.body); }));
+router.post('/mine/routines/:id/stop', run(function (req) { return mwo.stopMyRoutine(req.ctx, req.params.id); }));
 
 // Its team code, for signing in with a kiosk code (the work order managers).
 router.get('/myjobs-team', run(function (req) { return myJobsAccess.teamCode(req.ctx); }));

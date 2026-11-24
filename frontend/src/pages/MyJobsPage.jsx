@@ -5,7 +5,7 @@ import { api, API_URL } from '../api/client';
 import LoginPage from './LoginPage';
 import ForcedPasswordChangePage from './ForcedPasswordChangePage';
 import { DonePhotoField, DonePhotoStrip } from '../components/DonePhotos';
-import { jobPhotoPaths, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance';
+import { KINDS, PRIORITIES, jobPhotoPaths, kindIcon, kindName, priorityName, statusName } from '../lib/maintenance';
 import { tr, activeIntlLocale } from '../lib/i18n.jsx';
 import './MyJobsPage.css';
 
@@ -24,9 +24,15 @@ import './MyJobsPage.css';
 // Bamboo OS email and password. A kiosk-code sign-in reaches only the
 // person's own jobs.
 //
-// Data: GET mine; moves: POST jobs/:id/status, POST routines/:id/done —
-// under /api/myjobs signed in with a kiosk code, /api/maint-work-orders with
-// the OS (backend maintenanceWorkOrders.service.js).
+// They can add work too: a job they found (theirs to do, or sent to the
+// managers to give to someone) and routines of their own, which they can
+// change or stop later; the managers hear of each one.
+//
+// Data: GET mine; moves: POST jobs/:id/status, POST routines/:id/done;
+// adding: POST jobs, POST routines, PATCH routines/:id, POST
+// routines/:id/stop — under /api/myjobs signed in with a kiosk code,
+// /api/maint-work-orders (/mine/…) with the OS (backend
+// maintenanceWorkOrders.service.js).
 
 const REFRESH_MS = 2 * 60 * 1000;
 const TEAM_KEY = 'bos.myjobs.team';
@@ -76,6 +82,10 @@ function osClient() {
     job: (id) => api.get('/maint-work-orders/' + id),
     move: (id, body) => api.post('/maint-work-orders/' + id + '/status', body),
     routineDone: (id, body) => api.post('/maint-work-orders/routines/' + id + '/done', body),
+    addJob: (body) => api.post('/maint-work-orders/mine/jobs', body),
+    addRoutine: (body) => api.post('/maint-work-orders/mine/routines', body),
+    saveRoutine: (id, body) => api.patch('/maint-work-orders/mine/routines/' + id, body),
+    stopRoutine: (id) => api.post('/maint-work-orders/mine/routines/' + id + '/stop', {}),
     photoBase: '/maint-work-orders/', token: null, team: null
   };
 }
@@ -86,6 +96,10 @@ function pinClient(token, team, onEnded) {
     job: (id) => call('GET', '/jobs/' + id),
     move: (id, body) => call('POST', '/jobs/' + id + '/status', body),
     routineDone: (id, body) => call('POST', '/routines/' + id + '/done', body),
+    addJob: (body) => call('POST', '/jobs', body),
+    addRoutine: (body) => call('POST', '/routines', body),
+    saveRoutine: (id, body) => call('PATCH', '/routines/' + id, body),
+    stopRoutine: (id) => call('POST', '/routines/' + id + '/stop', {}),
     photoBase: '/myjobs/jobs/', token, team
   };
 }
@@ -265,6 +279,164 @@ function RoutineDone({ routine, busy, onDone, onClose }) {
   );
 }
 
+// A row of choices, one picked (kind of job, how urgent, how often).
+function Chips({ label, value, options, onChange }) {
+  return (
+    <div className="mj-field">
+      <span>{label}</span>
+      <div className="mj-chips" role="radiogroup" aria-label={label}>
+        {options.map(([v, text]) => (
+          <button key={v} type="button" role="radio" aria-checked={value === v} className={'mj-chip' + (value === v ? ' is-on' : '')} onClick={() => onChange(v)}>{text}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Places({ places }) {
+  return <datalist id="mj-places">{(places || []).map((p) => <option key={p} value={p} />)}</datalist>;
+}
+
+// Adding a job from the phone: one they do themselves (planned for its day,
+// today unless changed), or one sent to the managers to give to someone.
+function AddJobSheet({ today, places, busy, onSave, onClose }) {
+  const [f, setF] = useState({ description: '', location: '', category: 'other', priority: 'medium', scheduledOn: today, notes: '', forMe: true });
+  const [err, setErr] = useState(null);
+  const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
+  function who(forMe) {
+    // A job for the managers has no day unless one is wanted; one for me is today.
+    setF((o) => ({ ...o, forMe, scheduledOn: forMe ? (o.scheduledOn || today) : (o.scheduledOn === today ? '' : o.scheduledOn) }));
+  }
+  async function send(e) {
+    e.preventDefault();
+    setErr(null);
+    if (!f.description.trim()) { setErr(tr('Say what needs doing.')); return; }
+    try { await onSave({ ...f, scheduledOn: f.scheduledOn || null }); } catch (x) { setErr(x.message); }
+  }
+  return (
+    <form className="mj-sheet" role="dialog" aria-modal="true" aria-labelledby="mj-add-title" onSubmit={send}>
+      <header className="mj-sheet-bar">
+        <button type="button" className="mj-back" onClick={onClose} aria-label={tr('Back to my jobs')}>‹ {tr('My jobs')}</button>
+        <span className="mj-sheet-ref">{tr('New job')}</span>
+      </header>
+      <div className="mj-sheet-body">
+        <h2 id="mj-add-title" className="mj-sheet-what">🛠️ {tr('Add a job')}</h2>
+        <p className="mj-hint">{tr('Something that needs fixing or doing. The work order managers are told.')}</p>
+        <div className="mj-form">
+          <label className="mj-field"><span>{tr('What needs doing?')}</span>
+            <textarea className="input" rows={3} maxLength={2000} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder={tr('e.g. The tap in the canteen is dripping')} autoFocus />
+          </label>
+          <label className="mj-field"><span>{tr('Where?')}</span>
+            <input className="input" list="mj-places" maxLength={80} value={f.location} onChange={(e) => set('location', e.target.value)} placeholder={tr('e.g. BPL factory, the canteen')} />
+          </label>
+          <Places places={places} />
+          <Chips label={tr('Kind of job')} value={f.category} onChange={(v) => set('category', v)} options={KINDS.map((k) => [k, kindIcon(k) + ' ' + kindName(k)])} />
+          <Chips label={tr('How urgent?')} value={f.priority} onChange={(v) => set('priority', v)} options={PRIORITIES.map((p) => [p, priorityName(p)])} />
+          <div className="mj-field">
+            <span>{tr('Who does it?')}</span>
+            <div className="mj-who" role="radiogroup" aria-label={tr('Who does it?')}>
+              <button type="button" role="radio" aria-checked={f.forMe} className={'mj-who-opt' + (f.forMe ? ' is-on' : '')} onClick={() => who(true)}>
+                <b>🙋 {tr('Me')}</b><small>{tr('It goes on my list')}</small>
+              </button>
+              <button type="button" role="radio" aria-checked={!f.forMe} className={'mj-who-opt' + (!f.forMe ? ' is-on' : '')} onClick={() => who(false)}>
+                <b>📨 {tr('The managers')}</b><small>{tr('They give it to someone')}</small>
+              </button>
+            </div>
+          </div>
+          <label className="mj-field"><span>{f.forMe ? tr('Which day?') : tr('Needed by (optional)')}</span>
+            <input type="date" className="input" value={f.scheduledOn} min={today} onChange={(e) => set('scheduledOn', e.target.value)} required={f.forMe} />
+          </label>
+          <label className="mj-field"><span>{tr('Note (optional)')}</span>
+            <textarea className="input" rows={2} maxLength={2000} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder={tr('Parts needed, who reported it…')} />
+          </label>
+          {err && <p className="mj-error" role="alert">{err}</p>}
+          <button type="submit" className="mj-big is-done" disabled={busy || !f.description.trim()}>
+            {busy ? tr('Sending…') : f.forMe ? '＋ ' + tr('Add to my jobs') : '📨 ' + tr('Send to the managers')}
+          </button>
+          <button type="button" className="mj-link" onClick={onClose}>{tr('Cancel')}</button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+const EVERY = [[1, () => tr('Every day')], [7, () => tr('Every week')], [14, () => tr('Every 2 weeks')], [30, () => tr('Every month')], [90, () => tr('Every 3 months')], [365, () => tr('Every year')]];
+
+// A routine of one's own: added from the phone, changed or stopped later.
+// Close to each time it becomes a job on their list (backend runDue).
+function RoutineForm({ routine, today, places, busy, onSave, onStop, onClose }) {
+  const [f, setF] = useState(() => ({
+    name: routine ? routine.name : '', location: routine ? routine.location || '' : '', category: routine ? routine.category || 'other' : 'other',
+    everyDays: routine && routine.everyDays ? String(routine.everyDays) : '7', nextOn: routine ? routine.nextOn || today : today,
+    scheduleNote: routine ? routine.scheduleNote || '' : '', description: routine ? routine.description || '' : ''
+  }));
+  const [err, setErr] = useState(null);
+  const set = (k, v) => setF((o) => ({ ...o, [k]: v }));
+  const every = Number(f.everyDays);
+  const everyOk = Number.isInteger(every) && every >= 1 && every <= 3660;
+  async function send(e) {
+    e.preventDefault();
+    setErr(null);
+    if (!f.name.trim()) { setErr(tr('Say what is done each time.')); return; }
+    if (!everyOk) { setErr(tr('Say every how many days it comes round: a whole number from 1 to 3660.')); return; }
+    const body = { ...f, everyDays: every };
+    // A late routine keeps its day unless it is changed.
+    if (routine && f.nextOn === routine.nextOn) delete body.nextOn;
+    else if (f.nextOn < today) { setErr(tr('The next time must be today or later.')); return; }
+    try { await onSave(routine, body); } catch (x) { setErr(x.message); }
+  }
+  async function stop() {
+    if (!window.confirm(tr('Stop {name}? It will not come round again.', { name: routine.name }))) return;
+    setErr(null);
+    try { await onStop(routine); } catch (x) { setErr(x.message); }
+  }
+  const quick = EVERY.some(([n]) => n === every);
+  return (
+    <form className="mj-sheet" role="dialog" aria-modal="true" aria-labelledby="mj-rf-title" onSubmit={send}>
+      <header className="mj-sheet-bar">
+        <button type="button" className="mj-back" onClick={onClose} aria-label={tr('Back to my jobs')}>‹ {tr('My jobs')}</button>
+        <span className="mj-sheet-ref">{routine ? routine.ref : tr('New routine')}</span>
+      </header>
+      <div className="mj-sheet-body">
+        <h2 id="mj-rf-title" className="mj-sheet-what">🔁 {routine ? tr('Change the routine') : tr('Add a routine')}</h2>
+        <p className="mj-hint">{tr('Work that comes round again and again, like servicing the generator. Close to each time it becomes a job on your list, and you get a notification.')}</p>
+        <div className="mj-form">
+          <label className="mj-field"><span>{tr('What is done each time?')}</span>
+            <input className="input" maxLength={120} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder={tr('e.g. Service the generator')} autoFocus={!routine} />
+          </label>
+          <label className="mj-field"><span>{tr('Where?')}</span>
+            <input className="input" list="mj-places" maxLength={80} value={f.location} onChange={(e) => set('location', e.target.value)} placeholder={tr('e.g. BPL factory, the canteen')} />
+          </label>
+          <Places places={places} />
+          <Chips label={tr('Kind of job')} value={f.category} onChange={(v) => set('category', v)} options={KINDS.map((k) => [k, kindIcon(k) + ' ' + kindName(k)])} />
+          <Chips label={tr('How often?')} value={quick ? every : 'other'} onChange={(v) => set('everyDays', v === 'other' ? (quick ? '' : f.everyDays) : String(v))}
+            options={EVERY.map(([n, t]) => [n, t()]).concat([['other', tr('Other…')]])} />
+          {!quick && (
+            <label className="mj-field mj-every"><span>{tr('Every how many days?')}</span>
+              <input className="input" type="number" inputMode="numeric" min={1} max={3660} step={1} value={f.everyDays} onChange={(e) => set('everyDays', e.target.value)} placeholder="45" />
+            </label>
+          )}
+          <label className="mj-field"><span>{routine ? tr('Next time on') : tr('First time on')}</span>
+            <input type="date" className="input" value={f.nextOn} min={today} onChange={(e) => set('nextOn', e.target.value)} required />
+          </label>
+          <label className="mj-field"><span>{tr('What time of day? (optional)')}</span>
+            <input className="input" maxLength={80} value={f.scheduleNote} onChange={(e) => set('scheduleNote', e.target.value)} placeholder={tr('e.g. Saturday morning, before work starts')} />
+          </label>
+          <label className="mj-field"><span>{tr('How it is done (optional)')}</span>
+            <textarea className="input" rows={3} maxLength={1000} value={f.description} onChange={(e) => set('description', e.target.value)} placeholder={tr('Steps, parts, what to check…')} />
+          </label>
+          {err && <p className="mj-error" role="alert">{err}</p>}
+          <button type="submit" className="mj-big is-done" disabled={busy || !f.name.trim() || !everyOk}>
+            {busy ? tr('Sending…') : routine ? '✓ ' + tr('Save the routine') : '＋ ' + tr('Add the routine')}
+          </button>
+          {routine && <button type="button" className="mj-small is-stop" disabled={busy} onClick={stop}>⏹ {tr('Stop this routine')}</button>}
+          <button type="button" className="mj-link" onClick={onClose}>{tr('Cancel')}</button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 function InstallHint({ team }) {
   const [prompt, setPrompt] = useState(null);
   const [hidden, setHidden] = useState(() => { try { return isInstalled() || localStorage.getItem('bos.myjobs.installHint') === 'off'; } catch { return isInstalled(); } });
@@ -299,6 +471,7 @@ function Jobs({ client, onSignOut }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState(null);
   const [routineOpen, setRoutineOpen] = useState(null);
+  const [form, setForm] = useState(null); // { kind: 'job' } | { kind: 'routine', routine: null | one of mine }
   const [extraJob, setExtraJob] = useState(null); // a job not on my list (opened from a link)
   const jobId = new URLSearchParams(location.search).get('job');
 
@@ -356,6 +529,35 @@ function Jobs({ client, onSignOut }) {
     } finally { setBusy(false); }
   }
 
+  async function addJob(body) {
+    setBusy(true);
+    try {
+      const out = await client.addJob(body);
+      await load();
+      setForm(null);
+      if (body.forMe) { setTab('todo'); say(tr('{ref} is on your list.', { ref: out.ref })); } else say(tr('{ref} sent to the managers.', { ref: out.ref }));
+    } finally { setBusy(false); }
+  }
+  async function saveRoutine(r, body) {
+    setBusy(true);
+    try {
+      const out = r ? await client.saveRoutine(r.id, body) : await client.addRoutine(body);
+      await load();
+      setForm(null);
+      setTab('routines');
+      say(r ? tr('{name} saved.', { name: out.name }) : tr('{name} added to your routines.', { name: out.name }));
+    } finally { setBusy(false); }
+  }
+  async function stopRoutine(r) {
+    setBusy(true);
+    try {
+      await client.stopRoutine(r.id);
+      await load();
+      setForm(null);
+      say(tr('{name} stopped.', { name: r.name }));
+    } finally { setBusy(false); }
+  }
+
   const today = data ? data.today : new Date().toISOString().slice(0, 10);
   const dayOf = (o) => o.scheduledOn || o.requestedOn || today;
   const late = data ? data.todo.filter((o) => o.overdue) : [];
@@ -365,6 +567,9 @@ function Jobs({ client, onSignOut }) {
 
   if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} onMove={move} onClose={closeJob} />;
   if (routineOpen) return <RoutineDone routine={routineOpen} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
+  const places = data && data.options ? data.options.places : [];
+  if (form && form.kind === 'job') return <AddJobSheet today={today} places={places} busy={busy} onSave={addJob} onClose={() => setForm(null)} />;
+  if (form && form.kind === 'routine') return <RoutineForm routine={form.routine} today={today} places={places} busy={busy} onSave={saveRoutine} onStop={stopRoutine} onClose={() => setForm(null)} />;
 
   const group = (title, list, tone) => list.length > 0 && (
     <section className={'mj-group' + (tone ? ' is-' + tone : '')}>
@@ -396,6 +601,16 @@ function Jobs({ client, onSignOut }) {
               <span role="listitem" className={'mj-count' + (data.counts.later ? '' : ' is-zero')}><b>{data.counts.later}</b>{tr('Coming up')}</span>
               <span role="listitem" className={'mj-count is-done' + (data.counts.doneThisWeek ? '' : ' is-zero')}><b>{data.counts.doneThisWeek}</b>{tr('Done this week')}</span>
             </div>
+            <section className="mj-add" aria-label={tr('Add work')}>
+              <button type="button" className="mj-add-btn" onClick={() => setForm({ kind: 'job' })}>
+                <span className="mj-add-ico" aria-hidden="true">＋</span>
+                <span><b>{tr('Add a job')}</b><small>{tr('Something that needs fixing')}</small></span>
+              </button>
+              <button type="button" className="mj-add-btn" onClick={() => setForm({ kind: 'routine', routine: null })}>
+                <span className="mj-add-ico" aria-hidden="true">🔁</span>
+                <span><b>{tr('Add a routine')}</b><small>{tr('Work that comes round again')}</small></span>
+              </button>
+            </section>
             <nav className="mj-tabs" role="tablist">
               {[['todo', tr('To do'), data.todo.length], ['routines', tr('Routines'), data.routines.length], ['done', tr('Done'), data.done.length]].map(([k, label, n]) => (
                 <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? 'is-on' : ''} onClick={() => setTab(k)}>{label} <small>{n}</small></button>
@@ -417,21 +632,24 @@ function Jobs({ client, onSignOut }) {
                       <li key={r.id} className={'mj-routine' + (r.late ? ' is-late' : '')}>
                         <span className="mj-card-ico" aria-hidden="true">{kindIcon(r.category)}</span>
                         <span className="mj-card-main">
-                          <span className="mj-card-top"><b>{r.ref}</b>{r.everyDays && <span className="mj-tag">{tr('Every {n} days', { n: r.everyDays })}</span>}</span>
+                          <span className="mj-card-top"><b>{r.ref}</b>{r.everyDays && <span className="mj-tag">{tr('Every {n} days', { n: r.everyDays })}</span>}{r.addedByMe && <span className="mj-tag is-mine">{tr('Added by you')}</span>}</span>
                           <span className="mj-card-what">{r.name}</span>
                           <span className="mj-card-meta">
                             {r.location && <span>📍 {r.location}</span>}
                             {r.nextOn ? <span className={r.late ? 'is-late' : ''}>📅 {tr('Next')}: {niceDay(r.nextOn)} · {dayWords(r.nextOn, today)}</span> : <span>{tr('No next day set')}</span>}
                           </span>
-                          {r.openOrderId
-                            ? <button type="button" className="mj-small is-on" onClick={() => (openJobOf ? openJob(openJobOf) : navigate('/myjobs?job=' + r.openOrderId))}>{tr('It is a work order now: open it')}</button>
-                            : <button type="button" className="mj-small" onClick={() => setRoutineOpen(r)}>✓ {tr('Done it early')}</button>}
+                          <span className="mj-routine-acts">
+                            {r.openOrderId
+                              ? <button type="button" className="mj-small is-on" onClick={() => (openJobOf ? openJob(openJobOf) : navigate('/myjobs?job=' + r.openOrderId))}>{tr('It is a work order now: open it')}</button>
+                              : <button type="button" className="mj-small" onClick={() => setRoutineOpen(r)}>✓ {tr('Done it early')}</button>}
+                            {r.addedByMe && <button type="button" className="mj-small" onClick={() => setForm({ kind: 'routine', routine: r })}>✎ {tr('Change')}</button>}
+                          </span>
                         </span>
                       </li>
                     );
                   })}
                 </ul>
-              ) : <p className="mj-empty">{tr('No routines are given to you.')}</p>
+              ) : <p className="mj-empty">{tr('No routines are given to you. Add your own with “Add a routine” above.')}</p>
             )}
             {tab === 'done' && (
               data.done.length ? <ul className="mj-list">{data.done.map((o) => <JobCard key={o.id} job={o} today={today} onOpen={openJob} />)}</ul>

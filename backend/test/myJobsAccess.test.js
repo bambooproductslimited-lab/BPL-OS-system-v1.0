@@ -28,6 +28,7 @@ async function call(method, path, body, token) {
 async function cleanUp() {
   await pool.query("DELETE FROM stored_files WHERE ('db:' || id) IN (SELECT p->>'key' FROM maint_work_orders w, jsonb_array_elements(w.done_photos) p WHERE w.description LIKE 'Zqpin%')");
   await pool.query("DELETE FROM maint_work_orders WHERE description LIKE 'Zqpin%'");
+  await pool.query("DELETE FROM maint_routines WHERE name LIKE 'Zqpin%'");
   await pool.query('DELETE FROM myjobs_sessions');
   await pool.query('DELETE FROM myjobs_links');
 }
@@ -105,6 +106,18 @@ test('signed in with a kiosk code: own jobs only, no permissions; done needs a p
   assert.equal((await call('POST', '/api/myjobs/jobs/' + notMine.id + '/status', { status: 'in_progress' }, token)).status, 404);
   var audited = (await pool.query("SELECT actor_name FROM audit_logs WHERE action = 'myjobs.sign_in' AND entity_id = $1 ORDER BY at DESC LIMIT 1", [worker.employee.id])).rows[0];
   assert.ok(audited, 'the sign-in is on the record');
+
+  // Adding a job and a routine of their own from the phone.
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin tap dripping in the canteen', location: 'BPL', category: 'plumbing' }, token);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.assignedTo.id, worker.employee.id);
+  r = await call('POST', '/api/myjobs/routines', { name: 'Zqpin clean the gutters', everyDays: 30 }, token);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.assignedTo.id, worker.employee.id);
+  var rid = r.data.id;
+  assert.equal((await call('PATCH', '/api/myjobs/routines/' + rid, { everyDays: 45 }, token)).data.everyDays, 45);
+  assert.equal((await call('POST', '/api/myjobs/routines/' + rid + '/stop', {}, token)).status, 200);
+  assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin no sign-in' })).status, 401);
 
   // Signed out: the token is no good.
   assert.equal((await call('POST', '/api/myjobs/sign-out', {}, token)).status, 200);
