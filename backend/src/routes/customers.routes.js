@@ -8,6 +8,14 @@ router.use(requireAuth);
 router.get('/', async function (req, res, next) {
   try { res.json(await customersService.list(req.ctx)); } catch (e) { next(e); }
 });
+// Leads that are not customers yet, and making one a customer, for the
+// customer field of estimates, quotations and invoices.
+router.get('/pick-leads', async function (req, res, next) {
+  try { res.json(await customersService.leadsToPick(req.ctx)); } catch (e) { next(e); }
+});
+router.post('/from-lead', async function (req, res, next) {
+  try { res.json(await customersService.fromLead(req.ctx, req.body)); } catch (e) { next(e); }
+});
 router.get('/:id/activity', async function (req, res, next) {
   try { res.json(await customersService.activity(req.ctx, req.params.id)); } catch (e) { next(e); }
 });

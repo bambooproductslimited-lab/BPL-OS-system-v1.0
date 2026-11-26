@@ -444,13 +444,21 @@ async function removeLead(ctx, id) {
 async function toCustomer(ctx, id) {
   need(ctx, 'crm.manage');
   need(ctx, 'customer.manage');
+  await profileForLead(ctx, id);
+  return getLead(ctx, id);
+}
+
+// The customer profile for a lead — the one it is on; else the one with the
+// same number (however it is written) or email, their WhatsApp contact say;
+// else a new one — and the lead put on it. Used by toCustomer and by the
+// customer field of estimates, quotations and invoices (customers.service
+// fromLead), whose caller checks the rights. Returns { id, made }.
+async function profileForLead(ctx, id) {
   var cur = await leadRow(id);
-  if (cur.customer_id) return getLead(ctx, id);
-  // The profile with the same number (however it is written) or email —
-  // their WhatsApp contact, say — rather than a second one.
+  if (cur.customer_id) return { id: cur.customer_id, made: false };
   var existing = await match.profileFor(pool, cur.phone, cur.email);
+  var customerId;
   await withTransaction(async function (db) {
-    var customerId;
     if (existing) customerId = existing.id;
     else {
       var s = await settingsRow(db);
@@ -466,7 +474,7 @@ async function toCustomer(ctx, id) {
     if (existing && isProspectStage(cur.stage)) await db.query("UPDATE customers SET category = 'prospect' WHERE id = $1 AND category = 'lead'", [customerId]);
     await note(db, ctx, id, 'note', existing ? 'Linked to the existing customer with the same contact details.' : 'Customer profile created.');
   });
-  return getLead(ctx, id);
+  return { id: customerId, made: !existing };
 }
 
 // ── deals (a lead's sale = an OS invoice) ────────────────────────────
@@ -985,7 +993,7 @@ module.exports = {
   STAGES: STAGES, OPEN_STAGES: OPEN_STAGES, LEAD_STAGES: LEAD_STAGES, PROSPECT_STAGES: PROSPECT_STAGES, PAID_SQL: PAID_SQL, phaseOf: phaseOf, phaseWhere: phaseWhere, commission: money,
   getSettings: getSettings, saveSettings: saveSettings, overview: overview, people: people,
   listLeads: listLeads, getLead: getLead, createLead: createLead, updateLead: updateLead, setStage: setStage, addNote: addNote,
-  removeLead: removeLead, toCustomer: toCustomer, setPriority: setPriority, setNotLead: setNotLead, setLeadNoFollowUp: setLeadNoFollowUp,
+  removeLead: removeLead, toCustomer: toCustomer, profileForLead: profileForLead, setPriority: setPriority, setNotLead: setNotLead, setLeadNoFollowUp: setLeadNoFollowUp,
   NOT_LEAD: NOT_LEAD, NOT_LEAD_REASONS: NOT_LEAD_REASONS, NO_FOLLOW_UP_REASONS: NO_FOLLOW_UP_REASONS, FOLLOWED_SQL: FOLLOWED_SQL,
   invoicesToLink: invoicesToLink, linkInvoice: linkInvoice, updateDeal: updateDeal, setDealStatus: setDealStatus, unlinkDeal: unlinkDeal, listDeals: listDeals,
   listReferrals: listReferrals, saveReferral: saveReferral, setReferralStatus: setReferralStatus, removeReferral: removeReferral,

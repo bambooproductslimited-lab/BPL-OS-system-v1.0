@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { blankDocItem } from '../components/DocItemsEditor';
 import DocWizard from '../components/DocWizard';
 import CustomerPicker from '../components/CustomerPicker';
+import { useLeadsToPick, withCustomer } from '../lib/contacts';
 import DocPreview from '../components/DocPreview';
 import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -90,6 +91,8 @@ export default function InvoicesPage() {
   const { can } = useAuth();
   const canManage = can('invoice.manage');
   const canSeeCustomers = can('customer.read');
+  // The leads that are not customers yet, for the customer field (lib/contacts.js).
+  const canAddCustomers = can('customer.manage');
   const canSeeCatalog = can('catalog.read');
   const canSeeSalesOrders = can('sales.read');
   const canOpenManual = canManage && canSeeCustomers;
@@ -106,6 +109,7 @@ export default function InvoicesPage() {
   const [toast, setToast] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const pickLeads = useLeadsToPick(dialogOpen && canSeeCustomers);
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([blankDocItem()]);
   const [docDiscount, setDocDiscount] = useState({ value: 0, type: 'fixed' });
@@ -618,7 +622,8 @@ export default function InvoicesPage() {
             <div className="invoices-dialog-fields">
               <div className="field">
                 <label htmlFor="iv-customer">{tr('Customer')}</label>
-                <CustomerPicker id="iv-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required />
+                <CustomerPicker id="iv-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required
+                  leads={pickLeads.leads} canAdd={canAddCustomers} onAdded={(c) => { setCustomers((l) => withCustomer(l, c)); if (c.fromLead) pickLeads.drop(c.fromLead); }} />
               </div>
               <div className="field">
                 <label htmlFor="iv-currency">{tr('Currency')}</label>

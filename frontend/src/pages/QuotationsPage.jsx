@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import { blankDocItem } from '../components/DocItemsEditor';
 import DocWizard from '../components/DocWizard';
 import CustomerPicker from '../components/CustomerPicker';
+import { useLeadsToPick, withCustomer } from '../lib/contacts';
 import DocPreview from '../components/DocPreview';
 import ContactButtons from '../components/ContactButtons';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
@@ -84,6 +85,8 @@ export default function QuotationsPage() {
   const canManage = can('quotation.manage');
   const canInvoice = can('invoice.manage');
   const canSeeCustomers = can('customer.read');
+  // The leads that are not customers yet, for the customer field (lib/contacts.js).
+  const canAddCustomers = can('customer.manage');
   const canSeeCatalog = can('catalog.read');
   const canOpenNew = canManage && canSeeCustomers;
   const [params, setParams] = useSearchParams();
@@ -99,6 +102,7 @@ export default function QuotationsPage() {
   const [toast, setToast] = useState(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const pickLeads = useLeadsToPick(dialogOpen && canSeeCustomers);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([blankDocItem()]);
@@ -513,7 +517,8 @@ export default function QuotationsPage() {
             <div className="quotations-dialog-fields">
               <div className="field">
                 <label htmlFor="q-customer">{tr('Customer')}</label>
-                <CustomerPicker id="q-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required />
+                <CustomerPicker id="q-customer" customers={customers} value={form.customerId} onChange={(id) => setForm({ ...form, customerId: id })} required
+                  leads={pickLeads.leads} canAdd={canAddCustomers} onAdded={(c) => { setCustomers((l) => withCustomer(l, c)); if (c.fromLead) pickLeads.drop(c.fromLead); }} />
               </div>
               <div className="field">
                 <label htmlFor="q-title">{tr('Title')}</label>

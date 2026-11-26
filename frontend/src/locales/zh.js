@@ -18901,5 +18901,17 @@ export default {
   "Jobs and routines you create show here, with who has each, so you can see how they are getting on.": "您创建的工作和例行工作会显示在这里，并注明由谁负责，方便查看进展。",
   "No open jobs in the team.": "团队中没有进行中的工作。",
   "{n} done this week": "本周完成 {n} 项",
-  "Nothing open.": "没有进行中的工作。"
+  "Nothing open.": "没有进行中的工作。",
+  "Who the document is for. They are added to the customers, and to the leads with the same number.": "文件的对象。会添加到客户中，并与号码相同的线索关联。",
+  "Name (a person or a company)": "名称（个人或公司）",
+  "Contact person (optional)": "联系人（可选）",
+  "Location (optional)": "地点（可选）",
+  "Already in the OS? Use them instead of adding them twice:": "已在系统中？请直接使用，避免重复添加：",
+  "Add a new one anyway": "仍然新增",
+  "Add the customer": "添加客户",
+  "Search customers and leads: name, phone, email…": "搜索客户和线索：姓名、电话、电子邮箱…",
+  "Leads, not customers yet": "尚未成为客户的线索",
+  "picked, they become a customer": "选择后即成为客户",
+  "Making them a customer…": "正在设为客户…",
+  "New customer: {name}": "新客户：{name}"
 };

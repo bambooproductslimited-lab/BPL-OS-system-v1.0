@@ -18901,5 +18901,17 @@ export default {
   "Jobs and routines you create show here, with who has each, so you can see how they are getting on.": "Les travaux et routines que vous créez apparaissent ici, avec qui s’en charge, pour suivre leur avancement.",
   "No open jobs in the team.": "Aucun travail en cours dans l’équipe.",
   "{n} done this week": "{n} terminés cette semaine",
-  "Nothing open.": "Rien en cours."
+  "Nothing open.": "Rien en cours.",
+  "Who the document is for. They are added to the customers, and to the leads with the same number.": "La personne à qui s’adresse le document. Elle est ajoutée aux clients, et aux pistes ayant le même numéro.",
+  "Name (a person or a company)": "Nom (une personne ou une entreprise)",
+  "Contact person (optional)": "Personne à contacter (facultatif)",
+  "Location (optional)": "Emplacement (facultatif)",
+  "Already in the OS? Use them instead of adding them twice:": "Déjà dans l’OS ? Utilisez-les plutôt que de les ajouter deux fois :",
+  "Add a new one anyway": "En ajouter un nouveau quand même",
+  "Add the customer": "Ajouter le client",
+  "Search customers and leads: name, phone, email…": "Rechercher clients et pistes : nom, téléphone, e-mail…",
+  "Leads, not customers yet": "Pistes, pas encore clientes",
+  "picked, they become a customer": "une fois choisie, elle devient cliente",
+  "Making them a customer…": "Création du client…",
+  "New customer: {name}": "Nouveau client : {name}"
 };

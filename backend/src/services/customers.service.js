@@ -114,7 +114,47 @@ async function create(ctx, p) {
   );
   var c = res.rows[0];
   await audit(pool, ctx, 'customer.create', 'customer', c.id, 'Added customer ' + c.name + '.');
+  // Their number and email: WhatsApp and email land on this profile, and a
+  // lead with the same number or email is put on it (crmLeadMatch.service.js).
+  var match = require('./crmLeadMatch.service');
+  var handles = match.numbersOf(c.phone).map(function (n) { return { kind: 'phone', value: n, label: '+' + n }; });
+  var mail = String(c.email || '').trim().toLowerCase();
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) handles.push({ kind: 'email', value: mail, label: mail });
+  for (var i = 0; i < handles.length; i++) {
+    await pool.query('INSERT INTO customer_identities (customer_id, kind, value, label) VALUES ($1, $2, $3, $4) ON CONFLICT (kind, value) DO NOTHING',
+      [c.id, handles[i].kind, handles[i].value, handles[i].label]);
+  }
+  if (handles.length) await match.linkLeadsOf(pool, c.id, handles);
   return rowToCustomer(c);
+}
+
+// GET /customers/pick-leads — leads that are not customers yet, for the
+// customer field of estimates, quotations and invoices: picked there, a
+// lead becomes a customer (fromLead).
+async function leadsToPick(ctx) {
+  if (!ctx.can('customer.read')) fail('forbidden', 'Your role does not allow this action (customer.read).');
+  var rows = (await pool.query(
+    'SELECT l.id, l.ref, l.name, l.company, l.phone, l.email, l.location, l.item, l.stage, l.received_on, e.first_name, e.last_name ' +
+    'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id ' +
+    "WHERE l.customer_id IS NULL AND l.stage <> 'not_lead' ORDER BY l.stage = 'lost', l.received_on DESC, l.created_at DESC LIMIT 2000")).rows;
+  return rows.map(function (r) {
+    return {
+      id: r.id, ref: r.ref, name: r.name, company: r.company, phone: r.phone, email: r.email, location: r.location, item: r.item, stage: r.stage,
+      receivedOn: r.received_on instanceof Date ? r.received_on.toISOString().slice(0, 10) : r.received_on, repName: r.first_name ? [r.first_name, r.last_name].filter(Boolean).join(' ') : null
+    };
+  });
+}
+
+// POST /customers/from-lead { leadId } — the lead picked in a document's
+// customer field becomes a customer: the profile with its number or email
+// if there is one (their WhatsApp contact, say), else a new one.
+async function fromLead(ctx, p) {
+  if (!ctx.can('customer.manage')) fail('forbidden', 'Your role does not allow this action (customer.manage).');
+  var leadId = p && p.leadId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(leadId || ''))) fail('notfound', 'Lead not found.');
+  var r = await require('./crm.service').profileForLead(ctx, leadId);
+  var c = (await pool.query('SELECT * FROM customers WHERE id = $1', [r.id])).rows[0];
+  return rowToCustomer(c, { made: r.made, fromLead: leadId });
 }
 
 // kernel.js: handlers['customers.setCategory']
@@ -168,4 +208,4 @@ async function remove(ctx, id) {
   return true;
 }
 
-module.exports = { list: list, activity: activity, create: create, setCategory: setCategory, update: update, remove: remove };
+module.exports = { list: list, activity: activity, create: create, leadsToPick: leadsToPick, fromLead: fromLead, setCategory: setCategory, update: update, remove: remove };
