@@ -45,6 +45,7 @@ router.post('/jobs', signedIn(function (ctx, req) { return mwo.addJob(ctx, req.b
 router.post('/routines', signedIn(function (ctx, req) { return mwo.saveMyRoutine(ctx, null, req.body); }));
 router.patch('/routines/:id', signedIn(function (ctx, req) { return mwo.saveMyRoutine(ctx, req.params.id, req.body); }));
 router.post('/routines/:id/stop', signedIn(function (ctx, req) { return mwo.stopMyRoutine(ctx, req.params.id); }));
+router.post('/jobs/:id/give', signedIn(function (ctx, req) { return mwo.giveJob(ctx, req.params.id, req.body); }));
 router.get('/jobs/:id/photos/:n', photo(function (ctx, req) { return mwo.photoOf(ctx, req.params.id, req.params.n); }));
 router.get('/routines/log/:id/photos/:n', photo(function (ctx, req) { return mwo.routinePhotoOf(ctx, req.params.id, req.params.n); }));
 router.get('/jobs/:id/report-photos/:n', photo(function (ctx, req) { return mwo.reportPhotoOf(ctx, req.params.id, req.params.n); }));

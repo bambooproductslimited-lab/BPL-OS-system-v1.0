@@ -33,10 +33,14 @@ router.post('/mine/jobs', run(function (req) { return mwo.addJob(req.ctx, req.bo
 router.post('/mine/routines', run(function (req) { return mwo.saveMyRoutine(req.ctx, null, req.body); }, 201));
 router.patch('/mine/routines/:id', run(function (req) { return mwo.saveMyRoutine(req.ctx, req.params.id, req.body); }));
 router.post('/mine/routines/:id/stop', run(function (req) { return mwo.stopMyRoutine(req.ctx, req.params.id); }));
+router.post('/mine/jobs/:id/give', run(function (req) { return mwo.giveJob(req.ctx, req.params.id, req.body); }));
 
 // Its team code, for signing in with a kiosk code (the work order managers).
 router.get('/myjobs-team', run(function (req) { return myJobsAccess.teamCode(req.ctx); }));
 router.post('/myjobs-team/renew', run(function (req) { return myJobsAccess.renewTeamCode(req.ctx); }));
+// My Jobs switches per person, for the managers: every job; give jobs out.
+router.get('/myjobs-rights', run(function (req) { return mwo.myJobsRights(req.ctx); }));
+router.put('/myjobs-rights/:employeeId', run(function (req) { return mwo.setMyJobsRight(req.ctx, req.params.employeeId, req.body); }));
 
 // Photos of the finished work: of a work order, of a routine done that time.
 function sendPhoto(find) {

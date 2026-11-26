@@ -31,6 +31,8 @@ async function cleanUp() {
   await pool.query("DELETE FROM maint_routines WHERE name LIKE 'Zqpin%'");
   await pool.query('DELETE FROM myjobs_sessions');
   await pool.query('DELETE FROM myjobs_links');
+  await pool.query('DELETE FROM myjobs_rights');
+  await pool.query("DELETE FROM notifications WHERE link = '/myjobs' AND title LIKE '%My Jobs%'");
 }
 
 test.before(async function () {
@@ -93,7 +95,7 @@ test('signed in with a kiosk code: own jobs only, no permissions; done needs a p
   assert.ok(r.data.todo.some(function (o) { return o.id === mine.id; }));
   assert.ok(!r.data.todo.some(function (o) { return o.id === notMine.id; }));
   assert.equal(r.data.me.id, worker.employee.id);
-  assert.deepEqual(r.data.can, { manage: false, seeAll: false });
+  assert.deepEqual(r.data.can, { manage: false, seeAll: false, seeTeam: false });
 
   assert.equal((await call('GET', '/api/myjobs/jobs/' + notMine.id, undefined, token)).status, 404, 'someone else\'s job is not there');
   assert.equal((await call('GET', '/api/myjobs/mine')).status, 401, 'no sign-in, nothing');
@@ -159,7 +161,7 @@ test('a manager or supervisor signed in with their kiosk code gives jobs and rou
   var team = (await access.teamCode(boss)).code;
   var token = (await call('POST', '/api/myjobs/sign-in', { team: team, pin: BOSS_PIN })).data.token;
   var r = await call('GET', '/api/myjobs/mine', undefined, token);
-  assert.deepEqual(r.data.can, { manage: true, seeAll: true });
+  assert.deepEqual(r.data.can, { manage: true, seeAll: true, seeTeam: true });
   assert.ok(r.data.options.everyone.some(function (p) { return p.id === worker.employee.id; }), 'anyone can be picked');
   assert.ok(Array.isArray(r.data.given.jobs));
 
@@ -219,6 +221,65 @@ test('the MD creates and gives out jobs, and sees the whole team\'s', async func
   var m = await mwo.mine(md);
   assert.ok(m.given.jobs.some(function (o) { return o.id === job.id; }));
   assert.ok(m.allJobs.some(function (o) { return o.id === job.id; }));
+});
+
+test('the two switches: someone sees and works on every job; then gives jobs out', async function () {
+  var team = (await access.teamCode(boss)).code;
+  var other = await mwo.create(boss, { description: 'Zqpin the boss\'s own job', location: 'BPL', assignedToId: boss.employee.id, scheduledOn: new Date().toISOString().slice(0, 10) });
+  var wt = (await call('POST', '/api/myjobs/sign-in', { team: team, pin: PIN })).data.token;
+  assert.equal((await call('GET', '/api/myjobs/jobs/' + other.id, undefined, wt)).status, 404, 'not theirs: not there');
+  assert.equal((await call('POST', '/api/myjobs/jobs/' + other.id + '/status', { status: 'in_progress' }, wt)).status, 404);
+
+  // Only the managers see and set the switches.
+  await rejects(mwo.myJobsRights(worker), 'forbidden');
+  await rejects(mwo.setMyJobsRight(worker, worker.employee.id, { everyJob: true }), 'forbidden');
+  var list = await mwo.myJobsRights(boss);
+  var row = list.find(function (x) { return x.id === worker.employee.id; });
+  assert.deepEqual([row.everyJob, row.giveOut, row.manages], [false, false, false]);
+  assert.equal(list.find(function (x) { return x.id === boss.employee.id; }).manages, true, 'a manager needs no switch');
+
+  // Switch 1: every job.
+  row = await mwo.setMyJobsRight(boss, worker.employee.id, { everyJob: true });
+  assert.deepEqual([row.everyJob, row.giveOut, row.changedBy], [true, false, boss.employee.first_name + ' ' + boss.employee.last_name]);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND link = '/myjobs' AND title LIKE '👀%'", [worker.employee.id])).rows[0].n, 1, 'they are told');
+  var r = await call('GET', '/api/myjobs/mine', undefined, wt);
+  assert.deepEqual(r.data.can, { manage: false, seeAll: false, seeTeam: true });
+  assert.ok(r.data.allJobs.some(function (o) { return o.id === other.id; }), 'the Team tab has every job');
+  assert.equal(r.data.given, null, 'giving out is the other switch');
+  assert.equal((await call('GET', '/api/myjobs/jobs/' + other.id, undefined, wt)).status, 200);
+  r = await call('POST', '/api/myjobs/jobs/' + other.id + '/status', { status: 'in_progress', note: 'Zqpin on my way' }, wt);
+  assert.equal(r.status, 200, 'they work on it');
+  assert.equal(r.data.status, 'in_progress');
+  assert.equal((await call('POST', '/api/myjobs/jobs/' + other.id + '/status', { status: 'cancelled' }, wt)).status, 403, 'but do not call it off');
+  assert.equal((await call('POST', '/api/myjobs/jobs/' + other.id + '/status', { status: 'completed' }, wt)).status, 400, 'done still needs a photo');
+  assert.equal((await call('POST', '/api/myjobs/jobs', { description: 'Zqpin nope', assignedToId: boss.employee.id }, wt)).status, 403);
+  assert.equal((await call('POST', '/api/myjobs/jobs/' + other.id + '/give', { assignedToId: worker.employee.id }, wt)).status, 403);
+
+  // Switch 2: gives jobs out too.
+  row = await mwo.setMyJobsRight(boss, worker.employee.id, { giveOut: true });
+  assert.deepEqual([row.everyJob, row.giveOut], [true, true]);
+  r = await call('GET', '/api/myjobs/mine', undefined, wt);
+  assert.deepEqual(r.data.can, { manage: true, seeAll: false, seeTeam: true });
+  assert.ok(r.data.options.everyone.length > 0 && Array.isArray(r.data.given.jobs));
+  r = await call('POST', '/api/myjobs/jobs', { description: 'Zqpin given out by the supervisor', assignedToId: boss.employee.id }, wt);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.assignedTo.id, boss.employee.id);
+  // Handing a job to someone else.
+  r = await call('POST', '/api/myjobs/jobs/' + other.id + '/give', { assignedToId: worker.employee.id }, wt);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.assignedTo.id, worker.employee.id);
+  r = await mwo.giveJob(boss, other.id, { assignedToId: boss.employee.id });
+  assert.equal(r.assignedTo.id, boss.employee.id, 'a manager hands it on from My Jobs too');
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notifications WHERE employee_id = $1 AND link = $2", [worker.employee.id, '/myjobs?job=' + other.id])).rows[0].n, 0, 'the one who took it is not told of their own move');
+  await rejects(mwo.giveJob(boss, other.id, { assignedToId: 'nope' }), 'invalid');
+
+  // Every job off turns both off; the plain view is back.
+  row = await mwo.setMyJobsRight(boss, worker.employee.id, { everyJob: false });
+  assert.deepEqual([row.everyJob, row.giveOut], [false, false]);
+  r = await call('GET', '/api/myjobs/mine', undefined, wt);
+  assert.deepEqual(r.data.can, { manage: false, seeAll: false, seeTeam: false });
+  assert.equal(r.data.allJobs, null);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM myjobs_rights')).rows[0].n, 0);
 });
 
 test('a new team code or a changed kiosk code signs the phone out', async function () {

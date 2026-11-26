@@ -211,7 +211,90 @@ function RoutineDoneDialog({ routine, busy, onDone, onClose }) {
 // The team's phone app: where it is, and — for the work order managers —
 // the team code each phone needs once before people sign in with their
 // kiosk code (backend myJobsAccess.service.js), with a link that brings it.
+// Who sees and works on every job in My Jobs, and who gives jobs out: two
+// switches per person (backend myjobs_rights). Managers and supervisors
+// (task.manage) already do both by their role.
+function RightsSwitch({ on, disabled, label, onChange }) {
+  return (
+    <label className={'mw-switch' + (disabled ? ' is-fixed' : '')}>
+      <input type="checkbox" role="switch" checked={on} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.checked)} />
+      <span className="mw-switch-track" aria-hidden="true"><span className="mw-switch-thumb" /></span>
+    </label>
+  );
+}
+function MyJobsRights({ onClose }) {
+  const [people, setPeople] = useState(null);
+  const [err, setErr] = useState(null);
+  const [q, setQ] = useState('');
+  const [busyId, setBusyId] = useState(null);
+  const [said, setSaid] = useState(null);
+  useEffect(() => { api.get('/maint-work-orders/myjobs-rights').then(setPeople).catch((e) => setErr(e.message)); }, []);
+  async function flip(p, field, on) {
+    setBusyId(p.id); setErr(null);
+    try {
+      const out = await api.put('/maint-work-orders/myjobs-rights/' + p.id, { [field]: on });
+      setPeople((list) => list.map((x) => (x.id === out.id ? out : x)));
+      setSaid(out.giveOut ? tr('{name} sees and works on every job, and gives jobs out.', { name: out.name })
+        : out.everyJob ? tr('{name} sees and works on every job.', { name: out.name })
+          : tr('{name} sees only their own jobs.', { name: out.name }));
+    } catch (e) { setErr(e.message); }
+    setBusyId(null);
+  }
+  // Those switched on first, then the maintenance & IT team, then everyone;
+  // the managers, who need no switch, last.
+  const rank = (p) => (p.manages ? 3 : p.everyJob ? 0 : p.team ? 1 : 2);
+  const shown = useMemo(() => (people || [])
+    .filter((p) => !q || matchesQuery(q, p.name, p.position))
+    .slice().sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)), [people, q]);
+  const onCount = (people || []).filter((p) => p.everyJob && !p.manages).length;
+  return (
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog mw-form mw-rights" role="dialog" aria-modal="true" aria-labelledby="mw-rights-title" onClick={(e) => e.stopPropagation()}>
+        <h2 id="mw-rights-title">👀 {tr('Who sees every job in My Jobs')}</h2>
+        <p className="mw-rights-intro">{tr('Everyone sees the jobs given to them. Switch someone on to let them do more in My Jobs, on their phone:')}</p>
+        <ul className="mw-rights-key">
+          <li><b>{tr('Every job')}</b> — {tr('the Team tab shows every open job, and they can start it, put it on hold, add notes and mark it done with the photo.')}</li>
+          <li><b>{tr('Gives jobs out')}</b> — {tr('also adds jobs and routines for others and hands a job to someone else, like a supervisor (in My Jobs only).')}</li>
+        </ul>
+        <SearchInput value={q} onChange={setQ} placeholder={tr('Search people…')} />
+        {err && <p className="mw-app-err" role="alert">{err}</p>}
+        {!people && !err && <p className="mw-muted">{tr('Loading…')}</p>}
+        {people && (
+          <div className="mw-rights-list" role="table" aria-label={tr('Who sees every job in My Jobs')}>
+            <div className="mw-rights-row is-head" role="row">
+              <span role="columnheader">{tr('Person')}</span>
+              <span role="columnheader">{tr('Every job')}</span>
+              <span role="columnheader">{tr('Gives jobs out')}</span>
+            </div>
+            {shown.map((p) => (
+              <div key={p.id} className={'mw-rights-row' + (p.manages ? ' is-role' : p.everyJob ? ' is-on' : '')} role="row">
+                <span className="mw-rights-who" role="cell">
+                  <b>{p.name}</b>
+                  <small>
+                    {p.position}
+                    {p.team && <span className="mw-rights-tag">{tr('Maintenance & IT team')}</span>}
+                    {p.manages && <span className="mw-rights-tag is-role">{tr('Manager: by their role')}</span>}
+                    {!p.manages && p.everyJob && p.changedBy && <span className="mw-rights-by">{tr('Switched on by {name}', { name: p.changedBy })}</span>}
+                  </small>
+                </span>
+                <span role="cell"><RightsSwitch on={p.manages || p.everyJob} disabled={p.manages || busyId === p.id} label={tr('{name}: every job', { name: p.name })} onChange={(on) => flip(p, 'everyJob', on)} /></span>
+                <span role="cell"><RightsSwitch on={p.manages || p.giveOut} disabled={p.manages || busyId === p.id} label={tr('{name}: gives jobs out', { name: p.name })} onChange={(on) => flip(p, 'giveOut', on)} /></span>
+              </div>
+            ))}
+            {!shown.length && <p className="mw-muted">{tr('Nobody by that name.')}</p>}
+          </div>
+        )}
+        <div className="dialog-actions">
+          <span className="mw-rights-said" role="status">{said || (onCount ? tr('{n} switched on', { n: onCount }) : '')}</span>
+          <button type="button" className="btn btn-primary" onClick={onClose}>{tr('Done')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MyJobsCard({ manage }) {
+  const [rights, setRights] = useState(false);
   const [copied, setCopied] = useState(null);
   const [team, setTeam] = useState(null);
   const [err, setErr] = useState(null);
@@ -244,7 +327,9 @@ function MyJobsCard({ manage }) {
       <div className="mw-app-acts">
         <a className="btn btn-primary" href="/myjobs">{tr('Open My Jobs')}</a>
         <button type="button" className="btn btn-secondary" onClick={() => copy('link', link)}>{copied === 'link' ? '✓ ' + tr('Copied') : manage ? tr('Copy the team’s link') : tr('Copy link')}</button>
+        {manage && <button type="button" className="btn btn-secondary" onClick={() => setRights(true)}>👀 {tr('Who sees every job')}</button>}
       </div>
+      {rights && <MyJobsRights onClose={() => setRights(false)} />}
     </div>
   );
 }

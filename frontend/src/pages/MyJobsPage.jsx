@@ -86,6 +86,7 @@ function osClient() {
     addRoutine: (body) => api.post('/maint-work-orders/mine/routines', body),
     saveRoutine: (id, body) => api.patch('/maint-work-orders/mine/routines/' + id, body),
     stopRoutine: (id) => api.post('/maint-work-orders/mine/routines/' + id + '/stop', {}),
+    give: (id, body) => api.post('/maint-work-orders/mine/jobs/' + id + '/give', body),
     photoBase: '/maint-work-orders/', routineBase: '/maint-work-orders/routines/', token: null, team: null
   };
 }
@@ -100,6 +101,7 @@ function pinClient(token, team, onEnded) {
     addRoutine: (body) => call('POST', '/routines', body),
     saveRoutine: (id, body) => call('PATCH', '/routines/' + id, body),
     stopRoutine: (id) => call('POST', '/routines/' + id + '/stop', {}),
+    give: (id, body) => call('POST', '/jobs/' + id + '/give', body),
     photoBase: '/myjobs/jobs/', routineBase: '/myjobs/routines/', token, team
   };
 }
@@ -158,8 +160,9 @@ function JobCard({ job, today, onOpen, showWho }) {
 
 // One job, full screen on the phone: what, where, who asked; start, hold,
 // note; done with photos.
-function JobSheet({ job, today, busy, client, meId, onMove, onClose }) {
-  const [step, setStep] = useState(null); // 'done' | 'hold' | 'note'
+function JobSheet({ job, today, busy, client, meId, crew, onMove, onGive, onClose }) {
+  const [step, setStep] = useState(null); // 'done' | 'hold' | 'note' | 'give'
+  const [toId, setToId] = useState('');
   const [photos, setPhotos] = useState([]);
   const [note, setNote] = useState('');
   const [cost, setCost] = useState('');
@@ -167,6 +170,10 @@ function JobSheet({ job, today, busy, client, meId, onMove, onClose }) {
   async function move(body) {
     setErr(null);
     try { await onMove(job, body); setStep(null); setNote(''); setPhotos([]); } catch (e) { setErr(e.message); }
+  }
+  async function give() {
+    setErr(null);
+    try { await onGive(job, toId, personName(crew, toId)); setStep(null); setToId(''); } catch (e) { setErr(e.message); }
   }
   const open = job.open;
   return (
@@ -234,6 +241,17 @@ function JobSheet({ job, today, busy, client, meId, onMove, onClose }) {
             <button type="button" className="mj-link" onClick={() => setStep(null)}>{tr('Cancel')}</button>
           </section>
         )}
+        {step === 'give' && (
+          <section className="mj-done">
+            <h3>👷 {job.assignedTo ? tr('Give it to someone else') : tr('Give it to someone')}</h3>
+            <PersonPick crew={{ ...crew, everyone: crew.everyone.filter((p) => !job.assignedTo || p.id !== job.assignedTo.id), team: crew.team.filter((p) => !job.assignedTo || p.id !== job.assignedTo.id) }} value={toId} onChange={setToId} />
+            <p className="mj-hint">{tr('They are told, with the job in their My Jobs.')}</p>
+            <button type="button" className="mj-big" disabled={busy || !toId} onClick={give}>
+              {busy ? tr('Sending…') : toId ? tr('Give it to {name}', { name: personName(crew, toId) }) : tr('Give it to them')}
+            </button>
+            <button type="button" className="mj-link" onClick={() => { setStep(null); setToId(''); }}>{tr('Cancel')}</button>
+          </section>
+        )}
         {err && <p className="mj-error" role="alert">{err}</p>}
 
         {!step && open && (
@@ -244,6 +262,7 @@ function JobSheet({ job, today, busy, client, meId, onMove, onClose }) {
               {job.status !== 'on_hold' && <button type="button" className="mj-small" disabled={busy} onClick={() => setStep('hold')}>⏸ {tr('On hold')}</button>}
               <button type="button" className="mj-small" disabled={busy} onClick={() => setStep('note')}>✎ {tr('Add a note')}</button>
             </div>
+            {crew.lead && <button type="button" className="mj-small mj-give" disabled={busy} onClick={() => setStep('give')}>👷 {job.assignedTo ? tr('Give it to someone else') : tr('Give it to someone')}</button>}
           </div>
         )}
         {!step && !open && job.status === 'completed' && (
@@ -695,6 +714,15 @@ function Jobs({ client, onSignOut }) {
       say(r ? tr('{name} saved.', { name: out.name }) : toName ? tr('{name} given to {who}. They have been told.', { name: out.name, who: toName }) : tr('{name} added to your routines.', { name: out.name }));
     } finally { setBusy(false); }
   }
+  async function giveJob(j, toId, toName) {
+    setBusy(true);
+    try {
+      const out = await client.give(j.id, { assignedToId: toId });
+      await load();
+      if (extraJob && extraJob.id === j.id) setExtraJob(out);
+      say(toId === crew.meId ? tr('{ref} is on your list.', { ref: j.ref }) : tr('{ref} given to {name}. They have been told.', { ref: j.ref, name: toName || '' }));
+    } finally { setBusy(false); }
+  }
   async function stopRoutine(r) {
     setBusy(true);
     try {
@@ -706,7 +734,8 @@ function Jobs({ client, onSignOut }) {
   }
 
   const today = data ? data.today : new Date().toISOString().slice(0, 10);
-  // A manager or supervisor (task.manage): gives jobs and routines out too.
+  // A manager or supervisor (task.manage), or someone a manager switched on
+  // to give jobs out (backend myjobs_rights): gives jobs and routines out too.
   const lead = !!(data && data.can && data.can.manage);
   const crew = { lead, meId: data ? data.me.id : null, team: (data && data.options && data.options.team) || [], everyone: (data && data.options && data.options.everyone) || [] };
   const dayOf = (o) => o.scheduledOn || o.requestedOn || today;
@@ -715,7 +744,15 @@ function Jobs({ client, onSignOut }) {
   const later = data ? data.todo.filter((o) => !o.overdue && dayOf(o) > today) : [];
   const first = (data && data.me.name ? data.me.name : '').split(' ')[0];
 
-  if (job) return <JobSheet key={job.id + job.status + (job.notes || '').length} job={job} today={today} busy={busy} client={client} meId={data ? data.me.id : null} onMove={move} onClose={closeJob} />;
+  // The job open: what was just done shows over it too (started, on hold, given…).
+  if (job) {
+    return (
+      <>
+        <JobSheet key={job.id + job.status + (job.notes || '').length + (job.assignedTo ? job.assignedTo.id : '')} job={job} today={today} busy={busy} client={client} meId={data ? data.me.id : null} crew={crew} onMove={move} onGive={giveJob} onClose={closeJob} />
+        {toast && <div className="mj-toast" role="status">✅ {toast}</div>}
+      </>
+    );
+  }
   if (routineOpen) return <RoutineDone routine={routineOpen} client={client} busy={busy} onDone={routineDone} onClose={() => setRoutineOpen(null)} />;
   const places = data && data.options ? data.options.places : [];
   if (form && form.kind === 'job') return <AddJobSheet today={today} places={places} crew={crew} busy={busy} onSave={addJob} onClose={() => setForm(null)} />;

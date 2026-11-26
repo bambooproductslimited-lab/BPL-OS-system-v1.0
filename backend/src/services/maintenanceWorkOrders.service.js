@@ -116,6 +116,18 @@ function nameOf(first, last) { return first ? (first + ' ' + (last || '')).trim(
 function canManage(ctx) { return ctx.can('task.manage'); }
 function seesAll(ctx) { return ctx.can('task.manage') || ctx.can('task.read'); }
 function needManage(ctx) { if (!canManage(ctx)) fail('forbidden', 'Your role does not allow this action (task.manage).'); }
+// The two My Jobs switches a manager turns on per person (migration 0223):
+// everyJob — sees and works on every job; giveOut — also gives jobs and
+// routines out (and so works on every job too).
+async function rightsOf(employeeId, db) {
+  if (!employeeId) return { everyJob: false, giveOut: false };
+  var r = (await (db || pool).query('SELECT every_job, give_out FROM myjobs_rights WHERE employee_id = $1', [employeeId])).rows[0];
+  return { everyJob: !!(r && (r.every_job || r.give_out)), giveOut: !!(r && r.give_out) };
+}
+// Gives jobs and routines out in My Jobs: task.manage, or the switch.
+async function givesOut(ctx, db) { return canManage(ctx) || (await rightsOf(ctx.employee && ctx.employee.id, db)).giveOut; }
+// Sees and works on every job: task.manage, or either switch.
+async function worksAll(ctx, db) { return canManage(ctx) || (await rightsOf(ctx.employee && ctx.employee.id, db)).everyJob; }
 
 // ── the places (whose company a place belongs to) ──────────────────────
 
@@ -221,7 +233,7 @@ async function loadOrder(ctx, id, db) {
   var row = (await (db || pool).query(SELECT_WO + 'WHERE w.id = $1', [id])).rows[0];
   if (!row) fail('notfound', 'That work order no longer exists.');
   var o = shapeOrder(row, ctx);
-  if (!seesAll(ctx) && !o.mine.asked && !o.mine.given) fail('notfound', 'That work order no longer exists.');
+  if (!seesAll(ctx) && !o.mine.asked && !o.mine.given && !(await worksAll(ctx, db))) fail('notfound', 'That work order no longer exists.');
   return { row: row, order: o };
 }
 async function loadRoutine(id, db) {
@@ -543,7 +555,8 @@ async function setStatus(ctx, id, body) {
     var manage = canManage(ctx);
     var asker = o.mine.asked && was.status === 'new' && status === 'cancelled';
     if (!manage && !asker) {
-      if (!o.mine.given) fail('forbidden', 'Only the work order managers, or whoever the job is given to, can move it along.');
+      // A manager may switch someone on for every job (myjobs_rights).
+      if (!o.mine.given && !(await worksAll(ctx, client))) fail('forbidden', 'Only the work order managers, or whoever the job is given to, can move it along.');
       if (status === 'cancelled' || status === 'new') fail('forbidden', 'Only the work order managers can call off a job.');
     }
     var f = { status: status };
@@ -732,7 +745,15 @@ async function mine(ctx) {
   // Managers, supervisors and the MD (task.manage): every job of the team,
   // the jobs and routines they created, and who to give jobs to.
   var given = null, team = null, everyone = null, allJobs = null;
-  if (canManage(ctx)) {
+  // Whoever a manager switched on (migration 0223) sees and works on every
+  // job; with the second switch, gives work out too.
+  var lead = await givesOut(ctx), seeTeam = lead || await worksAll(ctx);
+  if (seeTeam) {
+    allJobs = (await pool.query(SELECT_WO +
+      "WHERE w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $1::date) " +
+      'ORDER BY w.scheduled_on NULLS LAST, w.created_at DESC LIMIT 500', [addDays(today, -7)])).rows.map(function (r) { return shapeOrder(r, ctx); });
+  }
+  if (lead) {
     given = {
       jobs: (await pool.query(SELECT_WO +
         "WHERE w.requested_by_id = $1 AND (w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $2::date)) " +
@@ -740,9 +761,6 @@ async function mine(ctx) {
       routines: (await pool.query(SELECT_RT + 'WHERE r.created_by = $1 AND r.archived_at IS NULL ORDER BY r.next_on NULLS LAST, r.name', [me])).rows
         .map(function (r) { return Object.assign(shapeRoutine(r), { addedByMe: true }); })
     };
-    allJobs = (await pool.query(SELECT_WO +
-      "WHERE w.status IN ('new', 'scheduled', 'in_progress', 'on_hold') OR (w.status = 'completed' AND w.completed_on >= $1::date) " +
-      'ORDER BY w.scheduled_on NULLS LAST, w.created_at DESC LIMIT 500', [addDays(today, -7)])).rows.map(function (r) { return shapeOrder(r, ctx); });
     // The maintenance & IT team: whoever had jobs or routines this past year, busiest first.
     team = (await pool.query(
       "SELECT e.id, e.first_name, e.last_name, (SELECT count(*)::int FROM maint_work_orders w WHERE w.assigned_to_id = e.id AND w.status IN ('new', 'scheduled', 'in_progress', 'on_hold')) AS open " +
@@ -758,8 +776,91 @@ async function mine(ctx) {
     todo: todo, done: done, routines: routines, given: given, allJobs: allJobs,
     counts: { late: late, today: now, later: todo.length - late - now, doneThisWeek: done.length },
     options: { categories: CATEGORIES, priorities: PRIORITIES, places: places.map(function (p) { return p.location; }), team: team, everyone: everyone },
-    can: { manage: canManage(ctx), seeAll: seesAll(ctx) }
+    can: { manage: lead, seeAll: seesAll(ctx), seeTeam: seeTeam }
   };
+}
+
+// POST /mine/jobs/:id/give { assignedToId } — from My Jobs, a manager or
+// someone switched on to give jobs out hands an open job to someone else
+// (or takes it themselves). The new person is told.
+async function giveJob(ctx, id, body) {
+  body = body || {};
+  if (!(await givesOut(ctx))) fail('forbidden', 'Only work order managers and supervisors can give a job to someone else.');
+  if (!isUuid(body.assignedToId)) fail('invalid', 'Choose who does it.');
+  return withTransaction(async function (client) {
+    var was = (await loadOrder(ctx, id, client)).row;
+    if (was.status === 'completed' || was.status === 'cancelled') fail('conflict', 'This job is ' + (was.status === 'completed' ? 'done' : 'called off') + ': it cannot be given to someone else.');
+    var who = await personOr(client, body.assignedToId);
+    if (!who.id) fail('invalid', 'Choose who does it.');
+    if (who.id === was.assigned_to_id) return (await loadOrder(ctx, id, client)).order;
+    var row = (await client.query(
+      "UPDATE maint_work_orders SET assigned_to_id = $2, assigned_to_name = '', status = CASE WHEN status = 'new' THEN 'scheduled' ELSE status END, " +
+      'scheduled_on = COALESCE(scheduled_on, $3::date), updated_at = now() WHERE id = $1 RETURNING *', [id, who.id, todayISO()])).rows[0];
+    await audit(client, ctx, 'maintwo.give', 'maint_work_order', id, row.ref + ' given to ' + (await nameOfEmployee(client, who.id)) + ' from My Jobs.');
+    await tellAssigned(client, ctx, row);
+    return (await loadOrder(ctx, id, client)).order;
+  });
+}
+async function nameOfEmployee(db, id) {
+  var e = (await db.query('SELECT first_name, last_name FROM employees WHERE id = $1', [id])).rows[0];
+  return e ? nameOf(e.first_name, e.last_name) : '';
+}
+
+// ── who sees, works on and gives out every job in My Jobs ──────────────
+
+// GET /myjobs-rights — everyone, with their two My Jobs switches (every
+// job; give jobs out), and whether their role already gives out work
+// (task.manage), which needs no switch.
+async function myJobsRights(ctx) {
+  needManage(ctx);
+  var rows = (await pool.query(
+    "SELECT e.id, e.first_name, e.last_name, e.position_title, mr.every_job, mr.give_out, mr.updated_at, g.first_name AS g_first, g.last_name AS g_last, " +
+    "EXISTS (SELECT 1 FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN role_permissions rp ON rp.role_id = ur.role_id WHERE u.employee_id = e.id AND u.status = 'active' AND rp.permission_key = 'task.manage') AS manages, " +
+    "EXISTS (SELECT 1 FROM maint_work_orders w WHERE w.assigned_to_id = e.id AND w.created_at > now() - interval '365 days') " +
+    "OR EXISTS (SELECT 1 FROM maint_routines r WHERE r.assigned_to_id = e.id AND r.archived_at IS NULL) AS team " +
+    "FROM employees e LEFT JOIN myjobs_rights mr ON mr.employee_id = e.id LEFT JOIN employees g ON g.id = mr.granted_by " +
+    "WHERE e.status = 'active' ORDER BY e.first_name, e.last_name")).rows;
+  return rows.map(function (r) {
+    return {
+      id: r.id, name: nameOf(r.first_name, r.last_name), position: r.position_title || '', team: !!r.team, manages: !!r.manages,
+      everyJob: !!(r.every_job || r.give_out), giveOut: !!r.give_out,
+      changedAt: r.updated_at || null, changedBy: r.g_first ? nameOf(r.g_first, r.g_last) : null
+    };
+  });
+}
+
+// PUT /myjobs-rights/:employeeId { everyJob?, giveOut? } — the switches.
+// Giving out includes every job; turning every job off turns giving out off
+// too. They are told when one is turned on.
+async function setMyJobsRight(ctx, employeeId, body) {
+  needManage(ctx);
+  body = body || {};
+  if (!isUuid(employeeId)) fail('notfound', 'That person is not in the directory.');
+  var e = (await pool.query("SELECT id, first_name, last_name FROM employees WHERE id = $1 AND status = 'active'", [employeeId])).rows[0];
+  if (!e) fail('notfound', 'That person is not in the directory.');
+  var was = await rightsOf(e.id);
+  var giveOut = body.giveOut === undefined ? was.giveOut : !!body.giveOut;
+  var everyJob = body.everyJob === undefined ? was.everyJob : !!body.everyJob;
+  if (body.everyJob === false) giveOut = false;
+  if (giveOut) everyJob = true;
+  if (everyJob === was.everyJob && giveOut === was.giveOut) return (await myJobsRights(ctx)).find(function (x) { return x.id === e.id; });
+  var who = nameOf(e.first_name, e.last_name);
+  await withTransaction(async function (client) {
+    if (everyJob || giveOut) {
+      await client.query('INSERT INTO myjobs_rights (employee_id, every_job, give_out, granted_by) VALUES ($1, $2, $3, $4) ' +
+        'ON CONFLICT (employee_id) DO UPDATE SET every_job = $2, give_out = $3, granted_by = $4, updated_at = now()', [e.id, everyJob, giveOut, ctx.employee.id]);
+    } else await client.query('DELETE FROM myjobs_rights WHERE employee_id = $1', [e.id]);
+    await audit(client, ctx, 'maintwo.rights', 'employee', e.id, who + ' in My Jobs: ' +
+      (giveOut ? 'sees and works on every job, and gives jobs out.' : everyJob ? 'sees and works on every job.' : 'only their own jobs.'));
+    if (e.id !== ctx.employee.id && giveOut && !was.giveOut) {
+      await notify(client, e.id, '🛠️ You can give jobs out in My Jobs',
+        whoName(ctx) + ' switched it on: add jobs and routines for others, and see and work on every job in the Team tab.', '/myjobs');
+    } else if (e.id !== ctx.employee.id && everyJob && !was.everyJob) {
+      await notify(client, e.id, '👀 You can see and work on every job in My Jobs',
+        whoName(ctx) + ' switched it on: the Team tab shows every open job of the maintenance & IT team, and you can work on any of them.', '/myjobs');
+    }
+  });
+  return (await myJobsRights(ctx)).find(function (x) { return x.id === e.id; });
 }
 
 // ── My Jobs: adding jobs and routines from the phone ────────────────────
@@ -786,7 +887,7 @@ async function addJob(ctx, body) {
   body = body || {};
   var description = longText(body.description, 2000);
   if (!description) fail('invalid', 'Say what needs doing.');
-  var manage = canManage(ctx);
+  var manage = await givesOut(ctx);
   if (body.assignedToId && !manage) fail('forbidden', 'Only work order managers and supervisors can give a job to someone else.');
   return withTransaction(async function (client) {
     // A manager or supervisor may give it to someone (assignedToId).
@@ -828,7 +929,7 @@ async function addJob(ctx, body) {
 async function saveMyRoutine(ctx, id, body) {
   body = body || {};
   return withTransaction(async function (client) {
-    var was = null, manage = canManage(ctx);
+    var was = null, manage = await givesOut(ctx, client);
     if (id) {
       was = await loadRoutine(id, client);
       // One's own; a manager's or supervisor's, the ones they gave out too.
@@ -898,7 +999,7 @@ async function saveMyRoutine(ctx, id, body) {
 async function stopMyRoutine(ctx, id) {
   return withTransaction(async function (client) {
     var r = await loadRoutine(id, client);
-    if (r.created_by !== ctx.employee.id || (r.assigned_to_id !== ctx.employee.id && !canManage(ctx))) fail('forbidden', 'Only a routine you added yourself can be stopped here. Ask a work order manager for the others.');
+    if (r.created_by !== ctx.employee.id || (r.assigned_to_id !== ctx.employee.id && !(await givesOut(ctx, client)))) fail('forbidden', 'Only a routine you added yourself can be stopped here. Ask a work order manager for the others.');
     await client.query('UPDATE maint_routines SET archived_at = now(), updated_at = now() WHERE id = $1', [id]);
     await audit(client, ctx, 'maintwo.routine.archive', 'maint_routine', id, 'Stopped routine ' + r.ref + ' "' + r.name + '" from My Jobs.');
     await tellManagers(client, ctx, '🔁 ' + whoName(ctx) + ' stopped a routine: ' + r.ref, r.name + '.', '/tasks?side=maint');
@@ -1007,7 +1108,7 @@ async function removeRoutine(ctx, id) {
 module.exports = {
   list: list, get: get, create: create, update: update, setStatus: setStatus, setAudited: setAudited, remove: remove,
   saveRoutine: saveRoutine, routineDone: routineDone, routineOrder: routineOrder, archiveRoutine: archiveRoutine, removeRoutine: removeRoutine,
-  mine: mine, addJob: addJob, saveMyRoutine: saveMyRoutine, stopMyRoutine: stopMyRoutine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, reportPhotoOf: reportPhotoOf, routineRefPhotoOf: routineRefPhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
+  mine: mine, addJob: addJob, saveMyRoutine: saveMyRoutine, stopMyRoutine: stopMyRoutine, photoOf: photoOf, routinePhotoOf: routinePhotoOf, reportPhotoOf: reportPhotoOf, myJobsRights: myJobsRights, setMyJobsRight: setMyJobsRight, giveJob: giveJob, routineRefPhotoOf: routineRefPhotoOf, runDue: runDue, morning: morning, leadOf: leadOf,
   companyMatcher: companyMatcher, summarize: summarize,
   CATEGORIES: CATEGORIES, PRIORITIES: PRIORITIES, STATUSES: STATUSES
 };

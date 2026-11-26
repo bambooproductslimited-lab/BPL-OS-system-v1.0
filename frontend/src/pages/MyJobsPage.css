@@ -187,3 +187,4 @@
 .mj-team h2 small { font-size: 13px; font-weight: 600; color: var(--color-text-muted); }
 .mj-team h2 .is-late { color: var(--color-danger); }
 .mj-team.is-nobody h2 > span { color: var(--color-warning); }
+.mj-acts .mj-give { width: 100%; }
