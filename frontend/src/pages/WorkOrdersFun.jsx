@@ -5,7 +5,7 @@ import RowMenu from '../components/RowMenu';
 import { Icon, fmtDate } from '../components/DashKit';
 import { activeIntlLocale, msg, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
-import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
+import { WO_OPEN, WO_STATUSES, weekNum, weekSpan, weekTitle, woStatusLabel, woWeek } from '../lib/workOrders.js';
 
 // The work-order page's livelier pieces (WorkOrdersPage.jsx): a banner
 // with the key numbers, the flow of statuses a WO moves through, who the
@@ -19,15 +19,16 @@ export function isoDay(d) { return d.getFullYear() + '-' + String(d.getMonth() +
 export function addDays(iso, n) { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() + n); return isoDay(d); }
 export function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00') - new Date(a + 'T00:00')) / 86400000); }
 function dayOf(ts) { return ts ? isoDay(new Date(ts)) : null; }
-function short(iso) { return new Date(iso + 'T00:00').toLocaleDateString(activeIntlLocale(), { day: 'numeric', month: 'short' }); }
 // A date in a tight column: "27 Sep", with the year only when it isn't this year's.
 export function shortDate(iso) {
   if (!iso) return '';
   const d = new Date(String(iso).slice(0, 10) + 'T00:00');
   return d.toLocaleDateString(activeIntlLocale(), d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
 }
-// Monday of the week a day falls in.
-function weekOf(iso) { const d = new Date(iso + 'T00:00'); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return isoDay(d); }
+// Sunday of the week a day falls in — the sheet's weeks (WEEKNUM) run Sunday to Saturday.
+function weekOf(iso) { const d = new Date(iso + 'T00:00'); d.setDate(d.getDate() - d.getDay()); return isoDay(d); }
+// The sheet's number for a Sunday-to-Saturday week ("53/1" across New Year).
+function weekLabel(start) { const a = weekNum(start), b = weekNum(addDays(start, 6)); return a === b ? String(a) : a + '/' + b; }
 function median(nums) { if (!nums.length) return null; const s = nums.slice().sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
 function one(n) { return Math.round(n * 10) / 10; }
 
@@ -241,10 +242,10 @@ export function Weekly({ wos, today }) {
                 {w.onTime > 0 && <span className="wo-bit is-ontime" style={{ flexGrow: w.onTime }} />}
               </div>
               {i === weeks.length - 1 && n > 0 && <span className="wo-col-label" style={{ bottom: (n / max) * 100 + '%' }}>{n}</span>}
-              <span className="wo-col-x">{i % 3 === 2 || i === weeks.length - 1 ? short(w.start) : ''}</span>
+              <span className="wo-col-x">{tr('Wk {n}', { n: weekLabel(w.start) })}</span>
               {hover === i && (
                 <span className={'wo-tip' + (i > 8 ? ' is-left' : '')} role="tooltip">
-                  <strong>{tr('Week of {date}', { date: short(w.start) })}</strong>
+                  <strong>{tr('Week {n}', { n: weekLabel(w.start) })} · {weekSpan({ from: w.start, to: addDays(w.start, 6) })}</strong>
                   <span><i className="is-ontime" />{tr('On time')}: {w.onTime}</span>
                   <span><i className="is-late" />{tr('Late')}: {w.late}</span>
                 </span>
@@ -370,6 +371,7 @@ export function WoCard({ t, today, onOpen, onCardClick, menu, dragging, onDragSt
           </span>
         )}
         {t.overdue && <span className="wo-alarm" title={tr('Overdue')} aria-label={tr('Overdue')} />}
+        <WeekTag t={t} />
         <span className="wo-card-menu"><RowMenu actions={menu} /></span>
       </div>
       <button type="button" className="wo-card-title" onClick={onOpen}>{t.title}</button>
@@ -398,6 +400,15 @@ export function WoCard({ t, today, onOpen, onCardClick, menu, dragging, onDragSt
       </div>
     </article>
   );
+}
+
+// ── the week a WO is under (lib/workOrders.js woWeek) ─────────────────
+// The week as a small tag: bold once closed, as the sheet counts it; light
+// while still open (the week it was issued).
+export function WeekTag({ t }) {
+  const w = woWeek(t);
+  if (!w) return <span className="dk-muted">—</span>;
+  return <span className={'wo-week' + (w.closed ? ' is-closed' : ' is-open')} title={weekTitle(w)}>{tr('Wk {n}', { n: w.n })}</span>;
 }
 
 // ── the register ──────────────────────────────────────────────────────
@@ -459,11 +470,12 @@ export function DaysChip({ t }) {
 export function downloadCsv(rows) {
   const head = [tr('WO'), tr('Date issued'), tr('For'), tr('Description'), tr('Quantity'), tr('Item number'), tr('Specification'), tr('Material needed'),
     tr('Material quantity'), tr('Material specification'), tr('Process'), tr('Project manager'), tr('Team'), tr('Prepared by'), tr('Estimated date due'),
-    tr('Status'), tr('Closed'), tr('Days to close'), tr('Project')];
+    tr('Status'), tr('Closed'), tr('Week'), tr('Days to close'), tr('Project')];
   const cell = (v) => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
   const lines = rows.map((t) => [
     t.number, t.issuedOn, forName(t), t.title, t.quantity, t.itemCode, t.specification, t.materials, t.materialQuantity, t.materialSpec, t.process,
     pmOf(t), (t.assigneeNames || []).join(', '), t.createdByName, t.dueDate, woStatusLabel(t.status), dayOf(t.completedAt || t.cancelledAt) || '',
+    (() => { const w = woWeek(t); return w && w.closed ? w.n : ''; })(),
     t.daysToClose === null || t.daysToClose === undefined ? '' : t.daysToClose, t.projectName && t.projectName !== '—' ? t.projectName : ''
   ].map(cell).join(','));
   const blob = new Blob(['\ufeff' + [head.map(cell).join(',')].concat(lines).join('\r\n')], { type: 'text/csv;charset=utf-8' });

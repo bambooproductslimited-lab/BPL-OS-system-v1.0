@@ -346,6 +346,16 @@ i.is-late { background: var(--wo-s2); }
 .wo-reg-group.is-late { --gc: var(--wo-late); }
 .wo-reg-group.is-open { --gc: var(--wo-in_progress); }
 .wo-reg-group.is-done { --gc: var(--wo-completed); }
+.wo-reg-group-label small { font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--color-text-muted); }
+
+/* The week a WO is under: the sheet's week number (WEEKNUM of the day it
+   was closed); light while still open — the week it was issued. */
+.wo-week { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums;
+  color: var(--color-text); background: color-mix(in srgb, var(--wo-completed) 16%, transparent); border: 1px solid color-mix(in srgb, var(--wo-completed) 45%, transparent); }
+.wo-week.is-open { font-weight: 600; color: var(--color-text-muted); background: none; border-style: dashed; border-color: var(--wo-line); }
+.wo-card-top .wo-week { margin-left: auto; }
+.wo-card-top .wo-week + .wo-card-menu { margin-left: 0; }
+.wo-register td.is-week, .wo-register th.is-week { width: 1%; white-space: nowrap; }
 .wo-row-title { padding: 0; border: 0; background: none; color: var(--color-text); font: inherit; font-size: 13.5px; font-weight: 700; text-align: left; cursor: pointer; }
 .wo-reg-row.is-closed .wo-row-title { color: var(--color-text-muted); font-weight: 600; }
 .wo-row-title:hover { color: var(--color-accent); }
@@ -397,7 +407,7 @@ i.is-late { background: var(--wo-s2); }
   .wo-reg-row td { display: flex; flex-direction: column; gap: 3px; padding: 0; border: 0; background: none !important; box-shadow: none !important; white-space: normal; min-width: 0; text-align: left !important; }
   .wo-reg-row td[data-label]::before { content: attr(data-label); font-size: 10.5px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-faint); }
   .wo-reg-row td.is-title { grid-column: 1 / -1; max-width: none; }
-  .wo-reg-row td.is-for, .wo-reg-row td.is-qty, .wo-reg-row td.is-status, .wo-reg-row td.is-days { align-items: flex-start; }
+  .wo-reg-row td.is-for, .wo-reg-row td.is-qty, .wo-reg-row td.is-status, .wo-reg-row td.is-days, .wo-reg-row td.is-week { align-items: flex-start; }
   .wo-reg-row .wo-row-top { padding-right: 64px; }
   .wo-reg-row td.is-pick { position: absolute; top: 12px; right: 44px; width: auto; }
   .wo-reg-row td.is-menu { position: absolute; top: 6px; right: 6px; }

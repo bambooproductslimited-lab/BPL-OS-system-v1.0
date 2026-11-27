@@ -18932,5 +18932,14 @@ export default {
   "{name} sees only their own jobs.": "{name} 只能看到自己的工作。",
   "{name}: every job": "{name}：所有工作",
   "{name}: gives jobs out": "{name}：分派工作",
-  "{n} switched on": "已打开 {n} 人"
+  "{n} switched on": "已打开 {n} 人",
+  "Closed in week {n} ({days})": "第 {n} 周关闭（{days}）",
+  "Filter by week": "按周筛选",
+  "Finished in week {n}": "第 {n} 周完成",
+  "Issued in week {n} ({days}); still open — it takes the week it is closed in": "第 {n} 周下达（{days}）；仍未关闭——关闭后归入关闭的那一周",
+  "The week number the sheet gives a WO: the week it was closed, Sunday to Saturday, with week 1 the one that has 1 January in it (Google Sheets’ WEEKNUM). Finished WOs are listed week by week, as on the sheet’s Closed tab. A WO still open shows the week it was issued, in a lighter tag, until it is closed.": "表格给工单的周数：工单关闭的那一周，从周日到周六，包含 1 月 1 日的那一周为第 1 周（Google 表格的 WEEKNUM）。已完成的工单按周列出，与表格的 Closed 标签页相同。仍未关闭的工单以浅色标签显示其下达的那一周，直到关闭。",
+  "Wk {n}": "第{n}周",
+  "the week it was issued; it takes the week it is closed in": "下达的那一周；关闭后归入关闭的那一周",
+  "week {n} ({days})": "第 {n} 周（{days}）",
+  "{n} closed": "{n} 个已关闭"
 };

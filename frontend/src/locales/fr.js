@@ -18932,5 +18932,14 @@ export default {
   "{name} sees only their own jobs.": "{name} ne voit que ses propres tâches.",
   "{name}: every job": "{name} : toutes les tâches",
   "{name}: gives jobs out": "{name} : confie des tâches",
-  "{n} switched on": "{n} activé(s)"
+  "{n} switched on": "{n} activé(s)",
+  "Closed in week {n} ({days})": "Clôturé en semaine {n} ({days})",
+  "Filter by week": "Filtrer par semaine",
+  "Finished in week {n}": "Terminés en semaine {n}",
+  "Issued in week {n} ({days}); still open — it takes the week it is closed in": "Émis en semaine {n} ({days}) ; encore ouvert — il prendra la semaine de sa clôture",
+  "The week number the sheet gives a WO: the week it was closed, Sunday to Saturday, with week 1 the one that has 1 January in it (Google Sheets’ WEEKNUM). Finished WOs are listed week by week, as on the sheet’s Closed tab. A WO still open shows the week it was issued, in a lighter tag, until it is closed.": "Le numéro de semaine que la feuille donne à un OT : la semaine de sa clôture, du dimanche au samedi, la semaine 1 étant celle du 1er janvier (WEEKNUM de Google Sheets). Les OT terminés sont listés semaine par semaine, comme dans l’onglet Closed de la feuille. Un OT encore ouvert affiche la semaine de son émission, en étiquette plus claire, jusqu’à sa clôture.",
+  "Wk {n}": "S{n}",
+  "the week it was issued; it takes the week it is closed in": "la semaine de son émission ; il prendra la semaine de sa clôture",
+  "week {n} ({days})": "semaine {n} ({days})",
+  "{n} closed": "{n} clôturé(s)"
 };

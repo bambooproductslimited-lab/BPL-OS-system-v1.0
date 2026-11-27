@@ -10,9 +10,9 @@ import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
 import { activeIntlLocale, tr } from '../lib/i18n.jsx';
 import { codeLabel } from '../lib/codeLabels.js';
-import { WO_OPEN, WO_STATUSES, woStatusLabel } from '../lib/workOrders.js';
+import { WO_OPEN, WO_STATUSES, weekSpan, weekTitle, woStatusLabel, woWeek } from '../lib/workOrders.js';
 import {
-  Confetti, DaysChip, ForBadge, ForWhom, Linked, Managers, MiniTimeline, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, StatusSelect, Weekly, WoBanner, WoCard, WoImport, WoManagerDialog, colHint, downloadCsv,
+  Confetti, DaysChip, ForBadge, ForWhom, Linked, Managers, MiniTimeline, NEXT, PanelHead, Pipeline, ProcessSteps, Speed, StatusGlyph, StatusPill, StatusSelect, WeekTag, Weekly, WoBanner, WoCard, WoImport, WoManagerDialog, colHint, downloadCsv,
   addDays, dueInfo, forName, isoDay, pmOf
 } from './WorkOrdersFun.jsx';
 import WorkOrdersPresent from './WorkOrdersPresent';
@@ -285,6 +285,8 @@ function WorkshopOrders() {
   const [search, setSearch] = useState('');
   const [forFilter, setForFilter] = useState('');
   const [pmFilter, setPmFilter] = useState('');
+  // The sheet's week number (WEEKNUM of the day closed): "202648", or ''.
+  const [weekFilter, setWeekFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState(projectFromUrl);
   const [shownRows, setShownRows] = useState(PAGE);
   // The register's order: its usual one (late, then open, then finished), or by a column.
@@ -370,7 +372,7 @@ function WorkshopOrders() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
-  useEffect(() => { setShownRows(PAGE); setPicked(new Set()); }, [chip, search, forFilter, pmFilter, projectFilter, companyCode, scope, view]);
+  useEffect(() => { setShownRows(PAGE); setPicked(new Set()); }, [chip, search, forFilter, pmFilter, weekFilter, projectFilter, companyCode, scope, view]);
 
   const companies = useMemo(() => {
     const seen = new Map();
@@ -543,7 +545,8 @@ function WorkshopOrders() {
   const scoped = inCompany
     .filter((t) => !projectFilter || (projectFilter === NO_PROJECT ? !t.projectId : t.projectId === projectFilter))
     .filter((t) => !forFilter || forName(t) === forFilter)
-    .filter((t) => !pmFilter || pmOf(t) === pmFilter);
+    .filter((t) => !pmFilter || pmOf(t) === pmFilter)
+    .filter((t) => !weekFilter || (woWeek(t) || {}).key === Number(weekFilter));
   const open = scoped.filter(WO_OPEN);
   const overdue = open.filter((t) => t.overdue);
   const dueWeek = open.filter((t) => t.dueDate && t.dueDate >= today && t.dueDate <= weekEnd);
@@ -618,19 +621,39 @@ function WorkshopOrders() {
 
   const SORTS = {
     wo: (t) => t.woNo, title: (t) => t.title.toLowerCase(), for: (t) => forName(t).toLowerCase(), qty: (t) => parseFloat(String(t.quantity).replace(',', '.')) || 0,
-    due: (t) => t.dueDate || '9999', status: (t) => WO_STATUSES.indexOf(t.status), days: (t) => (t.daysToClose !== null ? t.daysToClose : t.daysOpen !== null ? t.daysOpen : -1)
+    due: (t) => t.dueDate || '9999', status: (t) => WO_STATUSES.indexOf(t.status), days: (t) => (t.daysToClose !== null ? t.daysToClose : t.daysOpen !== null ? t.daysOpen : -1),
+    week: (t) => (woWeek(t) || { key: 0 }).key
   };
   const sortedRows = regSort ? rows.slice().sort((a, b) => {
     const x = SORTS[regSort.key](a), y = SORTS[regSort.key](b);
     return (x < y ? -1 : x > y ? 1 : 0) * (regSort.dir === 'desc' ? -1 : 1) || b.woNo - a.woNo;
   }) : rows;
   const pageRows = sortedRows.slice(0, shownRows);
-  // Without a column picked, the register reads in three parts.
+  // Without a column picked, the register reads late, open, then the
+  // finished ones week by week, newest first — as the sheet's Closed tab.
+  const doneWeeks = [];
+  pageRows.filter((t) => !WO_OPEN(t)).forEach((t) => {
+    const w = woWeek(t);
+    const k = w ? w.key : 0;
+    let g = doneWeeks.find((x) => x.k === k);
+    if (!g) { g = { k, w, rows: [] }; doneWeeks.push(g); }
+    g.rows.push(t);
+  });
   const regGroups = regSort ? [{ key: 'all', rows: pageRows }] : [
     { key: 'late', label: tr('Late'), n: rows.filter((t) => WO_OPEN(t) && t.overdue).length, rows: pageRows.filter((t) => WO_OPEN(t) && t.overdue) },
-    { key: 'open', label: tr('Open'), n: rows.filter((t) => WO_OPEN(t) && !t.overdue).length, rows: pageRows.filter((t) => WO_OPEN(t) && !t.overdue) },
-    { key: 'done', label: tr('Finished'), n: rows.filter((t) => !WO_OPEN(t)).length, rows: pageRows.filter((t) => !WO_OPEN(t)) }
-  ].filter((g) => g.rows.length);
+    { key: 'open', label: tr('Open'), n: rows.filter((t) => WO_OPEN(t) && !t.overdue).length, rows: pageRows.filter((t) => WO_OPEN(t) && !t.overdue) }
+  ].concat(doneWeeks.map((g) => ({
+    key: 'done', id: 'done-' + g.k,
+    label: g.w ? tr('Finished in week {n}', { n: g.w.n }) : tr('Finished'),
+    sub: g.w ? weekSpan(g.w) : '',
+    n: rows.filter((t) => !WO_OPEN(t) && (woWeek(t) || { key: 0 }).key === g.k).length, rows: g.rows
+  }))).filter((g) => g.rows.length);
+  // The weeks there are WOs under, newest first, for the Week filter.
+  const weekOptions = (() => {
+    const by = new Map();
+    inCompany.forEach((t) => { const w = woWeek(t); if (!w) return; const o = by.get(w.key) || { w, closed: 0, open: 0 }; if (w.closed) o.closed++; else o.open++; by.set(w.key, o); });
+    return Array.from(by.entries()).sort((a, b) => b[0] - a[0]).map(([k, o]) => ({ key: String(k), ...o }));
+  })();
   function sortBy(key) {
     setRegSort((was) => (!was || was.key !== key ? { key, dir: key === 'due' || key === 'title' || key === 'for' ? 'asc' : 'desc' } : was.dir === 'desc' ? { key, dir: 'asc' } : null));
   }
@@ -659,7 +682,8 @@ function WorkshopOrders() {
   const showCompany = scope === 'all' && companies.length > 1;
   const forNames = Array.from(new Set(inCompany.map(forName).filter(Boolean))).sort((a, b) => a.localeCompare(b));
   const pmNames = Array.from(new Set(inCompany.map(pmOf).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-  const filtered = forFilter || pmFilter || projectFilter;
+  const filtered = forFilter || pmFilter || projectFilter || weekFilter;
+  const weekPicked = weekFilter ? weekOptions.find((o) => o.key === weekFilter) : null;
   const boardCols = columns.map((s) => {
     const inCol = visible.filter((t) => t.status === s).sort(s === 'completed' || s === 'cancelled' ? byDone : sortOpen);
     return { s, inCol, shown: (s === 'completed' || s === 'cancelled') && chip !== s ? inCol.slice(0, DONE_SHOWN) : inCol };
@@ -712,6 +736,7 @@ function WorkshopOrders() {
             const theirs = tasks.filter((t) => pmOf(t) === pmFilter);
             return theirs.length ? <button type="button" className="dk-link" onClick={() => setPmDialog({ wos: theirs, remember: true })}>{theirs.length === 1 ? tr('Wrong person? Give it to another project manager') : tr('Wrong person? Give all {n} to another project manager', { n: theirs.length })}</button> : null;
           })()}
+          {weekPicked && <button type="button" className="wo-filter-chip" onClick={() => setWeekFilter('')}>{tr('week {n} ({days})', { n: weekPicked.w.n, days: weekSpan(weekPicked.w) })} ×</button>}
           {projectFilter && <button type="button" className="wo-filter-chip" onClick={() => setProjectFilter('')}>{projectFilter === NO_PROJECT ? tr('no project') : (projects.find((p) => p.id === projectFilter) || {}).name || tr('one project')} ×</button>}
         </div>
       )}
@@ -765,6 +790,16 @@ function WorkshopOrders() {
               {pmNames.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
           )}
+          {weekOptions.length > 1 && (
+            <select className="input wo-select" value={weekFilter} onChange={(e) => { setWeekFilter(e.target.value); if (e.target.value && chip === 'active') setChip('all'); }} aria-label={tr('Filter by week')}>
+              <option value="">{tr('Every week')}</option>
+              {weekOptions.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {tr('Week {n}', { n: o.w.n })} · {weekSpan(o.w)} — {[o.closed ? tr('{n} closed', { n: o.closed }) : '', o.open ? tr('{n} open', { n: o.open }) : ''].filter(Boolean).join(', ')}
+                </option>
+              ))}
+            </select>
+          )}
           {projects.length > 0 && (
             <select className="input wo-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} aria-label={tr('Filter by project')}>
               <option value="">{tr('All projects')}</option>
@@ -784,7 +819,7 @@ function WorkshopOrders() {
         {!visible.length ? (
           <div className="dk-empty wo-empty">
             <p>{scoped.length ? tr('No work orders match. Try another search or filter.') : scope === 'mine' ? tr('Nothing on your plate. Work orders you are on or manage will show here.') : tr('No work orders yet.')}</p>
-            {(search || chip !== 'active' || filtered) && scoped.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip('active'); setForFilter(''); setPmFilter(''); setProjectFilter(''); }}>{tr('Clear filters')}</button>}
+            {(search || chip !== 'active' || filtered) && scoped.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setSearch(''); setChip('active'); setForFilter(''); setPmFilter(''); setWeekFilter(''); setProjectFilter(''); }}>{tr('Clear filters')}</button>}
             {canManage && !tasks.length && <div className="wo-empty-actions"><button type="button" className="btn btn-primary" onClick={() => openNew()}>{tr('+ New work order')}</button><button type="button" className="btn btn-secondary" onClick={() => setImportOpen(true)}>{tr('Import from the sheet')}</button></div>}
           </div>
         ) : view === 'board' ? (
@@ -851,16 +886,17 @@ function WorkshopOrders() {
                     <th>{tr('People')}</th>
                     {sortTh([['due', tr('Issued → due')]])}
                     {sortTh([['status', tr('Status')]])}
+                    {sortTh([['week', tr('Week')]], 'is-week')}
                     {sortTh([['days', tr('Days')]], 'is-num')}
                     <th aria-label={tr('Actions')} />
                   </tr>
                 </thead>
                 <tbody>
                   {regGroups.map((g) => (
-                    <Fragment key={g.key}>
+                    <Fragment key={g.id || g.key}>
                       {g.label && (
                         <tr className={'wo-reg-group is-' + g.key}>
-                          <td colSpan={canManage ? 9 : 8}><span className="wo-reg-group-label"><i aria-hidden="true" />{g.label}<b>{g.n}</b></span></td>
+                          <td colSpan={canManage ? 10 : 9}><span className="wo-reg-group-label"><i aria-hidden="true" />{g.label}{g.sub && <small>{g.sub}</small>}<b>{g.n}</b></span></td>
                         </tr>
                       )}
                       {g.rows.map((t, i) => (
@@ -890,6 +926,7 @@ function WorkshopOrders() {
                           </td>
                           <td className="is-when" data-label={tr('Issued → due')}><MiniTimeline t={t} today={today} /></td>
                           <td className="is-status" data-label={tr('Status')}><StatusSelect status={t.status} onChange={(v) => setStatus(t, v)} label={tr('Status of {no}', { no: t.number })} /></td>
+                          <td className="is-week" data-label={tr('Week')}><WeekTag t={t} /></td>
                           <td className="is-num is-days" data-label={tr('Days')}><DaysChip t={t} /></td>
                           <td className="is-menu"><RowMenu actions={[{ label: tr('Open'), onClick: () => openDetail(t) }, { label: tr('Delete'), onClick: () => setDeleteTarget(t), danger: true, hidden: !canManage }]} /></td>
                         </tr>
@@ -927,6 +964,7 @@ function WorkshopOrders() {
         [woStatusLabel('waiting'), tr('Stopped for now, for another reason. Say why in a comment.')],
         [woStatusLabel('under_review'), tr('Done by the team, waiting for whoever issued it or the project manager to check. Both get a notification.')],
         [woStatusLabel('completed'), tr('Finished. The day it was completed is kept, for the days it took and whether it was on time.')],
+        [tr('Week'), tr('The week number the sheet gives a WO: the week it was closed, Sunday to Saturday, with week 1 the one that has 1 January in it (Google Sheets’ WEEKNUM). Finished WOs are listed week by week, as on the sheet’s Closed tab. A WO still open shows the week it was issued, in a lighter tag, until it is closed.')],
         [tr('Days to close'), tr('From the date issued to the day it was completed, as the sheet counted it. Open WOs show the days so far.')],
         [tr('On time'), tr('Completed on or before the estimated date due.')],
         [tr('Active'), tr('Open work orders, and those completed in the last 14 days.')]
@@ -1074,6 +1112,7 @@ function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelet
     [tr('Date issued'), d.issuedOn ? fmtDate(d.issuedOn) : null],
     [tr('Estimated date due'), d.dueDate ? <>{fmtDate(d.dueDate)}{d.plannedDays !== null && d.plannedDays >= 0 && <span className="dk-muted"> · {d.plannedDays === 1 ? tr('1 day planned') : tr('{n} days planned', { n: d.plannedDays })}</span>}</> : null],
     [d.status === 'cancelled' ? tr('Cancelled') : tr('Completed'), closedDay ? fmtDate(closedDay) : null],
+    [tr('Week'), (() => { const w = woWeek(d); return w ? <span title={weekTitle(w)}><b>{w.n}</b> <span className="dk-muted">· {weekSpan(w)}{w.closed ? '' : ' · ' + tr('the week it was issued; it takes the week it is closed in')}</span></span> : null; })()],
     [tr('Days to close'), d.daysToClose !== null ? <>{d.daysToClose} {d.onTime === true && <Status tone="good">{tr('On time')}</Status>}{d.onTime === false && <Status tone="warn">{tr('Late')}</Status>}</> : d.daysOpen !== null ? tr('{n} so far', { n: d.daysOpen }) : null],
     [tr('Labour'), d.workers || d.workDays ? tr('{w} workers × {d} days', { w: d.workers || '—', d: d.workDays || '—' }) : null]
   ]);
