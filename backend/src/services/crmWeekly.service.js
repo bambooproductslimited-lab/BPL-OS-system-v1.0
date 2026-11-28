@@ -13,7 +13,10 @@ var executive = require('./crmExecutive.service');
 // list yet — a profile the inbox made for them (customers.source 'crm'),
 // counted from their first message, so chats brought in from older history
 // are not counted as new. Where the leads came from, who has them, what
-// they asked for, which day, and whether anyone has answered them.
+// they asked for, which day, and whether anyone has answered them. What
+// their chats say they want (crmInterests.service.js) is on each card, and
+// for everyone who wrote that week: what they asked for and about, how
+// ready they are, and who is ready to buy.
 //
 // Then what moved: leads that became prospects (qualified, quoted or
 // agreeing terms), were won or lost that week, from the stage history
@@ -82,6 +85,65 @@ async function inboxFirsts(from, to) {
   });
 }
 
+// What their chats say they want (crmInterests.service.js): on each new
+// lead's and inbox writer's card, by customer profile.
+async function readingsOf(customerIds) {
+  var ids = customerIds.filter(Boolean);
+  if (!ids.length) return {};
+  var rows = (await pool.query('SELECT customer_id, interests, intent, summary, next_step FROM crm_interests WHERE customer_id = ANY($1)', [ids])).rows;
+  var out = {};
+  rows.forEach(function (r) {
+    var names = (r.interests || []).map(function (x) { return x.productName || x.item; }).filter(Boolean);
+    if (names.length || r.summary || (r.intent && r.intent !== 'unclear')) out[r.customer_id] = { interests: names.slice(0, 4), intent: r.intent || '', summary: r.summary || '', nextStep: r.next_step || '' };
+  });
+  return out;
+}
+
+// Everyone who wrote to us in the period and whose chats were read: what
+// they asked for (by product), what about (price, delivery …), how ready
+// they are — and those ready to buy, by name, with the next step.
+async function chatsIn(from, to) {
+  var rows = (await pool.query(
+    'SELECT c.id, c.name, i.interests, i.questions, i.intent, i.next_step, c.account_manager_id, e.first_name AS rep_first, e.last_name AS rep_last, ' +
+    '  (SELECT l.id FROM crm_leads l WHERE l.customer_id = c.id ORDER BY l.created_at DESC LIMIT 1) AS lead_id, ' +
+    '  (SELECT max(m.sent_at) FROM crm_conversations v JOIN crm_messages m ON m.conversation_id = v.id WHERE v.customer_id = c.id AND m.direction = \'in\') AS last_in, ' +
+    "  EXISTS (SELECT 1 FROM crm_conversations v JOIN crm_messages o ON o.conversation_id = v.id WHERE v.customer_id = c.id AND o.direction = 'out' AND o.sent_at >= $1::date) AS answered " +
+    'FROM customers c JOIN crm_interests i ON i.customer_id = c.id LEFT JOIN employees e ON e.id = c.account_manager_id ' +
+    "WHERE EXISTS (SELECT 1 FROM crm_conversations v JOIN crm_messages m ON m.conversation_id = v.id WHERE v.customer_id = c.id AND v.status <> 'spam' " +
+    "  AND m.direction = 'in' AND m.sent_at >= $1::date AND m.sent_at < ($2::date + 1))", [from, to])).rows;
+  var wants = new Map(), topics = new Map(), intents = new Map();
+  rows.forEach(function (r) {
+    var seen = {};
+    (r.interests || []).forEach(function (x) {
+      var name = String(x.productName || x.item || '').trim();
+      var k = name.toLowerCase();
+      if (!name || seen[k]) return;
+      seen[k] = true;
+      var w = wants.get(k) || { item: name, n: 0, inCatalogue: !!x.productId };
+      w.n++; wants.set(k, w);
+    });
+    var tseen = {};
+    (r.questions || []).forEach(function (q) { if (!tseen[q.topic]) { tseen[q.topic] = true; topics.set(q.topic, (topics.get(q.topic) || 0) + 1); } });
+    if (r.intent) intents.set(r.intent, (intents.get(r.intent) || 0) + 1);
+  });
+  var sorted = function (m) { return Array.from(m.entries()).map(function (e) { return { key: e[0], n: e[1] }; }).sort(function (a, b) { return b.n - a.n || String(a.key).localeCompare(String(b.key)); }); };
+  return {
+    people: rows.length,
+    wants: Array.from(wants.values()).sort(function (a, b) { return b.n - a.n || a.item.localeCompare(b.item); }).slice(0, 8),
+    topics: sorted(topics).map(function (x) { return { topic: x.key, n: x.n }; }),
+    intents: sorted(intents).map(function (x) { return { intent: x.key, n: x.n }; }),
+    notJudged: rows.filter(function (r) { return !r.intent; }).length,   // read by catalogue words (no AI key): no verdict on how ready
+    ready: rows.filter(function (r) { return r.intent === 'ready_to_buy'; })
+      .sort(function (a, b) { return new Date(b.last_in) - new Date(a.last_in); }).slice(0, 12)
+      .map(function (r) {
+        return {
+          customerId: r.id, leadId: r.lead_id || null, name: r.name, wants: (r.interests || []).map(function (x) { return x.productName || x.item; }).filter(Boolean).slice(0, 3),
+          nextStep: r.next_step || '', repName: r.account_manager_id ? personName(r.rep_first, r.rep_last) : null, answered: !!r.answered, lastIn: r.last_in
+        };
+      })
+  };
+}
+
 // Stage changes in the period: who became a prospect, who was won or lost.
 async function moves(from, to) {
   var rows = (await pool.query(
@@ -121,6 +183,10 @@ async function week(ctx, query) {
   // ── new leads ──────────────────────────────────────────────────────
   var list = await leadsIn(from, to);
   var inbox = await inboxFirsts(from, to);
+  var read = await readingsOf(list.map(function (l) { return l.customerId; }).concat(inbox.map(function (x) { return x.customerId; })));
+  list.forEach(function (l) { l.chat = read[l.customerId] || null; });
+  inbox.forEach(function (x) { x.chat = read[x.customerId] || null; });
+  var chats = await chatsIn(from, to);
   var trendFrom = addDays(from, -7 * (TREND_WEEKS - 1));
   var past = (await pool.query("SELECT received_on FROM crm_leads WHERE received_on BETWEEN $1 AND $2 AND stage <> 'not_lead'", [trendFrom, to])).rows.map(function (r) { return dateOnly(r.received_on); });
   var pastInbox = (await inboxFirsts(trendFrom, to)).map(function (x) { return x.receivedOn; });
@@ -226,6 +292,7 @@ async function week(ctx, query) {
       days: days, weeks: weeks, sources: sources, channels: channels, items: items, phases: stages,
       list: list, inbox: inbox
     },
+    chats: chats,
     moved: { prospects: moved.prospects, won: moved.won, lost: moved.lost, lostReasons: reasons },
     sales: sales, salesBefore: salesBefore,
     visits: visits,

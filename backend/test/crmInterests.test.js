@@ -85,6 +85,24 @@ test('their chat is read: what they want goes on the profile and on the lead', a
   assert.equal(listed.chat.intent, 'ready_to_buy');
 });
 
+test('the Saturday review: what their chats say, on the card and for the week', async function () {
+  var weekly = require('../src/services/crmWeekly.service');
+  var w = await weekly.week(boss, {});
+  var card = w.leads.list.find(function (l) { return l.name === 'Zqi Ama (fair)'; });
+  assert.deepEqual(card.chat.interests, ['Zqi Bamboo Bed Queen', 'Bedside tables']);
+  assert.equal(card.chat.intent, 'ready_to_buy');
+  assert.ok(w.chats.people >= 1);
+  assert.ok(w.chats.wants.some(function (x) { return x.item === 'Zqi Bamboo Bed Queen' && x.inCatalogue; }));
+  assert.ok(w.chats.topics.some(function (x) { return x.topic === 'price'; }));
+  var judged = w.chats.intents.reduce(function (t, x) { return t + x.n; }, 0);
+  assert.equal(judged + w.chats.notJudged, w.chats.people, 'every reader counted once: judged, or read without AI');
+  var ready = w.chats.ready.find(function (r) { return r.name === 'Zqi Ama'; });
+  assert.ok(ready, 'ready to buy, by name');
+  assert.match(ready.nextStep, /quotation/);
+  assert.ok(ready.leadId, 'opens their lead');
+  assert.equal(ready.answered, true, 'we wrote back this week');
+});
+
 test('read again only when they write again, once the chat is quiet', async function () {
   var c = (await pool.query("SELECT customer_id FROM crm_conversations WHERE external_thread_id = 'zqi-+233 24 555 0201'")).rows[0].customer_id;
   assert.equal((await interests.due(500)).indexOf(c), -1, 'nothing new: not read again');

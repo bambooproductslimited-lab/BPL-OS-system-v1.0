@@ -19043,5 +19043,14 @@ export default {
   "by AI": "由 AI 阅读",
   "by catalogue words (no AI key on the server)": "按目录词语（服务器上没有 AI 密钥）",
   "in the catalogue": "目录中",
-  "they wrote since": "之后又发了消息"
+  "they wrote since": "之后又发了消息",
+  "1 person wrote to us this week and their chat was read.": "本周有 1 人给我们发消息，聊天已读取。",
+  "From their chats": "来自他们的聊天",
+  "How ready they are": "购买意向",
+  "Nobody sounded ready to buy this week.": "本周没有人表现出准备购买。",
+  "Ready to buy: follow them up": "准备购买：请跟进",
+  "What people asked for in their chats": "客户在聊天中想要什么",
+  "What they asked about": "他们询问的内容",
+  "{n} people wrote to us this week and their chats were read.": "本周有 {n} 人给我们发消息，聊天已读取。",
+  "Not judged (read without AI)": "未判断（未用 AI 阅读）"
 };

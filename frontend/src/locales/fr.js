@@ -19043,5 +19043,14 @@ export default {
   "by AI": "par l’IA",
   "by catalogue words (no AI key on the server)": "par les mots du catalogue (pas de clé IA sur le serveur)",
   "in the catalogue": "au catalogue",
-  "they wrote since": "a écrit depuis"
+  "they wrote since": "a écrit depuis",
+  "1 person wrote to us this week and their chat was read.": "1 personne nous a écrit cette semaine et ses échanges ont été lus.",
+  "From their chats": "D’après leurs échanges",
+  "How ready they are": "À quel point ils sont prêts",
+  "Nobody sounded ready to buy this week.": "Personne ne semblait prêt à acheter cette semaine.",
+  "Ready to buy: follow them up": "Prêts à acheter : à relancer",
+  "What people asked for in their chats": "Ce que les gens ont demandé dans leurs échanges",
+  "What they asked about": "Leurs questions portaient sur",
+  "{n} people wrote to us this week and their chats were read.": "{n} personnes nous ont écrit cette semaine et leurs échanges ont été lus.",
+  "Not judged (read without AI)": "Non évalué (lu sans IA)"
 };

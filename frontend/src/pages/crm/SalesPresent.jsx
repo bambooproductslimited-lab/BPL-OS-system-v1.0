@@ -7,6 +7,7 @@ import { activeIntlLocale, tr } from '../../lib/i18n.jsx';
 import CustomerProfile from './CustomerProfile';
 import { LeadDialog, todayISO, useCrmBasics } from './crmShared';
 import { channelLabel, useReps } from './crmHubShared';
+import { INTENT } from './chatIntent';
 import './SalesPresent.css';
 
 // The sales team's Saturday review: one week as slides for the Saturday
@@ -23,7 +24,10 @@ import './SalesPresent.css';
 // why); customers and quotations against last week; the team on a podium;
 // next week day by day (follow-ups by name, site visits); and a thank-you
 // with the week's shout-outs. A lead's card opens the lead over the slides;
-// a new inbox writer's card opens their profile.
+// a new inbox writer's card opens their profile. What their chats say they
+// want (backend crmInterests.service.js) is on the cards, and two slides
+// say it for everyone who wrote that week: what they asked for and about and
+// how ready they are, then who is ready to buy, with the next step.
 
 const PER_SLIDE = 8;
 
@@ -85,7 +89,11 @@ function LeadCard({ x, onOpen }) {
       </span>
       <strong className="ssr-card-name">{x.name}</strong>
       {x.company && <span className="ssr-card-co">{x.company}</span>}
-      <span className="ssr-card-item">{x.item || <em>{tr('Did not say what they want yet')}</em>}</span>
+      <span className="ssr-card-item">{x.item || (x.chat && x.chat.interests.length ? '💬 ' + x.chat.interests.slice(0, 3).join(', ') : <em>{tr('Did not say what they want yet')}</em>)}</span>
+      {x.chat && x.item && x.chat.interests.some((n) => !x.item.toLowerCase().includes(String(n).toLowerCase())) && (
+        <span className="ssr-card-chat" title={x.chat.summary}>💬 {x.chat.interests.filter((n) => !x.item.toLowerCase().includes(String(n).toLowerCase())).slice(0, 2).join(', ')}</span>
+      )}
+      {x.chat && (x.chat.intent === 'ready_to_buy' || x.chat.intent === 'interested') && <span className={'ssr-ready is-' + x.chat.intent}>{INTENT[x.chat.intent].label()}</span>}
       <span className="ssr-card-foot">
         <span className="ssr-card-rep">{x.repName || tr('No one assigned')}</span>
         {waiting
@@ -126,11 +134,11 @@ export default function SalesPresent({ onClose }) {
     if (!data) return [];
     const list = data.leads.list.map((l) => ({
       key: 'l' + l.id, kind: 'lead', id: l.id, receivedOn: l.receivedOn, name: l.name, company: l.company, item: l.item,
-      sourceLabel: l.source || tr('Source not given'), repName: l.repName, answered: l.contacted, phase: l.phase
+      sourceLabel: l.source || tr('Source not given'), repName: l.repName, answered: l.contacted, phase: l.phase, chat: l.chat || null
     }));
     const inbox = data.leads.inbox.map((x) => ({
       key: 'c' + x.customerId, kind: 'customer', id: x.customerId, receivedOn: x.receivedOn, name: x.name, company: '', item: '',
-      sourceLabel: tr('Inbox · {channel}', { channel: channelLabel(x.channel) }), repName: x.repName, answered: x.answered, phase: null
+      sourceLabel: tr('Inbox · {channel}', { channel: channelLabel(x.channel) }), repName: x.repName, answered: x.answered, phase: null, chat: x.chat || null
     }));
     return list.concat(inbox).sort((a, b) => a.receivedOn.localeCompare(b.receivedOn) || a.name.localeCompare(b.name));
   }, [data]);
@@ -141,6 +149,11 @@ export default function SalesPresent({ onClose }) {
     if (cards.length) {
       s.push({ key: 'where', kind: 'where' });
       chunk(cards, PER_SLIDE).forEach((list, i, all) => s.push({ key: 'cards-' + i, kind: 'cards', list, page: i + 1, pages: all.length }));
+    }
+    // What everyone who wrote asked for, from their chats; who is ready to buy.
+    if (data.chats && data.chats.people) {
+      s.push({ key: 'chats', kind: 'chats' });
+      chunk(data.chats.ready, PER_SLIDE).forEach((list, i, all) => s.push({ key: 'ready-' + i, kind: 'ready', list, page: i + 1, pages: all.length }));
     }
     s.push({ key: 'flow', kind: 'flow' }, { key: 'moved', kind: 'moved' }, { key: 'bought', kind: 'bought' });
     if (data.team.length) s.push({ key: 'team', kind: 'team' });
@@ -185,7 +198,9 @@ export default function SalesPresent({ onClose }) {
       );
     }
     if (sl.kind === 'highlights') {
-      const topSource = sources[0] || null, topItem = L.items[0] || null;
+      const topSource = sources[0] || null;
+      const chatTop = data.chats && data.chats.wants[0] && (!L.items[0] || data.chats.wants[0].n > L.items[0].n) ? data.chats.wants[0] : null;
+      const topItem = chatTop || L.items[0] || null;
       const cardsHl = [
         starOk && { key: 'star', icon: 'star', tone: 'gold', label: tr('Star salesperson'), value: star.name, person: star,
           sub: [star.won ? (star.won === 1 ? tr('1 won') : tr('{n} won', { n: star.won })) : null, star.prospects ? tr('{n} new prospects', { n: star.prospects }) : null, star.newLeads + star.inbox ? tr('{n} new leads', { n: star.newLeads + star.inbox }) : null].filter(Boolean).join(' · ') },
@@ -286,6 +301,63 @@ export default function SalesPresent({ onClose }) {
           <div className="ssr-cards" data-waiting={waiting}>
             {sl.list.map((x, i) => <div key={x.key} className="sk-in" style={{ '--d': i }}><LeadCard x={x} onOpen={(c) => setOpen({ kind: c.kind, id: c.id })} /></div>)}
           </div>
+        </div>
+      );
+    }
+    if (sl.kind === 'chats') {
+      const C = data.chats;
+      const TOPIC = { price: tr('Price'), delivery: tr('Delivery'), custom: tr('Size or design'), availability: tr('Availability'), payment: tr('Paying'), bulk: tr('Bulk order'), quality: tr('Quality and care'), other: tr('Other') };
+      const ORDER = ['ready_to_buy', 'interested', 'just_asking', 'after_sale', 'not_a_customer', 'unclear'];
+      return (
+        <div className="wop-sum">
+          <header className="wop-head">
+            <span className="wop-eyebrow sk-eb-violet">💬 {tr('From their chats')}</span>
+            <h2>{tr('What people asked for in their chats')}</h2>
+            <p className="wop-sub">{C.people === 1 ? tr('1 person wrote to us this week and their chat was read.') : tr('{n} people wrote to us this week and their chats were read.', { n: C.people })}</p>
+          </header>
+          <div className="ssr-three">
+            <section className="wop-panel">
+              <h3>{tr('What they want')}</h3>
+              <HBars items={C.wants.map((x) => ({ key: x.item, label: x.item, n: x.n, tone: x.inCatalogue ? '' : 'inbox' }))} empty={tr('Nobody said what they want yet.')} />
+            </section>
+            <section className="wop-panel">
+              <h3>{tr('What they asked about')}</h3>
+              <HBars items={C.topics.map((x) => ({ key: x.topic, label: TOPIC[x.topic] || x.topic, n: x.n }))} empty="—" />
+            </section>
+            <section className="wop-panel">
+              <h3>{tr('How ready they are')}</h3>
+              <HBars items={C.intents.slice().sort((p, q) => ORDER.indexOf(p.intent) - ORDER.indexOf(q.intent)).map((x) => ({ key: x.intent, label: INTENT[x.intent] ? INTENT[x.intent].label() : x.intent, n: x.n, tone: x.intent === 'ready_to_buy' ? 'good' : '' }))
+                .concat(C.notJudged ? [{ key: '-', label: tr('Not judged (read without AI)'), n: C.notJudged }] : [])} empty="—" />
+            </section>
+          </div>
+        </div>
+      );
+    }
+    if (sl.kind === 'ready') {
+      return (
+        <div className="wop-list">
+          <header className="wop-head is-row">
+            <span className="wop-eyebrow sk-eb-violet">💬 {tr('From their chats')}</span>
+            <h2>{tr('Ready to buy: follow them up')}</h2>
+            {sl.pages > 1 && <span className="wop-page">{tr('{a} of {b}', { a: sl.page, b: sl.pages })}</span>}
+          </header>
+          {sl.list.length ? (
+            <div className="ssr-cards">
+              {sl.list.map((x, i) => (
+                <div key={x.customerId} className="sk-in" style={{ '--d': i }}>
+                  <button type="button" className={'ssr-card ssr-ready-card' + (x.answered ? '' : ' is-waiting')} onClick={() => setOpen(x.leadId ? { kind: 'lead', id: x.leadId } : { kind: 'customer', id: x.customerId })}>
+                    <strong className="ssr-card-name">{x.name}</strong>
+                    <span className="ssr-card-item">{x.wants.join(', ') || '—'}</span>
+                    {x.nextStep && <span className="ssr-card-next">{x.nextStep}</span>}
+                    <span className="ssr-card-foot">
+                      <span className="ssr-card-rep">{x.repName || tr('No one assigned')}</span>
+                      {x.answered ? <span className="ssr-pill is-ok">{tr('Answered')}</span> : <span className="ssr-pill is-bad">{tr('Not answered yet')}</span>}
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : <p className="ssr-none">{tr('Nobody sounded ready to buy this week.')}</p>}
         </div>
       );
     }

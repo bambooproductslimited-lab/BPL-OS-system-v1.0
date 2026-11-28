@@ -64,6 +64,7 @@ button.sk-chip:not(:disabled):hover { border-color: var(--st); }
 .wop.is-fancy .ssr-kpi b { text-shadow: 0 0 2cqw rgba(124, 176, 255, .3); }
 .wop.is-fancy .ssr-hbar-track span { background: linear-gradient(90deg, var(--bar), #8db8ff); animation: sk-fill .9s cubic-bezier(.2, .8, .2, 1) both; transform-origin: left; }
 .wop.is-fancy .ssr-hbar-track span.is-inbox { background: linear-gradient(90deg, var(--inbox), #e0a640); }
+.wop.is-fancy .ssr-hbar-track span.is-good { background: linear-gradient(90deg, var(--good), #7fd6a4); }
 .wop.is-fancy .ssr-col-bar i { animation: sk-grow .8s cubic-bezier(.2, .8, .2, 1) both; transform-origin: bottom; }
 
 .ssr-eb-lead { color: var(--accent); }
@@ -80,6 +81,7 @@ button.sk-chip:not(:disabled):hover { border-color: var(--st); }
 .ssr-hbar-track { height: 1.3cqw; border-radius: 999px; background: var(--line); overflow: hidden; }
 .ssr-hbar-track span { display: block; height: 100%; border-radius: 999px; background: var(--bar); }
 .ssr-hbar-track span.is-inbox { background: var(--inbox); }
+.ssr-hbar-track span.is-good { background: var(--good); }
 .ssr-hbars b { text-align: right; font-variant-numeric: tabular-nums; }
 .ssr-none { margin: 0; font-size: 1.35cqw; color: var(--muted); }
 .ssr-three { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.6cqw; }
@@ -167,3 +169,13 @@ button.sk-chip:not(:disabled):hover { border-color: var(--st); }
   .ssr-src, .ssr-names button { background: rgba(0, 0, 0, .05); }
   .ssr-h2-note { color: #fff; background: var(--bad); }
 }
+
+/* What their chats say they want (crmInterests): on the cards, and the "ready to buy" slide. */
+.ssr-card-chat { font-size: 1.05cqw; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssr-ready { align-self: flex-start; padding: .1cqw .7cqw; border-radius: 999px; font-size: .95cqw; font-weight: 800; color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 50%, transparent); }
+.ssr-ready.is-interested { color: var(--open); border-color: color-mix(in srgb, var(--open) 50%, transparent); }
+.ssr-card-next { font-size: 1.05cqw; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.ssr-pill.is-ok { --pc: var(--good); }
+.ssr-ready-card::before { background: var(--good); }
+.ssr-ready-card.is-waiting::before { background: var(--bad); }
+
