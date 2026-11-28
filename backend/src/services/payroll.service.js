@@ -550,4 +550,5 @@ async function setPayePolicy(ctx, companyId, pays) {
 
 module.exports = {
   payePolicy: payePolicy, setPayePolicy: setPayePolicy,
-  list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, remove: remove, payslipHistory: payslipHistory };
+  list: list, get: get, create: create, editSlip: editSlip, approve: approve, markPaid: markPaid, remove: remove, payslipHistory: payslipHistory,
+  rowToPayslip: rowToPayslip };

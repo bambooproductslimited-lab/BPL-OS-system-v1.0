@@ -28,6 +28,7 @@ page.get('/attendance', run(function (req) { return staff.attendance(bearer(req)
 page.post('/leave/preview', run(function (req) { return staff.leavePreview(bearer(req), req.body); }));
 page.post('/leave', run(function (req) { return staff.askLeave(bearer(req), req.body); }));
 page.post('/leave/:id/cancel', run(function (req) { return staff.cancelLeave(bearer(req), req.params.id); }));
+page.get('/payslips', run(function (req) { return staff.payslips(bearer(req)); }));
 
 var hr = express.Router();
 hr.use(requireAuth);

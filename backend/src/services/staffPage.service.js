@@ -21,7 +21,14 @@ var { internationalNumber, maskedNumber } = require('../utils/phone');
 // day: in, out, hours, late by how much, or absent / day off / leave /
 // public holiday — attendance.report's own rules), their leave (what is
 // left, what they asked for; they can ask for leave and call off a request
-// still waiting, as in My Space), and the work orders they are on. No pay.
+// still waiting, as in My Space), the work orders they are on, and their
+// payslips (payslips(), below).
+//
+// Payslips: those of pay runs payroll has approved or paid (a draft run is
+// still being checked, so not shown — as in My Space), with what was paid
+// and taken off, to read or print. Only on a phone number that is theirs
+// alone: on a number two people share, either could choose the other's
+// name, so there the page says to ask HR for their own number instead.
 
 var CODE_MINUTES = 10;
 var MAX_TRIES = 5;
@@ -297,6 +304,37 @@ async function cancelLeave(token, id) {
   return require('./leave.service').cancel(p.ctx, id);
 }
 
+// GET /api/staff/payslips — their own payslips, the newest first.
+async function payslips(token) {
+  var p = await personOf(token);
+  var e = p.ctx.employee;
+  if (p.session.people.length > 1) return { shared: true, person: null, payslips: [] };
+  var who = (await pool.query(
+    'SELECT e.code, e.first_name, e.last_name, e.position_title, e.ssnit_number, e.tin, d.name AS department_name, c.name AS company_name ' +
+    'FROM employees e LEFT JOIN departments d ON d.id = e.department_id LEFT JOIN companies c ON c.id = d.company_id WHERE e.id = $1', [e.id])).rows[0];
+  var rows = (await pool.query(
+    'SELECT p.*, pr.run_no, pr.cycle, pr.period_start, pr.period_end, pr.pay_date, pr.status AS run_status, rc.name AS run_company ' +
+    'FROM payslips p JOIN pay_runs pr ON pr.id = p.pay_run_id LEFT JOIN companies rc ON rc.id = pr.company_id ' +
+    "WHERE p.employee_id = $1 AND pr.status IN ('approved', 'paid') AND pr.period_end >= (CURRENT_DATE - ($2 || ' months')::interval) " +
+    'ORDER BY pr.period_end DESC, pr.pay_date DESC LIMIT 60', [e.id, String(MONTHS_BACK)])).rows;
+  var toSlip = require('./payroll.service').rowToPayslip;
+  return {
+    shared: false,
+    person: {
+      name: nameOf(who), code: who.code, position: who.position_title || '', department: who.department_name || '', company: who.company_name || '',
+      ssnitNumber: who.ssnit_number || '', tin: who.tin || ''
+    },
+    payslips: rows.map(function (r) {
+      var x = toSlip(r, {
+        runNo: r.run_no, cycle: r.cycle, periodStart: dayText(r.period_start), periodEnd: dayText(r.period_end), payDate: dayText(r.pay_date),
+        status: r.run_status, company: r.run_company || who.company_name || ''
+      });
+      delete x.payRunId; delete x.employeeId; delete x.amountsEdited;
+      return x;
+    })
+  };
+}
+
 // ── HR's side: People → Staff page ─────────────────────────────────────
 
 function needHr(ctx) { if (!ctx.can('employee.write')) fail('forbidden', 'Your role does not allow this action (employee.write).'); }
@@ -347,6 +385,6 @@ async function hrSignOut(ctx, employeeId) {
 
 module.exports = {
   sendCode: sendCode, signIn: signIn, choose: choose, signOut: signOut, me: me, attendance: attendance,
-  leavePreview: leavePreview, askLeave: askLeave, cancelLeave: cancelLeave, hrOverview: hrOverview, hrSignOut: hrSignOut,
+  leavePreview: leavePreview, askLeave: askLeave, cancelLeave: cancelLeave, payslips: payslips, hrOverview: hrOverview, hrSignOut: hrSignOut,
   CODE_MINUTES: CODE_MINUTES, SESSION_DAYS: SESSION_DAYS
 };

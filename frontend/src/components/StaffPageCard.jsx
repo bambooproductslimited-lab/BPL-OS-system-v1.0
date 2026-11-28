@@ -43,7 +43,7 @@ export default function StaffPageCard({ onOpen }) {
         <span className="spc-ico" aria-hidden="true">📱</span>
         <div className="spc-text">
           <strong id="spc-title">{tr('My Info: the staff page')}</strong>
-          <small>{tr('Every employee sees their own attendance, leave and work orders on their phone, and can ask for leave. They sign in with the phone number on their record and a code sent by text message: no account or password. Pay is not shown.')}</small>
+          <small>{tr('Every employee sees their own attendance, leave, work orders and payslips on their phone, and can ask for leave. They sign in with the phone number on their record and a code sent by text message: no account or password. Payslips show once payroll approves a run, and not on a number two people share.')}</small>
           {c && (
             <span className="spc-stats">
               <b>{tr('{n} of {total} can sign in', { n: c.withPhone, total: c.active })}</b>

@@ -1,6 +1,7 @@
 // The staff page (staffPage.service.js): an employee signs in with the
 // phone number on their record and a code texted to it, and sees their own
-// attendance, leave and work — nobody else's — and can ask for leave.
+// attendance, leave, work and payslips — nobody else's — and can ask for
+// leave.
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var app = require('../src/app');
@@ -33,6 +34,7 @@ async function cleanUp() {
   await pool.query("DELETE FROM leave_requests WHERE employee_id IN (SELECT id FROM employees WHERE code LIKE 'ZQS-%')");
   await pool.query("DELETE FROM leave_balances WHERE employee_id IN (SELECT id FROM employees WHERE code LIKE 'ZQS-%')");
   await pool.query("DELETE FROM attendance WHERE employee_id IN (SELECT id FROM employees WHERE code LIKE 'ZQS-%')");
+  await pool.query("DELETE FROM pay_runs WHERE run_no LIKE 'ZQS-%'");
   await pool.query("DELETE FROM employees WHERE code LIKE 'ZQS-%'");
 }
 function lastMonth() {
@@ -157,6 +159,51 @@ test('asking for leave from the staff page, and calling it off', async function 
   assert.ok(me.leave.requests.some(function (x) { return x.id === req.id && x.status === 'pending'; }));
   var done = await staff.cancelLeave(token, req.id);
   assert.equal(done.status, 'cancelled');
+});
+
+function monthSpan(back) {
+  var d = new Date();
+  var a = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - back, 1)), b = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - back + 1, 0));
+  return [a.toISOString().slice(0, 10), b.toISOString().slice(0, 10)];
+}
+test('payslips: their own, from approved and paid runs only; not on a shared number', async function () {
+  async function run(no, status, back) {
+    var m = monthSpan(back);
+    return (await pool.query("INSERT INTO pay_runs (run_no, cycle, period_start, period_end, pay_date, status, created_by) VALUES ($1, 'monthly', $2, $3, $3, $4, $5) RETURNING id",
+      [no, m[0], m[1], status, hr.employee.id])).rows[0].id;
+  }
+  async function slip(runId, who, gross, net) {
+    await pool.query('INSERT INTO payslips (pay_run_id, employee_id, days_worked, daily_rate, gross_pay, ssnit_employee, ssnit_employer, taxable_income, paye_tax, net_pay, advance_deduction) ' +
+      'VALUES ($1, $2, 22, 100, $3, 121, 286, 2079, 150.25, $4, 0)', [runId, who, gross, net]);
+  }
+  var paid = await run('ZQS-PR-1', 'paid', 1), approved = await run('ZQS-PR-2', 'approved', 2), draft = await run('ZQS-PR-3', 'draft', 0), old = await run('ZQS-PR-0', 'paid', 30);
+  await slip(paid, ama, 2200, 1928.75); await slip(paid, efua, 3300, 2900);
+  await slip(approved, ama, 2100, 1840); await slip(draft, ama, 999, 888); await slip(old, ama, 1000, 900);
+  await pool.query("UPDATE employees SET ssnit_number = 'C0000000ZQS1' WHERE id = $1", [ama]);
+
+  var token = (await staff.signIn({ phone: PHONE, code: await freshCode(PHONE) })).token;
+  var r = await staff.payslips(token);
+  assert.equal(r.shared, false);
+  assert.equal(r.person.code, 'ZQS-001');
+  assert.equal(r.person.ssnitNumber, 'C0000000ZQS1');
+  assert.deepEqual(r.payslips.map(function (x) { return x.runNo; }), ['ZQS-PR-1', 'ZQS-PR-2'], 'approved and paid runs, newest first; no draft, nothing older than two years');
+  var first = r.payslips[0];
+  assert.deepEqual([first.status, first.grossPay, first.ssnitEmployee, first.payeTax, first.netPay, first.daysWorked], ['paid', 2200, 121, 150.25, 1928.75, 22]);
+  assert.equal(first.periodStart, monthSpan(1)[0]);
+  assert.equal(first.employeeId, undefined);
+  assert.equal(r.payslips.some(function (x) { return x.grossPay === 3300; }), false, 'nobody else\'s');
+
+  assert.equal((await call('GET', '/api/staff/payslips')).status, 401);
+  var http = await call('GET', '/api/staff/payslips', undefined, token);
+  assert.equal(http.status, 200);
+  assert.equal(http.data.payslips.length, 2);
+
+  // A number two people have on their records: either could pick the other's name.
+  await pool.query('UPDATE employees SET phone = $2 WHERE id = $1', [kojo, SHARED]);
+  var both = await staff.signIn({ phone: SHARED, code: await freshCode(SHARED) });
+  await staff.choose(both.token, { employeeId: efua });
+  var mine = await staff.payslips(both.token);
+  assert.deepEqual([mine.shared, mine.payslips.length, mine.person], [true, 0, null]);
 });
 
 test('HR sees who can sign in and who is signed in, and can sign someone out', async function () {

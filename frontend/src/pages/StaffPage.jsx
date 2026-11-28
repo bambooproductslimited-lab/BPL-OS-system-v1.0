@@ -13,8 +13,10 @@ import './StaffPage.css';
 // month (a calendar and day by day: in, out, hours, how late; absent, day
 // off, leave or public holiday — as HR's report reads it), their leave
 // (what is left, what they asked for; asking for leave and calling off a
-// request still waiting), the work orders they are on, and who they are
-// on the record. No pay. Backend: staffPage.service.js, under /api/staff.
+// request still waiting), the work orders they are on, their payslips
+// (each one as a payslip, to print or save as a PDF), and who they are on
+// the record. Payslips are shown only on a phone number that is theirs
+// alone. Backend: staffPage.service.js, under /api/staff.
 
 const TOKEN_KEY = 'bos.staff.token';
 const PHONE_KEY = 'bos.staff.phone';
@@ -51,6 +53,9 @@ function monthName(m) { return new Date(m + '-01T00:00').toLocaleDateString(acti
 function addMonths(m, n) { const d = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1 + n, 1)); return d.toISOString().slice(0, 7); }
 function hoursText(h) { if (h === null || h === undefined) return ''; const hh = Math.floor(h), mm = Math.round((h - hh) * 60); return mm ? tr('{h} h {m} min', { h: hh, m: mm }) : tr('{h} h', { h: hh }); }
 function minutesText(n) { return n >= 60 ? tr('{h} h {m} min', { h: Math.floor(n / 60), m: n % 60 }) : tr('{n} min', { n }); }
+function money(n) { try { return new Intl.NumberFormat(activeIntlLocale(), { style: 'currency', currency: 'GHS' }).format(n || 0); } catch { return 'GHS ' + Number(n || 0).toFixed(2); } }
+function wholeMonth(a, b) { return a && b && a.slice(8) === '01' && d0(b).getDate() === new Date(d0(b).getFullYear(), d0(b).getMonth() + 1, 0).getDate() && a.slice(0, 7) === b.slice(0, 7); }
+function periodText(a, b) { return wholeMonth(a, b) ? monthName(a.slice(0, 7)) : niceDay(a) + ' – ' + niceDay(b); }
 function greeting(name) { const h = new Date().getHours(); return h < 12 ? tr('Good morning, {name}', { name }) : h < 17 ? tr('Good afternoon, {name}', { name }) : tr('Good evening, {name}', { name }); }
 
 const STATUS = {
@@ -106,13 +111,13 @@ function SignIn({ notice, onSignedIn }) {
         {step === 'phone' ? (
           <form className="sp-box" onSubmit={send}>
             <h1>{tr('Your staff page')}</h1>
-            <p>{tr('See your attendance, your leave and your work. Type the phone number on your staff record; we send you a code by text message.')}</p>
+            <p>{tr('See your attendance, your leave, your work and your payslips. Type the phone number on your staff record; we send you a code by text message.')}</p>
             <label className="sp-field"><span>{tr('Your phone number')}</span>
               <input className="input sp-input" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="024 412 3456" autoFocus />
             </label>
             {err && <p className="sp-error" role="alert">{err}</p>}
             <button type="submit" className="sp-big" disabled={busy || phone.replace(/\D/g, '').length < 9}>{busy ? tr('Sending…') : tr('Send me a code')}</button>
-            <p className="sp-small">{tr('No account or password needed. A new phone number? Ask HR to put it on your record first.')}</p>
+            <p className="spg-small">{tr('No account or password needed. A new phone number? Ask HR to put it on your record first.')}</p>
           </form>
         ) : (
           <form className="sp-box" onSubmit={verify}>
@@ -122,11 +127,11 @@ function SignIn({ notice, onSignedIn }) {
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" aria-label={tr('The 6-digit code')} autoFocus />
             {err && <p className="sp-error" role="alert">{err}</p>}
             <button type="submit" className="sp-big" disabled={busy || code.length !== 6}>{busy ? tr('Signing in…') : tr('Sign in')}</button>
-            <div className="sp-row">
+            <div className="spg-row">
               <button type="button" className="sp-link" disabled={busy || wait > 0} onClick={() => send()}>{wait > 0 ? tr('Send a new code in {n} s', { n: wait }) : tr('Send a new code')}</button>
               <button type="button" className="sp-link" onClick={() => { setStep('phone'); setErr(null); }}>{tr('Change the number')}</button>
             </div>
-            <p className="sp-small">{tr('No text after a minute? Your number may not be on your staff record. Ask HR to check it.')}</p>
+            <p className="spg-small">{tr('No text after a minute? Your number may not be on your staff record. Ask HR to check it.')}</p>
           </form>
         )}
       </main>
@@ -242,7 +247,7 @@ function Attendance({ first, token, onAuth }) {
         <div className="sp-tile"><b>{t.hours}</b><span>{tr('hours')}</span></div>
       </div>
       {(t.leave > 0 || t.holidays > 0 || t.autoClockedOut > 0) && (
-        <p className="sp-small sp-also">
+        <p className="spg-small sp-also">
           {[t.leave ? tr('{n} days on leave', { n: t.leave }) : '', t.holidays ? tr('{n} public holidays', { n: t.holidays }) : '', t.autoClockedOut ? tr('{n} times clocked out by the system', { n: t.autoClockedOut }) : ''].filter(Boolean).join(' · ')}
         </p>
       )}
@@ -252,8 +257,8 @@ function Attendance({ first, token, onAuth }) {
       </div>
       {pickedDays.length > 0 && <ul className="sp-days is-picked">{pickedDays.map((d) => <DayRow key={d.date + d.shift} d={d} />)}</ul>}
       <h2 className="sp-h2">{tr('Day by day')}</h2>
-      {shown.length ? <ul className="sp-days">{shown.map((d) => <DayRow key={d.date + d.shift} d={d} />)}</ul> : <p className="sp-empty">{tr('Nothing in this month yet.')}</p>}
-      <p className="sp-small">{tr('Something wrong, like a day you worked shown as absent? Tell your manager or HR: they can correct it.')}</p>
+      {shown.length ? <ul className="sp-days">{shown.map((d) => <DayRow key={d.date + d.shift} d={d} />)}</ul> : <p className="spg-empty">{tr('Nothing in this month yet.')}</p>}
+      <p className="spg-small">{tr('Something wrong, like a day you worked shown as absent? Tell your manager or HR: they can correct it.')}</p>
     </section>
   );
 }
@@ -279,7 +284,7 @@ function AskLeave({ types, token, onDone, onClose }) {
   }
   const today = new Date().toISOString().slice(0, 10);
   return (
-    <form className="sp-card sp-ask" onSubmit={send}>
+    <form className="spg-card sp-ask" onSubmit={send}>
       <h2>{tr('Ask for leave')}</h2>
       <label className="sp-field"><span>{tr('Kind of leave')}</span>
         <select className="input" value={f.leaveTypeId} onChange={(e) => set('leaveTypeId', e.target.value)}>
@@ -290,7 +295,7 @@ function AskLeave({ types, token, onDone, onClose }) {
         <label className="sp-field"><span>{tr('From')}</span><input className="input" type="date" min={today} value={f.startDate} onChange={(e) => set('startDate', e.target.value)} required /></label>
         <label className="sp-field"><span>{tr('To')}</span><input className="input" type="date" min={f.startDate || today} value={f.endDate} onChange={(e) => set('endDate', e.target.value)} required /></label>
       </div>
-      {pre && <p className="sp-small sp-pre">{pre.days === 1 ? tr('1 working day') : tr('{n} working days', { n: pre.days })}{pre.wouldOwe ? ' · ' + tr('more than you have left: you would owe {n} day(s)', { n: pre.wouldOwe }) : ''}</p>}
+      {pre && <p className="spg-small sp-pre">{pre.days === 1 ? tr('1 working day') : tr('{n} working days', { n: pre.days })}{pre.wouldOwe ? ' · ' + tr('more than you have left: you would owe {n} day(s)', { n: pre.wouldOwe }) : ''}</p>}
       <label className="sp-field"><span>{tr('Why')}</span><textarea className="input" rows={2} maxLength={300} value={f.reason} onChange={(e) => set('reason', e.target.value)} placeholder={tr('A family event, a hospital visit…')} required /></label>
       {err && <p className="sp-error" role="alert">{err}</p>}
       <button type="submit" className="sp-big" disabled={busy || !f.startDate || !f.endDate || !f.reason.trim()}>{busy ? tr('Sending…') : tr('Send for approval')}</button>
@@ -321,13 +326,13 @@ function Leave({ leave, token, onChanged, say }) {
             </div>
           ))}
         </div>
-      ) : <p className="sp-empty">{tr('HR has not set your leave for this year yet.')}</p>}
+      ) : <p className="spg-empty">{tr('HR has not set your leave for this year yet.')}</p>}
       {asking
         ? <AskLeave types={leave.types} token={token} onClose={() => setAsking(false)} onDone={async () => { setAsking(false); say(tr('Sent. Your manager will approve it.')); await onChanged(); }} />
         : <button type="button" className="sp-big is-outline" onClick={() => setAsking(true)}>🌴 {tr('Ask for leave')}</button>}
       <h2 className="sp-h2">{tr('Your requests')}</h2>
       {leave.requests.length ? (
-        <ul className="sp-list">
+        <ul className="spg-list">
           {leave.requests.map((r) => (
             <li key={r.id} className={'sp-req is-' + r.status}>
               <span className="sp-req-main">
@@ -342,7 +347,128 @@ function Leave({ leave, token, onChanged, say }) {
             </li>
           ))}
         </ul>
-      ) : <p className="sp-empty">{tr('No leave asked for yet.')}</p>}
+      ) : <p className="spg-empty">{tr('No leave asked for yet.')}</p>}
+    </section>
+  );
+}
+
+// ── pay ──────────────────────────────────────────────────────────────────
+// One payslip, laid out as a payslip: what was paid, what was taken off,
+// what they took home. "Print or save as PDF" prints this alone.
+function Payslip({ slip, person, onClose }) {
+  const overtime = slip.overtimePay || 0;
+  const basic = slip.basicPay || Math.max(0, slip.grossPay - (slip.allowancePay || 0) - overtime);
+  const earn = [
+    [slip.payBasis === 'salary'
+      ? tr('Basic salary') + (slip.workingDays ? ' · ' + tr('{n} of {m} working days', { n: slip.daysWorked, m: slip.workingDays }) : '')
+      : tr('Pay for {n} days', { n: slip.daysWorked }) + (slip.dailyRate ? ' × ' + money(slip.dailyRate) : ''), basic],
+    slip.allowancePay ? [tr('Allowance'), slip.allowancePay] : null,
+    overtime ? [tr('Overtime ({h} h)', { h: slip.overtimeHours }), overtime] : null
+  ].filter(Boolean);
+  const take = [
+    [tr('SSNIT (your part)'), slip.ssnitEmployee],
+    slip.payeByCompany ? null : [tr('PAYE income tax'), slip.payeTax],
+    slip.advanceDeduction ? [tr('Salary advance repaid'), slip.advanceDeduction] : null
+  ].filter((r) => r && r[1] > 0);
+  const takenOff = take.reduce((n, r) => n + r[1], 0);
+  return (
+    <section className="sp-slip-wrap" aria-label={tr('Payslip')}>
+      <div className="sp-slip-bar no-print">
+        <button type="button" className="sp-link" onClick={onClose}>‹ {tr('Back')}</button>
+        <button type="button" className="sp-big sp-slip-print" onClick={() => window.print()}>🖨 {tr('Print or save as PDF')}</button>
+      </div>
+      <article className="sp-slip">
+        <header className="sp-slip-head">
+          <img src="/logo.png" alt="" />
+          <span><b>{slip.company || person.company}</b><small>{tr('Payslip')} · {slip.runNo}</small></span>
+        </header>
+        <div className="sp-slip-period">
+          <b>{periodText(slip.periodStart, slip.periodEnd)}</b>
+          <span className={'sp-chip is-' + (slip.status === 'paid' ? 'approved' : 'pending')}>{slip.status === 'paid' ? tr('Paid on {date}', { date: fullDate(slip.payDate) }) : tr('To be paid on {date}', { date: fullDate(slip.payDate) })}</span>
+        </div>
+        <dl className="sp-slip-who">
+          {[[tr('Name'), person.name], [tr('Staff number'), person.code], [tr('Position'), person.position], [tr('Department'), person.department], [tr('SSNIT number'), person.ssnitNumber], [tr('TIN'), person.tin], [tr('Period'), niceDay(slip.periodStart) + ' – ' + niceDay(slip.periodEnd)]]
+            .filter(([, v]) => v).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+        </dl>
+        <table className="sp-slip-table">
+          <thead><tr><th>{tr('Paid')}</th><th className="is-num">{tr('Amount')}</th></tr></thead>
+          <tbody>
+            {earn.map(([k, v]) => <tr key={k}><td>{k}</td><td className="is-num">{money(v)}</td></tr>)}
+            {slip.holidaysPaid > 0 && <tr className="is-note"><td colSpan={2}>{slip.holidaysPaid === 1 ? tr('Includes 1 public holiday') : tr('Includes {n} public holidays', { n: slip.holidaysPaid })}</td></tr>}
+          </tbody>
+          <tfoot><tr><td>{tr('Gross pay')}</td><td className="is-num">{money(slip.grossPay)}</td></tr></tfoot>
+        </table>
+        <table className="sp-slip-table">
+          <thead><tr><th>{tr('Taken off')}</th><th className="is-num">{tr('Amount')}</th></tr></thead>
+          <tbody>
+            {take.length ? take.map(([k, v]) => <tr key={k}><td>{k}</td><td className="is-num">− {money(v)}</td></tr>) : <tr><td colSpan={2} className="sp-slip-none">{tr('Nothing')}</td></tr>}
+          </tbody>
+          <tfoot><tr><td>{tr('Total taken off')}</td><td className="is-num">− {money(takenOff)}</td></tr></tfoot>
+        </table>
+        <div className="sp-slip-net"><span>{tr('Take-home pay')}</span><b>{money(slip.netPay)}</b></div>
+        <ul className="sp-slip-notes">
+          {slip.payeByCompany && slip.payeTax > 0 && <li>{tr('Your PAYE of {amount} is paid by the company, not taken from your pay.', { amount: money(slip.payeTax) })}</li>}
+          {slip.ssnitEmployer > 0 && <li>{tr('The company also paid {amount} SSNIT for you.', { amount: money(slip.ssnitEmployer) })}</li>}
+          <li>{tr('Something wrong on this payslip? Tell HR or payroll.')}</li>
+        </ul>
+      </article>
+    </section>
+  );
+}
+
+function Pay({ token, onAuth }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    let live = true;
+    staffCall('GET', '/payslips', undefined, token).then((x) => { if (live) setD(x); }).catch((x) => { if (!live) return; if (x.status === 401) onAuth(); else setErr(x.message); });
+    return () => { live = false; };
+  }, [token, onAuth]);
+  if (err) return <p className="sp-error" role="alert">{err}</p>;
+  if (!d) return <p className="spg-empty">{tr('Loading…')}</p>;
+  if (d.shared) {
+    return (
+      <section aria-label={tr('Payslips')}>
+        <div className="spg-card sp-pay-shared">
+          <b>🔒 {tr('Payslips are not shown on a shared number')}</b>
+          <p>{tr('This phone number is on more than one person’s staff record, so anyone signing in with it could see the other person’s pay. Ask HR to put your own phone number on your record, then sign in with it to see your payslips.')}</p>
+        </div>
+      </section>
+    );
+  }
+  const slip = open !== null ? d.payslips[open] : null;
+  if (slip) return <Payslip slip={slip} person={d.person} onClose={() => setOpen(null)} />;
+  const year = String(new Date().getFullYear());
+  const thisYear = d.payslips.filter((x) => (x.payDate || x.periodEnd).slice(0, 4) === year);
+  const yearNet = thisYear.reduce((n, x) => n + x.netPay, 0);
+  const last = d.payslips[0];
+  return (
+    <section aria-label={tr('Payslips')}>
+      {last ? (
+        <>
+          <button type="button" className="spg-card sp-pay-last" onClick={() => setOpen(0)}>
+            <small>{tr('Latest take-home pay')} · {periodText(last.periodStart, last.periodEnd)}</small>
+            <b>{money(last.netPay)}</b>
+            <span>{last.status === 'paid' ? tr('Paid on {date}', { date: fullDate(last.payDate) }) : tr('To be paid on {date}', { date: fullDate(last.payDate) })} · {tr('of {gross} gross', { gross: money(last.grossPay) })}</span>
+            <em>{tr('Open the payslip')} ›</em>
+          </button>
+          {thisYear.length > 0 && <p className="spg-small sp-pay-year">{thisYear.length === 1 ? tr('{year}: {amount} take-home on 1 payslip', { year, amount: money(yearNet) }) : tr('{year}: {amount} take-home on {n} payslips', { year, amount: money(yearNet), n: thisYear.length })}</p>}
+          <h2 className="sp-h2">{tr('All your payslips')}</h2>
+          <ul className="spg-list">
+            {d.payslips.map((x, i) => (
+              <li key={x.id}>
+                <button type="button" className="sp-pay-row" onClick={() => setOpen(i)}>
+                  <span className="sp-req-main"><b>{periodText(x.periodStart, x.periodEnd)}</b><small>{x.status === 'paid' ? tr('Paid on {date}', { date: niceDay(x.payDate) }) : tr('To be paid on {date}', { date: niceDay(x.payDate) })} · {x.runNo}</small></span>
+                  <span className="sp-pay-amt">{money(x.netPay)}</span>
+                  <span aria-hidden="true">›</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : <p className="spg-empty">{tr('No payslips yet. Yours show here once payroll approves a pay run.')}</p>}
+      <p className="spg-small">{tr('Payslips of the last two years. Pay runs still being checked by payroll show once they are approved.')}</p>
     </section>
   );
 }
@@ -353,7 +479,7 @@ function Work({ work }) {
     <section aria-label={tr('Work')}>
       <h2 className="sp-h2">{tr('Work orders you are on')}</h2>
       {work.orders.length ? (
-        <ul className="sp-list">
+        <ul className="spg-list">
           {work.orders.map((w) => (
             <li key={w.id} className="sp-wo">
               <span className="sp-wo-no">{w.number}</span>
@@ -361,9 +487,9 @@ function Work({ work }) {
             </li>
           ))}
         </ul>
-      ) : <p className="sp-empty">{tr('No open work orders with your name on them.')}</p>}
+      ) : <p className="spg-empty">{tr('No open work orders with your name on them.')}</p>}
       {work.maintenanceJobs > 0 && (
-        <a className="sp-card sp-jobs" href="/myjobs">
+        <a className="spg-card sp-jobs" href="/myjobs">
           <span aria-hidden="true">🛠️</span>
           <span><b>{work.maintenanceJobs === 1 ? tr('1 maintenance job for you') : tr('{n} maintenance jobs for you', { n: work.maintenanceJobs })}</b><small>{tr('Open My Jobs to work on them')}</small></span>
           <span aria-hidden="true">›</span>
@@ -388,10 +514,10 @@ function Me({ me, others, onSwitch, onSignOut }) {
   ].filter(([, v]) => v);
   return (
     <section aria-label={tr('Me')}>
-      <dl className="sp-card sp-facts">
+      <dl className="spg-card spg-facts">
         {facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
       </dl>
-      <p className="sp-small">{tr('Something wrong or out of date? Tell HR: they keep your record.')}</p>
+      <p className="spg-small">{tr('Something wrong or out of date? Tell HR: they keep your record.')}</p>
       {others.map((p) => <button key={p.id} type="button" className="sp-big is-outline" onClick={() => onSwitch(p.id)}>{tr('Switch to {name}', { name: p.name })}</button>)}
       <button type="button" className="sp-big is-outline is-quiet" onClick={onSignOut}>{tr('Sign out of this phone')}</button>
     </section>
@@ -422,6 +548,7 @@ export default function StaffPage() {
   }, [load]);
   useEffect(() => { document.title = tr('My Info') + ' · Bamboo'; }, []);
 
+  const signedOutHere = useCallback(() => ended(tr('You were signed out. Sign in again with your phone number.')), [ended]);
   function say(t) { setToast(t); setTimeout(() => setToast(null), 3500); }
   async function choose(id) {
     setBusy(true); setErr(null);
@@ -446,7 +573,7 @@ export default function StaffPage() {
   const today = data.today;
   const s = today.shifts[today.shifts.length - 1];
   const todayDay = data.attendance.days.find((d) => d.date === today.date);
-  const tabs = [['attendance', tr('Attendance')], ['leave', tr('Leave')], ['work', tr('Work')], ['me', tr('Me')]];
+  const tabs = [['attendance', tr('Attendance')], ['leave', tr('Leave')], ['work', tr('Work')], ['pay', tr('Pay')], ['me', tr('Me')]];
   return (
     <div className="sp-page">
       <header className="sp-bar">
@@ -472,6 +599,7 @@ export default function StaffPage() {
         {tab === 'attendance' && <Attendance first={data.attendance} token={token} onAuth={() => ended(tr('You were signed out. Sign in again with your phone number.'))} />}
         {tab === 'leave' && <Leave leave={data.leave} token={token} onChanged={load} say={say} />}
         {tab === 'work' && <Work work={data.work} />}
+        {tab === 'pay' && <Pay token={token} onAuth={signedOutHere} />}
         {tab === 'me' && <Me me={data.me} others={data.others} onSwitch={choose} onSignOut={signOut} />}
       </main>
       {toast && <div className="sp-toast" role="status">{toast}</div>}
