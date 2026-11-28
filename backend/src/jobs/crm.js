@@ -6,7 +6,8 @@ var health = require('../services/crmHealth.service');
 // The CRM's background work:
 //   every 3 minutes — read new email and Facebook/Instagram messages (the restaurants' too);
 //   every hour     — phone numbers on profiles become identities, leads go on the profile with their
-//                    number (their WhatsApp chat), and look-alike profiles are found;
+//                    number (their WhatsApp chat), and look-alike profiles are found; the chats of
+//                    those who wrote are read for what they want (crmInterests.service.js);
 //   from 8 a.m.    — sales managers are told once a day about customers with no rep.
 var SYNC_MS = 3 * 60 * 1000;
 var HOUR_MS = 60 * 60 * 1000;
@@ -39,6 +40,10 @@ async function hourly() {
     if (new Date().getUTCHours() >= 8) await health.raiseCoverageConcern();
   } catch (err) {
     console.error('[crm] hourly work failed:', err.message);
+  }
+  // What each person who wrote is interested in, read from their chats.
+  try { await require('../services/crmInterests.service').runDue(); } catch (err) {
+    console.error('[crm] reading chats failed:', err.message);
   }
 }
 

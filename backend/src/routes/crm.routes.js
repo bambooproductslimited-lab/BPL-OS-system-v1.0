@@ -54,6 +54,9 @@ router.post('/unmatched-names', h(function (req) { return crm.assignName(req.ctx
 router.get('/leads', h(function (req) { return crm.listLeads(req.ctx, req.query); }));
 router.post('/leads', async function (req, res, next) { try { res.status(201).json(await crm.createLead(req.ctx, req.body)); } catch (e) { next(e); } });
 router.get('/leads/:id', h(function (req) { return crm.getLead(req.ctx, req.params.id); }));
+// What a customer wants, read from their chats (crmInterests.service.js).
+router.get('/interests/:customerId', h(function (req) { return require('../services/crmInterests.service').getFor(req.ctx, req.params.customerId); }));
+router.post('/interests/:customerId/read', h(function (req) { return require('../services/crmInterests.service').readNow(req.ctx, req.params.customerId); }));
 router.put('/leads/:id', h(function (req) { return crm.updateLead(req.ctx, req.params.id, req.body); }));
 router.post('/leads/:id/stage', h(function (req) { return crm.setStage(req.ctx, req.params.id, req.body); }));
 router.put('/leads/:id/priority', h(function (req) { return crm.setPriority(req.ctx, req.params.id, req.body); }));

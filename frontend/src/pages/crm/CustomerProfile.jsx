@@ -8,6 +8,7 @@ import { Empty, Icon, Status, fmtDate } from '../../components/DashKit';
 import { tr } from '../../lib/i18n.jsx';
 import { StageTag, addDays, followUpClass, followUpText, todayISO } from './crmShared';
 import { StopBanners, StopTiles } from './crmStop';
+import ChatReading from './ChatReading';
 import { CATEGORIES, CHANNELS, CategoryTag, ChannelDot, CustMark, REASONS, RepSelect, ago, channelLabel, ghsOr, nextStepText, ourAuthor, reasonText, timeOf } from './crmHubShared';
 
 // One customer, whole (GET /api/crm/profiles/:id): who they are and every
@@ -222,6 +223,8 @@ export default function CustomerProfile({ id, onClose, onChanged, reps }) {
                 </>
               )}
             </section>
+
+            <ChatReading customerId={id} canManage={canManage} />
 
             {p.interests.length > 0 && (
               <section className="crm-box">

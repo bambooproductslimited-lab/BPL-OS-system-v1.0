@@ -312,4 +312,5 @@ async function handToReps(ctx, p) {
   return { customers: rows.length, reps: Object.keys(byRep).length };
 }
 
-module.exports = { topics: topics, contentIdeas: contentIdeas, audience: audience, productsForPicker: productsForPicker, handToReps: handToReps, phrases: phrases };
+module.exports = { topics: topics, contentIdeas: contentIdeas, audience: audience, productsForPicker: productsForPicker, handToReps: handToReps, phrases: phrases,
+  productList: productList, QUESTIONS: QUESTIONS, clean: clean };

@@ -2,10 +2,11 @@ var Anthropic = require('@anthropic-ai/sdk');
 var config = require('../config');
 
 // The one place the OS talks to the Claude API (Anthropic's official SDK).
-// Used by the AI Assistant (services/ai.service.js) and the marketing
-// recommendations (services/marketing.service.js).
+// Used by the AI Assistant (services/ai.service.js), the marketing
+// recommendations (services/marketing.service.js) and the reading of each
+// customer's chats for what they want (services/crmInterests.service.js).
 //
-// Model: ANTHROPIC_MODEL, default claude-opus-5. On Opus 5 and Fable models
+// Model: ANTHROPIC_MODEL, default claude-opus-5-5. On Opus 5, Opus 5.5 and Fable models
 // the request asks for server-side fallbacks ("default"): if the model's
 // safety classifiers decline a request — which occasionally happens to
 // ordinary business questions too — Anthropic re-runs it on its recommended
@@ -41,7 +42,8 @@ function supportsEffort(model) { return !/haiku/.test(model); }
 async function create(params) {
   var model = config.ai.model;
   var body = Object.assign({ model: model, max_tokens: MAX_TOKENS }, params);
-  if (config.ai.effort && supportsEffort(model)) body.output_config = { effort: config.ai.effort };
+  // The effort joins any output_config the caller sent (a JSON format, say).
+  if (config.ai.effort && supportsEffort(model)) body.output_config = Object.assign({ effort: config.ai.effort }, params.output_config);
   var c = getClient();
   if (usesFallbacks(model)) {
     return c.beta.messages.create(Object.assign(body, { betas: [FALLBACK_BETA], fallbacks: 'default' }));

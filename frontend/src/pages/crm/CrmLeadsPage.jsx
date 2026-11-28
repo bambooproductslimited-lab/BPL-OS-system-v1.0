@@ -13,6 +13,8 @@ import { PRIORITY_GLOSSARY, PriorityKey, PriorityRing, ReasonChips, TIERS, TierT
 import { AddContactsDialog, GroupDialog, GroupsSection } from './LeadGroups';
 import { useLeadGroups } from './leadGroupKinds';
 import { ChannelDot, ago } from './crmHubShared';
+import { INTENT } from './chatIntent';
+import './ChatReading.css';
 import './CrmHub.css';
 import './LeadChats.css';
 import './LeadGroups.css';
@@ -195,6 +197,13 @@ export default function CrmLeadsPage({ phase = 'lead' }) {
           <span className="dk-muted tl-small">{[l.source, l.repName, l.location].filter(Boolean).join(' · ') || '—'}</span>
           {!compact && l.groups && l.groups.length > 0 && <span className="lg-tags">{l.groups.map((g) => <span key={g.id} className="lg-tag">{g.name}</span>)}</span>}
           {l.whatsapp && <span className="lm-tag"><ChannelDot channel="whatsapp" /> {tr('On WhatsApp · {when}', { when: ago(l.whatsapp.lastAt) })}</span>}
+          {l.chat && (() => {
+            // What their chat says: the things they want (unless the item above already says them) and how ready they are.
+            const said = l.item ? l.chat.interests.filter((n) => !String(l.item).toLowerCase().includes(String(n).toLowerCase())) : l.chat.interests;
+            const ready = INTENT[l.chat.intent] && l.chat.intent !== 'unclear' ? INTENT[l.chat.intent].label() : '';
+            const words = [said.slice(0, 3).join(', '), ready].filter(Boolean).join(' · ');
+            return words ? <span className={'cr-tag' + (l.chat.intent === 'ready_to_buy' ? ' is-good' : '')} title={l.chat.summary || tr('What they asked about in their chats')}>💬 {words}</span> : null;
+          })()}
           {p && <ReasonChips priority={p} max={compact ? 1 : 2} />}
           {l.stage === 'not_lead' ? <span className="dk-muted tl-small crm-card-why">{reasonText(l.lostReason, NOT_LEAD_REASONS)}</span>
             : l.noFollowUp ? <StopPill noFollowUp={l.noFollowUp} />

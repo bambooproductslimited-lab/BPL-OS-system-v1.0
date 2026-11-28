@@ -155,6 +155,8 @@ var LEAD_SELECT =
   "(SELECT coalesce(json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name), '[]'::json) FROM crm_lead_group_members gm JOIN crm_lead_groups g ON g.id = gm.group_id WHERE gm.lead_id = l.id) AS lead_groups, " +
   // On WhatsApp: the last message in their chat (crmLeadMatch.service.js puts the lead on the chat's profile).
   "(SELECT max(cv.last_message_at) FROM crm_conversations cv WHERE cv.customer_id = l.customer_id AND cv.channel = 'whatsapp' AND cv.status <> 'spam') AS wa_last, " +
+  // What their chats say they want (crmInterests.service.js).
+  "(SELECT json_build_object('interests', ci.interests, 'intent', ci.intent, 'summary', ci.summary) FROM crm_interests ci WHERE ci.customer_id = l.customer_id) AS chat_reading, " +
   PAID_SQL + ' AS paid, c.no_follow_up_at AS customer_nfu_at, c.no_follow_up_reason AS customer_nfu_reason, nf.first_name AS nfu_first, nf.last_name AS nfu_last ' +
   'FROM crm_leads l LEFT JOIN employees e ON e.id = l.rep_id LEFT JOIN customers c ON c.id = l.customer_id LEFT JOIN employees pe ON pe.id = l.priority_by ' +
   'LEFT JOIN employees nf ON nf.id = l.no_follow_up_by ';
@@ -172,6 +174,8 @@ function rowToLead(r) {
     paid: !!r.paid, phase: phaseOf(r.stage, !!r.paid),
     groups: r.lead_groups || [],
     whatsapp: r.wa_last ? { lastAt: r.wa_last } : null,
+    chat: r.chat_reading && ((r.chat_reading.interests || []).length || r.chat_reading.summary)
+      ? { interests: (r.chat_reading.interests || []).slice(0, 4).map(function (x) { return x.productName || x.item; }), intent: r.chat_reading.intent || '', summary: r.chat_reading.summary || '' } : null,
     manualPriority: r.manual_priority || null, priorityBy: r.priority_by ? personName(r.priority_first, r.priority_last) : null, priorityAt: r.priority_at || null,
     // Not to be followed up: this lead, or the person (their profile).
     noFollowUp: r.no_follow_up_at ? { at: r.no_follow_up_at, reason: r.no_follow_up_reason || '', by: r.nfu_first ? personName(r.nfu_first, r.nfu_last) : null, onProfile: false }
