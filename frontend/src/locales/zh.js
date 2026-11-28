@@ -6827,7 +6827,6 @@ export default {
   "Everything is saved.": "已全部保存。",
   "Everything is there for {n}.": "做 {n} 件的材料都齐了。",
   "Everything low is on order already.": "库存不足的物品都已下单。",
-  "Everything not done yet, oldest request first, as the sheet’s Incomplete tab. Press a job to move it along.": "所有尚未完成的工作，最早的申请在前，如同表格的 Incomplete 选项卡。点按某项工作即可推进。",
   "Everything on": "全部打开",
   "Everything on sale": "全部在售",
   "Everything on the folded-in profile — invoices, quotations, orders, payments, leads, conversations, numbers — moves to the kept one, its blanks are filled in, and the folded-in profile is removed. The merge is recorded on the kept profile.": "被并入档案上的所有内容——发票、报价、订单、付款、线索、对话、号码——都会移到保留的档案上，空白字段会被补全，被并入的档案将被删除。合并记录会保存在保留的档案上。",
@@ -19052,5 +19051,10 @@ export default {
   "What people asked for in their chats": "客户在聊天中想要什么",
   "What they asked about": "他们询问的内容",
   "{n} people wrote to us this week and their chats were read.": "本周有 {n} 人给我们发消息，聊天已读取。",
-  "Not judged (read without AI)": "未判断（未用 AI 阅读）"
+  "Not judged (read without AI)": "未判断（未用 AI 阅读）",
+  "1 day open": "已开放 1 天",
+  "Everything not done yet, by place, the oldest request first, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.": "所有尚未完成的工作，按地点排列，最早的请求在前，与表格的 Incomplete 标签相同。例行工作在“例行工作”标签中。点按工作以推进。",
+  "Other routine work orders still open": "其他仍未完成的例行工单",
+  "was planned for {date}": "原定于 {date}",
+  "{n} days open": "已开放 {n} 天"
 };

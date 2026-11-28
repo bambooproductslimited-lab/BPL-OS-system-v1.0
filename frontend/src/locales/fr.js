@@ -6827,7 +6827,6 @@ export default {
   "Everything is saved.": "Tout est enregistré.",
   "Everything is there for {n}.": "Tout est là pour {n}.",
   "Everything low is on order already.": "Tout ce qui manque est déjà commandé.",
-  "Everything not done yet, oldest request first, as the sheet’s Incomplete tab. Press a job to move it along.": "Tout ce qui n’est pas encore fait, la demande la plus ancienne d’abord, comme l’onglet Incomplete de la feuille. Appuyez sur un travail pour le faire avancer.",
   "Everything on": "Tout activer",
   "Everything on sale": "Tout est en vente",
   "Everything on the folded-in profile — invoices, quotations, orders, payments, leads, conversations, numbers — moves to the kept one, its blanks are filled in, and the folded-in profile is removed. The merge is recorded on the kept profile.": "Tout ce qui figure sur la fiche fusionnée — factures, devis, commandes, paiements, prospects, conversations, numéros — passe sur la fiche conservée, ses champs vides sont complétés, et la fiche fusionnée est supprimée. La fusion est consignée sur la fiche conservée.",
@@ -19052,5 +19051,10 @@ export default {
   "What people asked for in their chats": "Ce que les gens ont demandé dans leurs échanges",
   "What they asked about": "Leurs questions portaient sur",
   "{n} people wrote to us this week and their chats were read.": "{n} personnes nous ont écrit cette semaine et leurs échanges ont été lus.",
-  "Not judged (read without AI)": "Non évalué (lu sans IA)"
+  "Not judged (read without AI)": "Non évalué (lu sans IA)",
+  "1 day open": "ouvert depuis 1 jour",
+  "Everything not done yet, by place, the oldest request first, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.": "Tout ce qui n’est pas encore fait, par lieu, la demande la plus ancienne d’abord, comme l’onglet Incomplete de la feuille. Les travaux de routine sont dans l’onglet Travaux de routine. Appuyez sur une tâche pour la faire avancer.",
+  "Other routine work orders still open": "Autres ordres de travail de routine encore ouverts",
+  "was planned for {date}": "prévu pour le {date}",
+  "{n} days open": "ouvert depuis {n} jours"
 };

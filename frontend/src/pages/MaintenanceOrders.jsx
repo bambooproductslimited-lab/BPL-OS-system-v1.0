@@ -15,7 +15,9 @@ import './MaintenanceOrders.css';
 // order tracker (backend maintenanceWorkOrders.service.js). The sheet's tabs
 // are here as tabs: the Dashboard, the open jobs (Incomplete), the last 7
 // days, every job (WO Data), the routines (RT Data and RT Report) and
-// Billing with its audit tick. Anyone can ask for a job; the work order
+// Billing with its audit tick. Jobs to do is by place, like the last 7
+// days; the work orders the routines make stay on the routines tab, not
+// with the jobs to do. Anyone can ask for a job; the work order
 // managers plan it, give it to someone and import the sheet; whoever a job
 // is given to moves it along. A job or a routine is marked done only with a
 // photo of the finished work (components/DonePhotos.jsx); the team works
@@ -620,7 +622,9 @@ export default function MaintenanceOrders({ myId }) {
   const orders = useMemo(() => (data ? data.orders : []), [data]);
   const today = data ? data.today : new Date().toISOString().slice(0, 10);
   const weekAgo = addDays(today, -7);
-  const open = orders.filter((o) => o.open);
+  // Jobs to do leave out the work orders the routines make: those are on the routines tab.
+  const open = orders.filter((o) => o.open && !o.routineId);
+  const routineOpen = orders.filter((o) => o.open && o.routineId);
   const lastWeek = orders.filter((o) => o.status === 'completed' && o.completedOn >= weekAgo);
   const done = orders.filter((o) => o.status === 'completed');
   const places = data ? data.options.places : [];
@@ -628,6 +632,9 @@ export default function MaintenanceOrders({ myId }) {
 
   if (!data) return <div className="dk wo mw">{error ? <div className="error-banner" role="alert">{error}</div> : <p className="dk-muted">{tr('Loading…')}</p>}</div>;
   const s = data.summary;
+  // The open-job numbers, without the routines' work orders (as the Jobs to do tab).
+  const js = { open: open.length, overdue: 0, unassigned: 0, openByPriority: {} };
+  open.forEach((o) => { if (o.overdue) js.overdue++; if (!o.assignedTo) js.unassigned++; js.openByPriority[o.priority] = (js.openByPriority[o.priority] || 0) + 1; });
   const can = data.can;
   const job = openId ? orders.find((o) => o.id === openId) : null;
   const routines = data.routines.filter((r) => !r.archived);
@@ -639,8 +646,8 @@ export default function MaintenanceOrders({ myId }) {
     pickTab('all');
   }
   const tiles = [
-    { icon: 'wrench', value: String(s.open), label: tr('open jobs'), note: s.unassigned ? tr('{n} not given to anyone', { n: s.unassigned }) : tr('all given to someone'), onClick: () => pickTab('open'), active: tab === 'open' },
-    { icon: 'warn', value: String(s.overdue), label: tr('overdue'), note: tr('still open after their planned day'), tone: s.overdue ? 'late' : '', onClick: () => { setOpenChip('late'); pickTab('open'); } },
+    { icon: 'wrench', value: String(js.open), label: tr('open jobs'), note: js.unassigned ? tr('{n} not given to anyone', { n: js.unassigned }) : tr('all given to someone'), onClick: () => pickTab('open'), active: tab === 'open' },
+    { icon: 'warn', value: String(js.overdue), label: tr('overdue'), note: tr('still open after their planned day'), tone: js.overdue ? 'late' : '', onClick: () => { setOpenChip('late'); pickTab('open'); } },
     { icon: 'check', value: String(s.doneLast7), label: tr('done this week'), note: tr('{n} asked for in the same 7 days', { n: s.askedLast7 }), onClick: () => pickTab('week'), active: tab === 'week' },
     { icon: 'clock', value: s.avgDaysToClose === null ? '—' : String(s.avgDaysToClose), label: tr('days to close'), note: tr('on average, jobs done in the last 90 days') },
     { icon: 'calendar', value: String(s.routinesLate + s.routinesDueWeek), label: tr('routines due'), note: s.routinesLate ? (s.routinesLate === 1 ? tr('1 past its next day') : tr('{n} past their next day', { n: s.routinesLate })) : tr('in the next 7 days'), tone: s.routinesLate ? 'late' : '', onClick: () => pickTab('routines'), active: tab === 'routines' },
@@ -648,19 +655,27 @@ export default function MaintenanceOrders({ myId }) {
   ];
 
   const insights = [];
-  if (s.overdue) insights.push({ tone: 'bad', icon: 'warn', text: s.overdue === 1 ? tr('1 job is still open after its planned day.') : tr('{n} jobs are still open after their planned day.', { n: s.overdue }), action: { label: tr('Show them'), run: () => { setOpenChip('late'); pickTab('open'); } } });
-  if (s.openByPriority.urgent) insights.push({ tone: 'bad', icon: 'warn', text: s.openByPriority.urgent === 1 ? tr('1 urgent job open.') : tr('{n} urgent jobs open.', { n: s.openByPriority.urgent }), action: { label: tr('Show them'), run: () => { setOpenChip('urgent'); pickTab('open'); } } });
-  if (s.unassigned) insights.push({ tone: 'warn', icon: 'people', text: s.unassigned === 1 ? tr('1 open job is not given to anyone yet.') : tr('{n} open jobs are not given to anyone yet.', { n: s.unassigned }), action: { label: tr('Show them'), run: () => { setOpenChip('nobody'); pickTab('open'); } } });
+  if (js.overdue) insights.push({ tone: 'bad', icon: 'warn', text: js.overdue === 1 ? tr('1 job is still open after its planned day.') : tr('{n} jobs are still open after their planned day.', { n: js.overdue }), action: { label: tr('Show them'), run: () => { setOpenChip('late'); pickTab('open'); } } });
+  if (js.openByPriority.urgent) insights.push({ tone: 'bad', icon: 'warn', text: js.openByPriority.urgent === 1 ? tr('1 urgent job open.') : tr('{n} urgent jobs open.', { n: js.openByPriority.urgent }), action: { label: tr('Show them'), run: () => { setOpenChip('urgent'); pickTab('open'); } } });
+  if (js.unassigned) insights.push({ tone: 'warn', icon: 'people', text: js.unassigned === 1 ? tr('1 open job is not given to anyone yet.') : tr('{n} open jobs are not given to anyone yet.', { n: js.unassigned }), action: { label: tr('Show them'), run: () => { setOpenChip('nobody'); pickTab('open'); } } });
   if (s.routinesLate) insights.push({ tone: 'warn', icon: 'calendar', text: s.routinesLate === 1 ? tr('1 routine is past its next day.') : tr('{n} routines are past their next day.', { n: s.routinesLate }), action: { label: tr('Routine jobs'), run: () => pickTab('routines') } });
   if (can.manage && s.toAudit) insights.push({ tone: 'info', icon: 'receipt', text: s.toAudit === 1 ? tr('1 done job not yet checked for billing.') : tr('{n} done jobs not yet checked for billing.', { n: s.toAudit }), action: { label: tr('Billing'), run: () => { setBillOnly(true); pickTab('billing'); } } });
   const oldest = open.slice().sort((a, b) => b.daysOpen - a.daysOpen)[0];
   if (oldest && oldest.daysOpen >= 14) insights.push({ tone: 'info', icon: 'clock', text: tr('The oldest open job, {ref} at {place}, has waited {n} days.', { ref: oldest.ref, place: oldest.location || '—', n: oldest.daysOpen }), action: { label: tr('Open it'), run: () => setOpenId(oldest.id) } });
 
-  // Open jobs, as the sheet's Incomplete tab: by the day asked, then by place.
+  // Open jobs, by place as the last 7 days are; in each place the oldest request first.
   const openShown = open.filter((o) => openChip === 'all' || (openChip === 'late' && o.overdue) || (openChip === 'nobody' && !o.assignedTo) || (openChip === 'urgent' && (o.priority === 'urgent' || o.priority === 'high')) || o.status === openChip)
-    .sort((a, b) => a.requestedOn.localeCompare(b.requestedOn) || a.location.localeCompare(b.location));
-  const byDay = [];
-  openShown.forEach((o) => { const last = byDay[byDay.length - 1]; if (last && last.day === o.requestedOn) last.rows.push(o); else byDay.push({ day: o.requestedOn, rows: [o] }); });
+    .sort((a, b) => a.requestedOn.localeCompare(b.requestedOn) || a.ref.localeCompare(b.ref));
+  const openPlaces = {};
+  openShown.forEach((o) => { (openPlaces[o.location || '—'] = openPlaces[o.location || '—'] || []).push(o); });
+  const openKeys = Object.keys(openPlaces).sort((a, b) => a.localeCompare(b));
+  function copyOpen() {
+    const text = tr('Jobs to do') + ' (' + fmtDate(today) + ')\n' + openKeys.map((p) => '\n' + p + '\n' + openPlaces[p].map((o) => '• ' + o.description + ' — ' + statusName(o.status).toLowerCase() + (o.assignedTo ? ', ' + o.assignedTo.name : '')).join('\n')).join('\n');
+    navigator.clipboard.writeText(text).then(() => say(tr('Copied: paste it in WhatsApp or an email.'))).catch(() => setError(tr('Could not copy here: select the list and copy it by hand.')));
+  }
+  // Routine work orders open but not on a routine card (its routine put away, or an older one).
+  const cardOrders = new Set(routines.map((r) => r.openOrderId).filter(Boolean));
+  const routineLoose = routineOpen.filter((o) => !cardOrders.has(o.id));
 
   // The last 7 days, as the sheet's Last 7 tab: by place.
   const weekPlaces = {};
@@ -710,10 +725,10 @@ export default function MaintenanceOrders({ myId }) {
 
       <nav className="mw-tabs" aria-label={tr('Maintenance views')}>
         {TABS.map(([k, label]) => {
-          const n = k === 'open' ? s.open : k === 'week' ? lastWeek.length : k === 'all' ? orders.length : k === 'routines' ? s.routinesLate + s.routinesDueWeek : k === 'billing' && can.manage ? s.toAudit : 0;
+          const n = k === 'open' ? js.open : k === 'week' ? lastWeek.length : k === 'all' ? orders.length : k === 'routines' ? s.routinesLate + s.routinesDueWeek : k === 'billing' && can.manage ? s.toAudit : 0;
           return (
             <button key={k} type="button" className={'mw-tab' + (tab === k ? ' is-on' : '')} aria-current={tab === k ? 'page' : undefined} onClick={() => pickTab(k)}>
-              {label()}{n > 0 && <span className={'mw-tab-n' + ((k === 'routines' && s.routinesLate) || (k === 'open' && s.overdue) ? ' is-late' : '')}>{n}</span>}
+              {label()}{n > 0 && <span className={'mw-tab-n' + ((k === 'routines' && s.routinesLate) || (k === 'open' && js.overdue) ? ' is-late' : '')}>{n}</span>}
             </button>
           );
         })}
@@ -738,11 +753,11 @@ export default function MaintenanceOrders({ myId }) {
             <Section card title={tr('Open jobs by priority')} sub={tr('How urgent the open jobs are.')}>
               <ul className="mw-prio-list">
                 {PRIORITIES.slice().reverse().map((p) => {
-                  const n = s.openByPriority[p] || 0;
+                  const n = js.openByPriority[p] || 0;
                   return (
                     <li key={p} className={'is-' + p}>
                       <PriorityPill priority={p} />
-                      <span className="mw-bar-track" aria-hidden="true"><span className="mw-bar-open" style={{ width: (n / Math.max(1, s.open) * 100) + '%' }} /></span>
+                      <span className="mw-bar-track" aria-hidden="true"><span className="mw-bar-open" style={{ width: (n / Math.max(1, js.open) * 100) + '%' }} /></span>
                       <strong>{n}</strong>
                     </li>
                   );
@@ -776,29 +791,37 @@ export default function MaintenanceOrders({ myId }) {
       )}
 
       {tab === 'open' && (
-        <Section title={tr('Jobs to do')} sub={tr('Everything not done yet, oldest request first, as the sheet’s Incomplete tab. Press a job to move it along.')}
-          action={<div className="wo-seg" role="radiogroup" aria-label={tr('Show')}>
+        <Section title={tr('Jobs to do')} sub={tr('Everything not done yet, by place, the oldest request first, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.')}
+          action={openShown.length > 0 && <button type="button" className="btn btn-secondary" onClick={copyOpen}>📋 {tr('Copy as text')}</button>}>
+          <div className="wo-seg mw-open-chips" role="radiogroup" aria-label={tr('Show')}>
             {[['all', tr('All')], ['late', tr('Overdue')], ['urgent', tr('Urgent and high')], ['nobody', tr('Not given to anyone')], ['new', statusName('new')], ['scheduled', statusName('scheduled')], ['in_progress', statusName('in_progress')], ['on_hold', statusName('on_hold')]].map(([k, label]) => (
               <button key={k} type="button" role="radio" aria-checked={openChip === k} className={openChip === k ? 'is-on' : ''} onClick={() => setOpenChip(k)}>{label}</button>
             ))}
-          </div>}>
+          </div>
           {!openShown.length ? <p className="mw-empty">🎉 {tr('Nothing here: every job like this is done.')}</p> : (
-            <div className="mw-table-wrap">
-              <table className="mw-table">
-                <thead><tr><th>{tr('Asked on')}</th><th>{tr('Place')}</th><th>{tr('Description')}</th><th>{tr('Given to')}</th><th className="is-num">{tr('Days open')}</th><th>{tr('Status')}</th><th>{tr('Scheduled')}</th><th>{tr('Notes')}</th></tr></thead>
-                <tbody>
-                  {byDay.map((g) => g.rows.map((o, i) => row(o, (x) => <>
-                    <td className="mw-day">{i === 0 ? fmtDate(g.day) : ''}</td>
-                    <td>{x.location || '—'}</td>
-                    <td className="mw-desc"><span className="mw-ref">{x.ref}</span> {x.description} {x.priority === 'urgent' || x.priority === 'high' ? <PriorityPill priority={x.priority} /> : null}</td>
-                    <td><Person p={x.assignedTo} /></td>
-                    <td className={'is-num' + (x.daysOpen >= 14 ? ' is-old' : '')}>{x.daysOpen}</td>
-                    <td><StatusPill status={x.status} /></td>
-                    <td className={x.overdue ? 'is-late' : ''}>{x.scheduledOn ? fmtDate(x.scheduledOn) : '—'}</td>
-                    <td className="mw-notes">{x.notes}</td>
-                  </>)))}
-                </tbody>
-              </table>
+            <div className="mw-week">
+              {openKeys.map((p) => (
+                <article key={p} className="mw-week-place is-open">
+                  <h4>📍 {p} <small>{openPlaces[p].length}</small></h4>
+                  <ul>
+                    {openPlaces[p].map((o) => (
+                      <li key={o.id} className={o.overdue ? 'is-late' : ''}><button type="button" onClick={() => setOpenId(o.id)}>
+                        <span className={'mw-week-dot is-' + o.status} aria-hidden="true" />
+                        <span>
+                          <strong>{o.description}</strong>
+                          <small>{kindIcon(o.category)} {kindName(o.category)} · {o.assignedTo ? o.assignedTo.name : tr('Nobody yet')} · {tr('asked {date}', { date: fmtDate(o.requestedOn) })}</small>
+                          <span className="mw-week-tags">
+                            <StatusPill status={o.status} />
+                            {(o.priority === 'urgent' || o.priority === 'high') && <PriorityPill priority={o.priority} />}
+                            {o.scheduledOn && <span className={'mw-week-when' + (o.overdue ? ' is-late' : '')}>🗓 {o.overdue ? tr('was planned for {date}', { date: fmtDate(o.scheduledOn) }) : fmtDate(o.scheduledOn)}</span>}
+                            {o.daysOpen > 0 && <span className={'mw-week-age' + (o.daysOpen >= 14 ? ' is-old' : '')}>{o.daysOpen === 1 ? tr('1 day open') : tr('{n} days open', { n: o.daysOpen })}</span>}
+                          </span>
+                        </span>
+                      </button></li>
+                    ))}
+                  </ul>
+                </article>
+              ))}
             </div>
           )}
         </Section>
@@ -901,6 +924,17 @@ export default function MaintenanceOrders({ myId }) {
                       </p>
                       {r.notes && <p className="dk-muted wo-small">{r.notes}</p>}
                       {r.link && <a className="wo-small" href={r.link} target="_blank" rel="noreferrer">🔗 {tr('Web link')}</a>}
+                      {r.openOrderId && (() => {
+                        const wo = orders.find((o) => o.id === r.openOrderId);
+                        return wo ? (
+                          <p className="mw-rt-wo">
+                            <span>{tr('Work order')} <span className="mw-ref">{wo.ref}</span></span>
+                            <StatusPill status={wo.status} />
+                            <span>👤 {wo.assignedTo ? wo.assignedTo.name : tr('Nobody yet')}</span>
+                            {wo.scheduledOn && <span className={wo.overdue ? 'is-late' : ''}>🗓 {fmtDate(wo.scheduledOn)}</span>}
+                          </p>
+                        ) : null;
+                      })()}
                     </div>
                     <div className="mw-rt-acts">
                       {(can.manage || mine) && !r.openOrderId && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setRoutineDoing(r)}>✓ {tr('Done today')}</button>}
@@ -912,6 +946,20 @@ export default function MaintenanceOrders({ myId }) {
                   </article>
                 );
               })}
+            </div>
+          )}
+          {routineLoose.length > 0 && (
+            <div className="mw-rt-loose">
+              <h4>{tr('Other routine work orders still open')}</h4>
+              <ul>
+                {routineLoose.map((o) => (
+                  <li key={o.id}><button type="button" onClick={() => setOpenId(o.id)}>
+                    <span className="mw-ref">{o.ref}</span>
+                    <span className="mw-rt-loose-d">{o.description}{o.location ? ' · 📍 ' + o.location : ''}</span>
+                    <StatusPill status={o.status} />
+                  </button></li>
+                ))}
+              </ul>
             </div>
           )}
           {putAway.length > 0 && (
