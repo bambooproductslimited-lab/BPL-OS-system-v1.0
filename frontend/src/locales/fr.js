@@ -19052,9 +19052,6 @@ export default {
   "What they asked about": "Leurs questions portaient sur",
   "{n} people wrote to us this week and their chats were read.": "{n} personnes nous ont écrit cette semaine et leurs échanges ont été lus.",
   "Not judged (read without AI)": "Non évalué (lu sans IA)",
-  "1 day open": "ouvert depuis 1 jour",
-  "Everything not done yet, by place, the oldest request first, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.": "Tout ce qui n’est pas encore fait, par lieu, la demande la plus ancienne d’abord, comme l’onglet Incomplete de la feuille. Les travaux de routine sont dans l’onglet Travaux de routine. Appuyez sur une tâche pour la faire avancer.",
-  "Other routine work orders still open": "Autres ordres de travail de routine encore ouverts",
-  "was planned for {date}": "prévu pour le {date}",
-  "{n} days open": "ouvert depuis {n} jours"
+  "Everything not done yet, by place, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.": "Tout ce qui n’est pas encore fait, par lieu, comme l’onglet Incomplete de la feuille. Les travaux de routine sont dans l’onglet Travaux de routine. Appuyez sur une tâche pour la faire avancer.",
+  "Other routine work orders still open": "Autres ordres de travail de routine encore ouverts"
 };

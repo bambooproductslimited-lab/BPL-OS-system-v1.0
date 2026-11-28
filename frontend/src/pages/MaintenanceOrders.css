@@ -113,17 +113,13 @@
 .mw-week-place strong { font-size: 13.5px; font-weight: 600; }
 .mw-week-place small { font-size: 12px; color: var(--color-text-muted); }
 .mw-week-tick { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--mw-completed); color: #fff; font-size: 11px; font-weight: 800; margin-top: 1px; }
-/* Jobs to do: the same place cards, with where each job is up to. */
-.mw .wo-seg.mw-open-chips { margin-bottom: 14px; flex-wrap: wrap; border-radius: 16px; }
+/* Jobs to do: the same place cards as the last 7 days, the mark in the job's status colour. */
 .mw-week-place.is-open h4 small { background: color-mix(in srgb, var(--mw-scheduled) 14%, transparent); color: var(--mw-scheduled); }
-.mw-week-dot { flex: none; width: 12px; height: 12px; margin: 4px 4px 0; border-radius: 50%; background: var(--st, var(--mw-scheduled)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st, var(--mw-scheduled)) 22%, transparent); }
-.mw-week-place li.is-late button { background: color-mix(in srgb, var(--mw-urgent) 7%, transparent); }
-.mw-week-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-top: 3px; }
-.mw-week-tags .mw-pill { font-size: 11.5px; padding: 1px 8px 1px 7px; }
-.mw-week-tags .mw-prio { font-size: 11px; padding: 0 7px; }
-.mw-week-when, .mw-week-age { font-size: 12px; color: var(--color-text-muted); }
-.mw-week-when.is-late { color: var(--mw-urgent); font-weight: 700; }
-.mw-week-age.is-old { color: var(--mw-high); font-weight: 700; }
+.mw-week-place.is-open .mw-week-tick { background: var(--st, var(--mw-scheduled)); font-size: 10px; }
+.mw-week-late { color: var(--mw-urgent); }
+.mw-week-prio { color: var(--mw-high); }
+.mw-open-acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mw-open-acts select { width: auto; min-width: 170px; }
 /* A routine's open work order, on its card; and those not on a card. */
 .mw-rt-wo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 8px 0 0 !important; padding: 7px 10px; border-radius: 10px; background: var(--wo-soft); font-size: 12.5px !important; }
 .mw-rt-wo .is-late { color: var(--mw-urgent); font-weight: 700; }

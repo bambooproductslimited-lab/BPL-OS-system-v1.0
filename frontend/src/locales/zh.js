@@ -19052,9 +19052,6 @@ export default {
   "What they asked about": "他们询问的内容",
   "{n} people wrote to us this week and their chats were read.": "本周有 {n} 人给我们发消息，聊天已读取。",
   "Not judged (read without AI)": "未判断（未用 AI 阅读）",
-  "1 day open": "已开放 1 天",
-  "Everything not done yet, by place, the oldest request first, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.": "所有尚未完成的工作，按地点排列，最早的请求在前，与表格的 Incomplete 标签相同。例行工作在“例行工作”标签中。点按工作以推进。",
-  "Other routine work orders still open": "其他仍未完成的例行工单",
-  "was planned for {date}": "原定于 {date}",
-  "{n} days open": "已开放 {n} 天"
+  "Everything not done yet, by place, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.": "所有尚未完成的工作，按地点排列，与表格的 Incomplete 标签相同。例行工作在“例行工作”标签中。点按工作以推进。",
+  "Other routine work orders still open": "其他仍未完成的例行工单"
 };

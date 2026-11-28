@@ -29,6 +29,8 @@ const TABS = [
   ['all', () => tr('Every job')], ['routines', () => tr('Routine jobs')], ['billing', () => tr('Billing')]
 ];
 const PAGE = 60;
+// The mark in front of a job to do, in its status colour (as the tick in front of a job done).
+const STATUS_MARK = { new: '+', scheduled: '◷', in_progress: '▶', on_hold: '❚❚' };
 const CURRENCIES = ['GHS', 'USD', 'EUR', 'GBP', 'CNY'];
 
 function readPref(key, fallback) { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } }
@@ -791,13 +793,15 @@ export default function MaintenanceOrders({ myId }) {
       )}
 
       {tab === 'open' && (
-        <Section title={tr('Jobs to do')} sub={tr('Everything not done yet, by place, the oldest request first, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.')}
-          action={openShown.length > 0 && <button type="button" className="btn btn-secondary" onClick={copyOpen}>📋 {tr('Copy as text')}</button>}>
-          <div className="wo-seg mw-open-chips" role="radiogroup" aria-label={tr('Show')}>
-            {[['all', tr('All')], ['late', tr('Overdue')], ['urgent', tr('Urgent and high')], ['nobody', tr('Not given to anyone')], ['new', statusName('new')], ['scheduled', statusName('scheduled')], ['in_progress', statusName('in_progress')], ['on_hold', statusName('on_hold')]].map(([k, label]) => (
-              <button key={k} type="button" role="radio" aria-checked={openChip === k} className={openChip === k ? 'is-on' : ''} onClick={() => setOpenChip(k)}>{label}</button>
-            ))}
-          </div>
+        <Section title={tr('Jobs to do')} sub={tr('Everything not done yet, by place, as the sheet’s Incomplete tab. Routine jobs are on the Routine jobs tab. Press a job to move it along.')}
+          action={<div className="mw-open-acts">
+            <select className="input" value={openChip} onChange={(e) => setOpenChip(e.target.value)} aria-label={tr('Show')}>
+              {[['all', tr('All')], ['late', tr('Overdue')], ['urgent', tr('Urgent and high')], ['nobody', tr('Not given to anyone')], ['new', statusName('new')], ['scheduled', statusName('scheduled')], ['in_progress', statusName('in_progress')], ['on_hold', statusName('on_hold')]].map(([k, label]) => (
+                <option key={k} value={k}>{label}</option>
+              ))}
+            </select>
+            {openShown.length > 0 && <button type="button" className="btn btn-secondary" onClick={copyOpen}>📋 {tr('Copy as text')}</button>}
+          </div>}>
           {!openShown.length ? <p className="mw-empty">🎉 {tr('Nothing here: every job like this is done.')}</p> : (
             <div className="mw-week">
               {openKeys.map((p) => (
@@ -805,18 +809,11 @@ export default function MaintenanceOrders({ myId }) {
                   <h4>📍 {p} <small>{openPlaces[p].length}</small></h4>
                   <ul>
                     {openPlaces[p].map((o) => (
-                      <li key={o.id} className={o.overdue ? 'is-late' : ''}><button type="button" onClick={() => setOpenId(o.id)}>
-                        <span className={'mw-week-dot is-' + o.status} aria-hidden="true" />
-                        <span>
-                          <strong>{o.description}</strong>
-                          <small>{kindIcon(o.category)} {kindName(o.category)} · {o.assignedTo ? o.assignedTo.name : tr('Nobody yet')} · {tr('asked {date}', { date: fmtDate(o.requestedOn) })}</small>
-                          <span className="mw-week-tags">
-                            <StatusPill status={o.status} />
-                            {(o.priority === 'urgent' || o.priority === 'high') && <PriorityPill priority={o.priority} />}
-                            {o.scheduledOn && <span className={'mw-week-when' + (o.overdue ? ' is-late' : '')}>🗓 {o.overdue ? tr('was planned for {date}', { date: fmtDate(o.scheduledOn) }) : fmtDate(o.scheduledOn)}</span>}
-                            {o.daysOpen > 0 && <span className={'mw-week-age' + (o.daysOpen >= 14 ? ' is-old' : '')}>{o.daysOpen === 1 ? tr('1 day open') : tr('{n} days open', { n: o.daysOpen })}</span>}
-                          </span>
-                        </span>
+                      <li key={o.id}><button type="button" onClick={() => setOpenId(o.id)}>
+                        <span className={'mw-week-tick is-' + o.status} aria-hidden="true">{STATUS_MARK[o.status] || '•'}</span>
+                        <span><strong>{o.description}</strong><small>{kindIcon(o.category)} {kindName(o.category)} · {o.assignedTo ? o.assignedTo.name : tr('Nobody yet')} · {statusName(o.status)}
+                          {o.priority === 'urgent' || o.priority === 'high' ? <> · <b className="mw-week-prio">{priorityName(o.priority)}</b></> : null}
+                          {' · '}{o.overdue ? <b className="mw-week-late">{tr('Late')}: {tr('planned for {date}', { date: fmtDate(o.scheduledOn) })}</b> : o.scheduledOn ? tr('planned for {date}', { date: fmtDate(o.scheduledOn) }) : tr('asked {date}', { date: fmtDate(o.requestedOn) })}</small></span>
                       </button></li>
                     ))}
                   </ul>
