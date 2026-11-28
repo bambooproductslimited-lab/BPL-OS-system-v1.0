@@ -7,6 +7,8 @@ var assert = require('node:assert/strict');
 var { pool } = require('../src/db/pool');
 var tasks = require('../src/services/tasks.service');
 var { buildContext } = require('../src/services/context.service');
+// A photo of the finished work: a work order is completed only with one.
+var PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 var boss, worker, taskId, bossId, workerId, helperId;
 
@@ -44,7 +46,7 @@ test('assignees come with photos and companies; completing records when and tell
   await tasks.setStatus(worker, taskId, 'under_review');
   assert.equal((await notes(bossId, 'Work order ready for checking')).length, 1);
 
-  var done = await tasks.setStatus(worker, taskId, 'completed');
+  var done = await tasks.setStatus(worker, taskId, 'completed', { photos: [PHOTO] });
   assert.ok(done.completedAt);
   assert.equal((await notes(bossId, 'Work order completed')).length, 1);
 

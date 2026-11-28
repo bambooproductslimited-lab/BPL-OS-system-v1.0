@@ -10,6 +10,8 @@ var { pool } = require('../src/db/pool');
 var tasks = require('../src/services/tasks.service');
 var woImport = require('../src/services/workOrderImport.service');
 var { buildContext } = require('../src/services/context.service');
+// A photo of the finished work: a work order is completed only with one.
+var PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 var boss, worker, pmCtx, bossId, workerId, pmId, aliceId, ids = [];
 
@@ -62,7 +64,7 @@ test('a WO has a number, who it is for, the form’s fields and a project manage
   // The sheet's statuses; completing records when, and the timing reads it.
   assert.equal((await tasks.setStatus(worker, wo.id, 'awaiting_material')).status, 'awaiting_material');
   assert.equal((await tasks.setStatus(worker, wo.id, 'in_progress')).status, 'in_progress');
-  var done = await tasks.setStatus(worker, wo.id, 'completed');
+  var done = await tasks.setStatus(worker, wo.id, 'completed', { photos: [PHOTO] });
   assert.equal(done.daysToClose, 0);
   assert.equal(done.onTime, true);
   assert.equal(done.daysOpen, null);

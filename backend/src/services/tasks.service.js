@@ -4,6 +4,10 @@ var { V } = require('../utils/validate');
 var { audit } = require('../utils/audit');
 var { notify } = require('../utils/notify');
 var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
+var woStock = require('./woStock.service');
+
+var MAX_DONE_PHOTOS = 3;
+var PHOTO_NEEDED = 'Add a photo of the finished work first: a work order is marked completed only with a photo of it.';
 
 // Work orders (WOs) — the tasks table, recorded the way the workshop has
 // kept them in its Google Form and sheet (migration 0136): a number
@@ -11,6 +15,11 @@ var { visibleEmployee, fetchEmployeeById } = require('../middleware/rbac');
 // the item, quantity, specification, materials and process, a project
 // manager over the team, the date issued and the estimated date due, and
 // the timing the sheet worked out by hand (days to close, on time or not).
+//
+// A WO may make items kept on the daily stock sheet (woStock.service.js,
+// migration 0226): picked on the form, they go onto that day's stock sheet
+// when it is completed, and the stores team is texted. A WO is marked
+// completed only with a photo of the finished work (done_photos).
 
 var STATUSES = ['discussing', 'not_started', 'in_progress', 'awaiting_material', 'waiting', 'under_review', 'completed', 'cancelled'];
 var CLOSED = ['completed', 'cancelled'];
@@ -113,7 +122,9 @@ var SELECT_WO =
   '(SELECT so.id FROM sales_orders so WHERE t.so_ref <> \'\' AND lower(so.order_no) = lower(t.so_ref) LIMIT 1) AS sales_order_id, ' +
   '(SELECT json_build_object(\'id\', pr.id, \'name\', pr.name) FROM products pr WHERE t.item_code <> \'\' AND lower(pr.sku) = lower(t.item_code) LIMIT 1) AS product, ' +
   '(SELECT array_agg(employee_id) FROM task_assignees ta WHERE ta.task_id = t.id) AS assignee_ids, ' +
-  '(SELECT count(*)::int FROM task_comments tc WHERE tc.task_id = t.id) AS comment_count ' +
+  '(SELECT count(*)::int FROM task_comments tc WHERE tc.task_id = t.id) AS comment_count, ' +
+  "(SELECT coalesce(json_agg(json_build_object('productId', si.product_id, 'qty', si.qty, 'addedOn', si.added_on, 'name', pr.name, 'sku', pr.sku, 'unit', pr.unit) " +
+  "ORDER BY pr.sheet_order NULLS LAST, pr.sku), '[]') FROM task_stock_items si JOIN products pr ON pr.id = si.product_id WHERE si.task_id = t.id) AS stock_items " +
   'FROM tasks t LEFT JOIN projects p ON p.id = t.project_id LEFT JOIN companies fc ON fc.id = t.for_company_id ' +
   'LEFT JOIN customers cu ON cu.id = t.customer_id ';
 
@@ -153,7 +164,11 @@ function shape(r, people) {
     daysToClose: doneDay && issued ? Math.max(0, daysBetween(issued, doneDay)) : null,
     plannedDays: r.due_date && issued ? daysBetween(issued, r.due_date) : null,
     onTime: doneDay && r.due_date ? doneDay <= r.due_date : null,
-    imported: !!r.sheet_stamp, commentCount: r.comment_count || 0
+    imported: !!r.sheet_stamp, commentCount: r.comment_count || 0,
+    // Items it makes for the daily stock sheet; addedOn once they are on it.
+    stockItems: (r.stock_items || []).map(function (x) { return { productId: x.productId, name: x.name, sku: x.sku, unit: x.unit || '', qty: Number(x.qty), addedOn: x.addedOn || null }; }),
+    // Photos of the finished work (GET /api/tasks/:id/photos/:n).
+    donePhotos: (r.done_photos || []).map(function (p, n) { return { n: n, at: p.at || null }; })
   };
 }
 
@@ -288,6 +303,7 @@ async function create(ctx, p) {
   for (var a = 0; a < assigneeIds.length; a++) await existing('employees', assigneeIds[a], 'A team member');
   var f = await fields(p);
   var status = V.oneOf(p.status || 'not_started', ['discussing', 'not_started'], 'Status');
+  var stockItems = await woStock.readItems(p.stockItems);
 
   var changes = [];
   var newId = await withTransaction(async function (client) {
@@ -299,6 +315,7 @@ async function create(ctx, p) {
     );
     var t = res.rows[0];
     for (var i = 0; i < assigneeIds.length; i++) await client.query('INSERT INTO task_assignees (task_id, employee_id) VALUES ($1,$2)', [t.id, assigneeIds[i]]);
+    await woStock.setItems(client, t.id, stockItems || []);
     var told = assigneeIds.concat(f.projectManagerId && assigneeIds.indexOf(f.projectManagerId) < 0 ? [f.projectManagerId] : []);
     await tellTeam(client, ctx, told, f, t.wo_no, t.id);
     await audit(client, ctx, 'task.create', 'task', t.id, 'Issued ' + woNumber(t.wo_no) + ' "' + t.title + '".');
@@ -311,8 +328,13 @@ async function create(ctx, p) {
   return Object.assign(await get(ctx, newId), { projectChanges: changes });
 }
 
-// kernel.js: handlers['tasks.setStatus']
-async function setStatus(ctx, id, status) {
+// kernel.js: handlers['tasks.setStatus']. body: { photos } — completing
+// takes 1 to 3 photos of the finished work (JPEG data URLs, made small on
+// the phone); without one it is refused. A WO that makes stock sheet items
+// puts them on the day's sheet when completed, and takes them back off when
+// reopened; the people chosen on the stock sheet page are told.
+async function setStatus(ctx, id, status, body) {
+  body = body || {};
   var task = await loadTask(id);
   if (!task) fail('notfound', 'Work order not found.');
   if (!(await taskVisible(ctx, task))) fail('forbidden', 'Outside your scope.');
@@ -320,14 +342,25 @@ async function setStatus(ctx, id, status) {
 
   if (status === task.status) return get(ctx, id);
   var label = woNumber(task.woNo) + ' "' + task.title + '"';
-  var changes = [];
+  var me = { id: id, number: woNumber(task.woNo), title: task.title };
+  var shots = [];
+  if (status === 'completed') {
+    if (!Array.isArray(body.photos) || !body.photos.filter(Boolean).length) fail('invalid', PHOTO_NEEDED);
+    shots = await photosFrom(ctx, body.photos, woNumber(task.woNo).toLowerCase() + '-done');
+  }
+  var changes = [], added = [], removed = [];
   await withTransaction(async function (client) {
     // completed_at / cancelled_at record when it was closed; reopening clears them.
     await client.query(
       "UPDATE tasks SET status = $1, completed_at = CASE WHEN $1 = 'completed' THEN now() ELSE NULL END, " +
-      "cancelled_at = CASE WHEN $1 = 'cancelled' THEN now() ELSE NULL END WHERE id = $2",
-      [status, id]
+      "cancelled_at = CASE WHEN $1 = 'cancelled' THEN now() ELSE NULL END" + (shots.length ? ', done_photos = $3::jsonb' : '') + ' WHERE id = $2',
+      [status, id].concat(shots.length ? [JSON.stringify((task.row.done_photos || []).concat(shots).slice(-9))] : [])
     );
+    // The stock sheet: on when completed, back off when a completed WO is reopened.
+    if (status === 'completed') added = await woStock.addToSheet(client, ctx, me);
+    else if (task.status === 'completed') removed = await woStock.takeOffSheet(client, ctx, me);
+    if (added.length) await woStock.notifyTold(client, ctx, me, added, 'added');
+    if (removed.length) await woStock.notifyTold(client, ctx, me, removed, 'removed');
     // Whoever issued the WO, and its project manager, hear when it is ready
     // to check or done, unless they moved it themselves.
     if (status === 'under_review' || status === 'completed') {
@@ -340,10 +373,32 @@ async function setStatus(ctx, id, status) {
           'tasks:' + id);
       }
     }
-    await audit(client, ctx, 'task.status', 'task', id, 'Set ' + label + ' to ' + status + '.');
+    await audit(client, ctx, 'task.status', 'task', id, 'Set ' + label + ' to ' + status + '.' + (shots.length ? ' ' + shots.length + ' photo(s) of the finished work.' : ''));
     changes = await syncProjects(client, ctx, [task.projectId]);
   });
-  return Object.assign(await get(ctx, id), { projectChanges: changes });
+  var texted = added.length ? await woStock.textTold(ctx, me, added, 'added') : removed.length ? await woStock.textTold(ctx, me, removed, 'removed') : null;
+  return Object.assign(await get(ctx, id), { projectChanges: changes, stock: { added: added, removed: removed, texted: texted } });
+}
+
+// The photos sent with "completed", kept in file storage: [{ key, type, at, by }].
+async function photosFrom(ctx, given, name) {
+  var list = given.filter(Boolean).slice(0, MAX_DONE_PHOTOS);
+  var photoFrom = require('./restaurantCashOffice.service').photoFrom;
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var p = await photoFrom(list[i], name + '-' + (i + 1));
+    out.push({ key: p.key, type: p.type, at: new Date().toISOString(), by: ctx.employee.id });
+  }
+  return out;
+}
+
+// GET /api/tasks/:id/photos/:n — whoever may see the WO.
+async function photoOf(ctx, id, n) {
+  var task = await loadTask(id);
+  if (!task || !(await taskVisible(ctx, task))) fail('notfound', 'No such photo.');
+  var p = (task.row.done_photos || [])[Number(n)];
+  if (!p) fail('notfound', 'No such photo.');
+  return { key: p.key, name: woNumber(task.woNo).toLowerCase() + '-done-' + (Number(n) + 1) + (p.type === 'image/png' ? '.png' : p.type === 'image/webp' ? '.webp' : '.jpg') };
 }
 
 // kernel.js: handlers['tasks.update']
@@ -354,6 +409,7 @@ async function update(ctx, id, p) {
   if (!(await taskVisible(ctx, was))) fail('forbidden', 'Outside your scope.');
 
   var f = await fields(p, asInput(was.row));
+  var stockItems = await woStock.readItems(p.stockItems);
   var assigneeIds = (p.assigneeIds && p.assigneeIds.length) ? p.assigneeIds : was.assigneeIds;
   for (var a = 0; a < assigneeIds.length; a++) await existing('employees', assigneeIds[a], 'A team member');
 
@@ -368,6 +424,7 @@ async function update(ctx, id, p) {
     await client.query('UPDATE tasks SET ' + sets.join(', ') + ' WHERE id = $' + vals.length, vals);
     await client.query('DELETE FROM task_assignees WHERE task_id = $1', [id]);
     for (var i = 0; i < assigneeIds.length; i++) await client.query('INSERT INTO task_assignees (task_id, employee_id) VALUES ($1,$2)', [id, assigneeIds[i]]);
+    await woStock.setItems(client, id, stockItems);
     // Someone newly put on the WO (or made its project manager) hears about it, as on create().
     var newly = assigneeIds.concat(f.projectManagerId ? [f.projectManagerId] : []).filter(function (x, i2, all) {
       return all.indexOf(x) === i2 && was.assigneeIds.indexOf(x) < 0 && x !== was.projectManagerId;
@@ -506,10 +563,11 @@ async function options(ctx) {
   if (!ctx.can('task.manage')) fail('forbidden', 'Your role does not allow this action (task.manage).');
   var companies = (await pool.query("SELECT id, code, name FROM companies WHERE status = 'active' ORDER BY (code = 'BPL') DESC, name")).rows;
   var customers = (await pool.query("SELECT id, name FROM customers WHERE status = 'active' ORDER BY lower(name) LIMIT 5000")).rows;
-  return { companies: companies, customers: customers };
+  // The daily stock sheet's items, for "Is this for items on the stock sheet?".
+  return { companies: companies, customers: customers, stockProducts: await woStock.products(), stockTextIds: await woStock.textIds() };
 }
 
 module.exports = {
   list: list, get: get, create: create, setStatus: setStatus, update: update, remove: remove, addComment: addComment, setManager: setManager,
-  options: options, setProject: setProject, taskVisible: taskVisible, woNumber: woNumber, STATUSES: STATUSES
+  options: options, setProject: setProject, taskVisible: taskVisible, woNumber: woNumber, STATUSES: STATUSES, photoOf: photoOf
 };

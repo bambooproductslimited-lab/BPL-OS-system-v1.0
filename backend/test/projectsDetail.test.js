@@ -7,6 +7,8 @@ var { pool } = require('../src/db/pool');
 var projects = require('../src/services/projects.service');
 var tasks = require('../src/services/tasks.service');
 var { buildContext } = require('../src/services/context.service');
+// A photo of the finished work: a work order is completed only with one.
+var PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 var boss, projId, taskIds = [], memberId, newMemberId;
 
@@ -20,7 +22,7 @@ test.before(async function () {
   var a = await tasks.create(boss, { title: 'Pjq order parts', projectId: projId, assigneeIds: [memberId], issuedOn: '2019-12-20', dueDate: '2020-01-01' });
   var b = await tasks.create(boss, { title: 'Pjq fit parts', projectId: projId, assigneeIds: [memberId], dueDate: '2031-03-01' });
   taskIds = [a.id, b.id];
-  await tasks.setStatus(boss, b.id, 'completed');
+  await tasks.setStatus(boss, b.id, 'completed', { photos: [PHOTO] });
 });
 test.after(async function () {
   await pool.query('DELETE FROM tasks WHERE id = ANY($1)', [taskIds]);

@@ -9,6 +9,8 @@ var { pool } = require('../src/db/pool');
 var projects = require('../src/services/projects.service');
 var tasks = require('../src/services/tasks.service');
 var { buildContext } = require('../src/services/context.service');
+// A photo of the finished work: a work order is completed only with one.
+var PHOTO = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 var boss, alice, deptId, ownerId, projIds = [];
 
@@ -46,7 +48,7 @@ test('a project closes itself when its work orders are done, and reopens when wo
   assert.equal(p.autoClose, true);                                  // new projects close themselves
   var a = await wo('Zqcl counter', p.id), b = await wo('Zqcl stools', p.id);
 
-  var first = await tasks.setStatus(boss, a.id, 'completed');
+  var first = await tasks.setStatus(boss, a.id, 'completed', { photos: [PHOTO] });
   assert.deepEqual(first.projectChanges, []);
   assert.equal((await statusOf(p.id)).status, 'active');           // one still open
 
@@ -69,7 +71,7 @@ test('a project closes itself when its work orders are done, and reopens when wo
   assert.equal(await told('Project reopened', 'Zqcl Bar refit'), 1);
 
   // Done again, then a new work order for it: closed, then open again.
-  await tasks.setStatus(boss, a.id, 'completed');
+  await tasks.setStatus(boss, a.id, 'completed', { photos: [PHOTO] });
   assert.equal((await statusOf(p.id)).status, 'completed');
   var c = await wo('Zqcl menu boards', p.id);
   assert.equal(c.projectChanges[0].change, 'reopened');
@@ -88,9 +90,9 @@ test('a project set to close by hand waits; closing it can cancel what is still 
   var p = await project('Zqcl Pergola', { autoClose: false });
   assert.equal(p.autoClose, false);
   var a = await wo('Zqcl poles', p.id), b = await wo('Zqcl roof', p.id), c = await wo('Zqcl varnish', p.id);
-  await tasks.setStatus(boss, a.id, 'completed');
-  await tasks.setStatus(boss, b.id, 'completed');
-  await tasks.setStatus(boss, c.id, 'completed');
+  await tasks.setStatus(boss, a.id, 'completed', { photos: [PHOTO] });
+  await tasks.setStatus(boss, b.id, 'completed', { photos: [PHOTO] });
+  await tasks.setStatus(boss, c.id, 'completed', { photos: [PHOTO] });
   assert.equal((await statusOf(p.id)).status, 'active');           // all done, but it waits to be closed
   var listed = (await projects.list(boss, {})).find(function (x) { return x.id === p.id; });
   assert.equal(listed.taskCount, listed.doneCount);                 // the screen shows it ready to close
@@ -103,7 +105,7 @@ test('a project set to close by hand waits; closing it can cancel what is still 
   // Closing by hand, with work orders still open.
   var q = await project('Zqcl Showroom', { autoClose: false });
   var x = await wo('Zqcl shelves', q.id), y = await wo('Zqcl lights', q.id), z = await wo('Zqcl sign', q.id);
-  await tasks.setStatus(boss, x.id, 'completed');
+  await tasks.setStatus(boss, x.id, 'completed', { photos: [PHOTO] });
   await assert.rejects(projects.close(alice, q.id, {}), /not allow/);
   var closed = await projects.close(boss, q.id, { cancelOpen: true });
   assert.equal(closed.status, 'completed');

@@ -1,6 +1,7 @@
 var express = require('express');
 var { requireAuth } = require('../middleware/auth');
 var stockSheetService = require('../services/stockSheet.service');
+var woStock = require('../services/woStock.service');
 
 // The daily stock sheet and monthly summary — see stockSheet.service.js.
 var router = express.Router();
@@ -24,6 +25,14 @@ router.get('/months', async function (req, res, next) {
 });
 router.get('/month/:month', async function (req, res, next) {
   try { res.json(await stockSheetService.month(req.ctx, req.params.month)); } catch (e) { next(e); }
+});
+
+// Who is texted when a completed work order puts items on the sheet (woStock.service.js).
+router.get('/texts', async function (req, res, next) {
+  try { res.json(await woStock.getTexts(req.ctx)); } catch (e) { next(e); }
+});
+router.put('/texts', async function (req, res, next) {
+  try { res.json(await woStock.setTexts(req.ctx, req.body)); } catch (e) { next(e); }
 });
 
 module.exports = router;

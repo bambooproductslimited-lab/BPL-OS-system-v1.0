@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
+import PeoplePicker from '../components/PeoplePicker';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { Glossary, Hero, Insights, Section, fmtDate, jump } from '../components/DashKit';
 import { money } from '../lib/currency';
@@ -24,6 +25,10 @@ import './StockSheetPage.css';
 // when you leave it (Tab/Enter or click away); Enter moves down the column.
 // "Save the rest as shown" stores every line nobody touched, for days when
 // most products didn't move. On a phone each product is a small card.
+//
+// A workshop work order that makes items on this sheet puts them on that
+// day's line as Received when it is completed (backend woStock.service.js);
+// the card at the bottom says who gets a text when it does.
 
 const INPUTS = ['opening', 'received', 'transferred', 'breakage', 'sold', 'physical'];
 const COLUMN_LABELS = {
@@ -54,6 +59,57 @@ function work(v, invoiced) {
   const expected = total - numOr0(v.transferred) - numOr0(v.breakage) - numOr0(v.sold) - numOr0(invoiced);
   const physical = v.physical === '' ? null : numOr0(v.physical);
   return { total, expected, physical, variance: physical === null ? null : expected - physical, closing: physical === null ? expected : physical };
+}
+
+// Who is texted when a completed work order puts its items on the sheet.
+function StockTexts() {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [employees, setEmployees] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.get('/stock-sheet/texts').then(setD).catch((e) => setErr(e.message)); }, []);
+  async function change() {
+    setErr(null);
+    try {
+      if (!employees.length) setEmployees((await api.get('/employees')).filter((e) => e.status !== 'terminated'));
+      setEditing(d.people.map((p) => p.id));
+    } catch (e) { setErr(e.message); }
+  }
+  async function save() {
+    setBusy(true); setErr(null);
+    try { setD(await api.put('/stock-sheet/texts', { employeeIds: editing })); setEditing(null); } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  if (!d) return err ? <p className="error-banner" role="alert">{err}</p> : null;
+  return (
+    <Section id="ss-texts" card title={tr('Texts when a work order adds stock')}
+      sub={tr('When a workshop work order that makes items on this sheet is completed (with its photo), the items go onto that day’s line as Received, and these people get a text. Reopening it takes them back off and tells them.')}
+      action={d.canManage && !editing ? <button type="button" className="btn btn-secondary" onClick={change}>{tr('Change')}</button> : null}>
+      {editing ? (
+        <div className="ss-texts-edit">
+          <PeoplePicker employees={employees} value={editing} onChange={setEditing} emptyText={tr('Nobody: no texts are sent.')} />
+          <div className="ss-texts-acts">
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setEditing(null)}>{tr('Cancel')}</button>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>{busy ? tr('Saving…') : tr('Save')}</button>
+          </div>
+        </div>
+      ) : d.people.length ? (
+        <ul className="ss-texts">
+          {d.people.map((p) => (
+            <li key={p.id}>
+              <Photo id={p.id} name={p.name} size={30} />
+              <span><b>{p.name}</b>{p.position && <small>{p.position}</small>}</span>
+              {!p.hasPhone && <span className="ss-texts-warn">{tr('No phone number on their record')}</span>}
+              {!p.active && <span className="ss-texts-warn">{tr('No longer active')}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="dk-muted">{tr('Nobody is chosen yet, so no texts are sent.')}</p>}
+      {!d.smsReady && <p className="ss-texts-warn">{tr('Text messages are not set up yet, so none can go: Company settings → Text messages.')}</p>}
+      {err && <p className="error-banner" role="alert">{err}</p>}
+    </Section>
+  );
 }
 
 export default function StockSheetPage() {
@@ -409,9 +465,11 @@ export default function StockSheetPage() {
         </div>
       )}
 
+      <StockTexts />
+
       <Glossary items={[
         [tr('Opening stock'), tr('What was there at the start of the day: the previous day\'s closing, or the product\'s stock before its first day on the sheet.')],
-        [tr('Received'), tr('Came into stock: from production (filled in for you), a supplier or a return.')],
+        [tr('Received'), tr('Came into stock: from production or a completed work order (filled in for you), a supplier or a return.')],
         [tr('Transferred'), tr('Moved out to another store or site.')],
         [tr('Sold'), tr('Sales that aren\'t on an invoice, typed in here.')],
         [tr('Invoiced'), tr('What invoices took off stock that day, filled in by the OS the moment each invoice is made (less anything from invoices voided since). Don\'t type these sales into Sold as well.')],

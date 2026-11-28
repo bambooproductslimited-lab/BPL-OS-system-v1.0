@@ -1,10 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import Photo from '../components/Photo';
 import PeoplePicker from '../components/PeoplePicker';
 import PrintLayer from '../components/PrintLayer';
+import { DonePhotoField, DonePhotoStrip } from '../components/DonePhotos';
 import RowMenu from '../components/RowMenu';
 import SearchInput, { matchesQuery } from '../components/SearchInput';
 import { CompanySwitcher, Glossary, Insights, Section, Status, fmtDate, jump } from '../components/DashKit';
@@ -42,8 +44,120 @@ const NO_PROJECT = '__none__';
 const EMPTY_FORM = {
   title: '', description: '', projectId: '', assigneeIds: [], priority: 'medium', issuedOn: '', dueDate: '', status: 'not_started',
   forKind: 'company', forCompanyId: '', customerText: '', contact: '', soRef: '', itemCode: '', quantity: '', specification: '',
-  materials: '', materialQuantity: '', materialSpec: '', process: '', projectManagerId: '', workers: '', workDays: '', teamNames: ''
+  materials: '', materialQuantity: '', materialSpec: '', process: '', projectManagerId: '', workers: '', workDays: '', teamNames: '',
+  forStock: false, stockItems: []
 };
+
+function qtyText(n) { return String(Math.round(Number(n) * 100) / 100); }
+function itemsText(items) { return items.map((x) => qtyText(x.qty) + ' × ' + x.name).join(', '); }
+
+// What completing or reopening a WO did on the daily stock sheet, and who
+// was texted (backend woStock.service.js), in words for the toast.
+function stockNote(r) {
+  const s = r && r.stock;
+  if (!s || (!s.added.length && !s.removed.length)) return null;
+  let said = s.added.length
+    ? tr('{no} completed: {items} added to today’s stock sheet.', { no: r.number, items: itemsText(s.added) })
+    : tr('{no} reopened: {items} taken back off the stock sheet.', { no: r.number, items: itemsText(s.removed) });
+  const t = s.texted;
+  if (t) {
+    if (t.sent) said += ' ' + tr('Texted: {names}.', { names: t.to.join(', ') });
+    else if (t.nobody) said += ' ' + tr('Nobody is chosen to get a text: choose who on the Daily stock sheet page.');
+    else if (t.off) said += ' ' + tr('Text messages are not set up, so no text went.');
+    else said += ' ' + tr('The text did not go: check their phone number.');
+  }
+  return said;
+}
+
+// The daily stock sheet's items to pick from, with how many of each the WO
+// makes. value / onDone: [{ productId, name, sku, unit, qty }].
+function StockPicker({ products, value, onClose, onDone }) {
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState(() => Object.fromEntries(value.map((x) => [x.productId, String(x.qty)])));
+  const [err, setErr] = useState(null);
+  const shown = products.filter((p) => matchesQuery(q, p.name, p.sku, p.category));
+  const chosen = products.filter((p) => picked[p.id] !== undefined);
+  function toggle(p) { setErr(null); setPicked((was) => { const n = { ...was }; if (n[p.id] !== undefined) delete n[p.id]; else n[p.id] = '1'; return n; }); }
+  function done() {
+    const bad = chosen.find((p) => !(Number(picked[p.id]) > 0));
+    if (bad) { setErr(tr('Say how many {name} the work order makes.', { name: bad.name })); return; }
+    onDone(chosen.map((p) => ({ productId: p.id, name: p.name, sku: p.sku, unit: p.unit, qty: Number(picked[p.id]) })));
+  }
+  return createPortal(
+    <div className="dialog-backdrop wo-picker-back" onClick={onClose}>
+      <div className="dialog wo-picker" role="dialog" aria-modal="true" aria-labelledby="wo-picker-h" onClick={(e) => e.stopPropagation()}>
+        <h2 id="wo-picker-h">{tr('Items on the daily stock sheet')}</h2>
+        <p className="dk-muted wo-small">{tr('Tick what this work order makes and say how many of each.')}</p>
+        <SearchInput value={q} onChange={setQ} placeholder={tr('Search items…')} />
+        <ul className="wo-picker-list">
+          {shown.map((p) => {
+            const on = picked[p.id] !== undefined;
+            return (
+              <li key={p.id} className={on ? 'is-on' : ''}>
+                <button type="button" className="wo-picker-item" aria-pressed={on} onClick={() => toggle(p)}>
+                  <span className="wo-picker-tick" aria-hidden="true">{on ? '✓' : ''}</span>
+                  <Photo kind="product" id={p.id} name={p.name} photo={p.photo} size={34} />
+                  <span className="wo-picker-name"><b>{p.name}</b><small>{[p.sku, tr('{n} in stock', { n: qtyText(p.stock) + (p.unit ? ' ' + p.unit : '') })].filter(Boolean).join(' · ')}</small></span>
+                </button>
+                {on && (
+                  <label className="wo-picker-qty">
+                    <span>{tr('How many')}</span>
+                    <input className="input" type="number" min="1" step="1" inputMode="numeric" value={picked[p.id]} onChange={(e) => setPicked((was) => ({ ...was, [p.id]: e.target.value }))} aria-label={tr('How many {name}', { name: p.name })} />
+                  </label>
+                )}
+              </li>
+            );
+          })}
+          {!shown.length && <li className="dk-muted wo-small">{products.length ? tr('Nothing matches.') : tr('No items on the daily stock sheet yet.')}</li>}
+        </ul>
+        {err && <div className="error-banner" role="alert">{err}</div>}
+        <div className="dialog-actions">
+          <span className="wo-picker-count">{chosen.length === 1 ? tr('1 item chosen') : tr('{n} items chosen', { n: chosen.length })}</span>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>{tr('Cancel')}</button>
+          <button type="button" className="btn btn-primary" onClick={done}>{tr('Done')}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// Completing a WO: a photo of the finished work first (1 to 3), and what
+// goes onto the stock sheet with it.
+function FinishDialog({ task, textNames, onClose, onDone }) {
+  const [photos, setPhotos] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  async function go() {
+    setBusy(true); setErr(null);
+    try { await onDone(photos); } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  const items = task.stockItems || [];
+  return createPortal(
+    <div className="dialog-backdrop wo-picker-back" onClick={busy ? undefined : onClose}>
+      <div className="dialog wo-finish" role="dialog" aria-modal="true" aria-labelledby="wo-finish-h" onClick={(e) => e.stopPropagation()}>
+        <span className="wo-no">{task.number}</span>
+        <h2 id="wo-finish-h">{tr('Mark it completed')}</h2>
+        <p className="wo-finish-title">{task.title}</p>
+        <p className="dk-muted wo-small">{tr('A work order is marked completed only with a photo of the finished work.')}</p>
+        <DonePhotoField value={photos} onChange={setPhotos} disabled={busy} />
+        {items.length > 0 && (
+          <div className="wo-stock-box">
+            <h4>📦 {tr('Onto today’s stock sheet')}</h4>
+            <ul>{items.map((x) => <li key={x.productId}><b>{qtyText(x.qty)} ×</b> {x.name}{x.sku ? <small> · {x.sku}</small> : null}</li>)}</ul>
+            <p className="dk-muted wo-small">{textNames.length ? tr('{names} will get a text.', { names: textNames.join(', ') }) : tr('Nobody is chosen to get a text yet (Daily stock sheet page).')}</p>
+          </div>
+        )}
+        {err && <div className="error-banner" role="alert">{err}</div>}
+        <div className="dialog-actions">
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>{tr('Cancel')}</button>
+          <button type="button" className="btn btn-primary" disabled={busy || !photos.length} onClick={go}>{busy ? tr('Saving…') : tr('Mark completed')}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 // What a change to a WO did to its project, if anything: a project set to
 // close itself closes when its last work order is done and reopens when one
@@ -92,7 +206,10 @@ function fillFromProject(form, project, staffIds) {
 }
 
 function WoForm({ form, setForm, projects, employees, options, editing }) {
+  const [picking, setPicking] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const onSheet = form.stockItems.find((x) => x.addedOn);
+  const textNames = (options.stockTextIds || []).map((id) => employees.find((e) => e.id === id)).filter(Boolean).map((e) => e.firstName + ' ' + e.lastName);
   const setFor = (k) => (e) => setForm({ ...form, [k]: e.target.value, forTouched: true });
   const staffIds = new Set(employees.map((e) => e.id));
   const companies = options.companies || [];
@@ -152,6 +269,30 @@ function WoForm({ form, setForm, projects, employees, options, editing }) {
             <input id="wo-qty" className="input" value={form.quantity} maxLength={60} onChange={set('quantity')} placeholder="1" />
           </div>
         </div>
+        <div className="field">
+          <span className="wo-label">{tr('Is it making items for the daily stock sheet?')}</span>
+          <div className="wo-seg" role="radiogroup" aria-label={tr('Is it making items for the daily stock sheet?')}>
+            {[[false, tr('No')], [true, tr('Yes')]].map(([k, label]) => (
+              <button key={String(k)} type="button" role="radio" aria-checked={form.forStock === k} className={form.forStock === k ? 'is-on' : ''} disabled={!!onSheet}
+                onClick={() => { setForm({ ...form, forStock: k }); if (k && !form.stockItems.length) setPicking(true); }}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {form.forStock && (
+          <div className="wo-stock-box">
+            {form.stockItems.length ? (
+              <ul>{form.stockItems.map((x) => <li key={x.productId}><b>{qtyText(x.qty)} ×</b> {x.name}{x.sku ? <small> · {x.sku}</small> : null}</li>)}</ul>
+            ) : <p className="dk-muted wo-small">{tr('No items chosen yet.')}</p>}
+            {!onSheet && <button type="button" className="btn btn-secondary" onClick={() => setPicking(true)}>📦 {form.stockItems.length ? tr('Change the items') : tr('Choose the items')}</button>}
+            <p className="dk-muted wo-small">{onSheet
+              ? tr('Already on the stock sheet of {date}. Reopen the work order to change them.', { date: fmtDate(onSheet.addedOn) })
+              : textNames.length
+                ? tr('When it is completed, they go onto that day’s stock sheet and a text goes to {names}.', { names: textNames.join(', ') })
+                : tr('When it is completed, they go onto that day’s stock sheet.')}</p>
+          </div>
+        )}
+        {picking && <StockPicker products={options.stockProducts || []} value={form.stockItems} onClose={() => setPicking(false)}
+          onDone={(items) => { setForm({ ...form, stockItems: items, forStock: items.length ? true : form.forStock }); setPicking(false); }} />}
         <div className="field">
           <label htmlFor="wo-spec">{tr('Specification and link')}</label>
           <input id="wo-spec" className="input" value={form.specification} maxLength={1000} onChange={set('specification')} placeholder={tr('Sizes, e.g. L=59" W=36" H=30", or a link')} />
@@ -266,9 +407,12 @@ function payload(form, options) {
     forCompanyId: form.forKind === 'company' ? form.forCompanyId || null : null, customerId: cu ? cu.id : null,
     customerName: form.forKind === 'customer' && !cu ? form.customerText : '', contact: form.contact, soRef: form.soRef, itemCode: form.itemCode,
     quantity: form.quantity, specification: form.specification, materials: form.materials, materialQuantity: form.materialQuantity,
-    materialSpec: form.materialSpec, process: form.process, projectManagerId: form.projectManagerId || null
+    materialSpec: form.materialSpec, process: form.process, projectManagerId: form.projectManagerId || null,
+    stockItems: form.forStock ? form.stockItems.map((x) => ({ productId: x.productId, qty: Number(x.qty) })) : []
   };
 }
+// "Yes, for the stock sheet" needs the items.
+function stockMissing(form) { return form.forStock && !form.stockItems.length ? tr('Choose the stock sheet items it makes, or answer No.') : null; }
 
 function WorkshopOrders() {
   const { session, can } = useAuth();
@@ -326,6 +470,7 @@ function WorkshopOrders() {
   const [dropCol, setDropCol] = useState(null);
   // The last WO completed here, for a burst of confetti over its column.
   const [cheer, setCheer] = useState(null);
+  const [finishing, setFinishing] = useState(null); // a WO being completed: its photo first
   useEffect(() => {
     if (!cheer) return undefined;
     const t = setTimeout(() => setCheer(null), 2200);
@@ -388,14 +533,15 @@ function WorkshopOrders() {
   // ── actions ──────────────────────────────────────────────────────────
   async function setStatus(task, status) {
     if (task.status === status) return;
+    // Completed only with a photo of the finished work: asked for first.
+    if (status === 'completed') { setFinishing(task); return; }
     setError(null);
-    if (status === 'completed') setCheer({ id: task.id, at: Date.now() });
     // Move it at once; the reload below confirms it.
     setTasks((list) => list.map((t) => (t.id === task.id ? { ...t, status, completedAt: status === 'completed' ? new Date().toISOString() : null } : t)));
     try {
       const updated = await api.post('/tasks/' + task.id + '/status', { status });
       if (detail && detail.id === task.id) setDetail(updated);
-      const note = projectNote(updated.projectChanges);
+      const note = stockNote(updated) || projectNote(updated.projectChanges);
       if (note) setToast(note);
       await load();
     } catch (err) {
@@ -405,6 +551,17 @@ function WorkshopOrders() {
       if (detail && detail.id === task.id) setDetailError(err.message);
       await load();
     }
+  }
+
+  // The photo given: completed, and onto the stock sheet if it makes its items.
+  async function finish(photos) {
+    const task = finishing;
+    const updated = await api.post('/tasks/' + task.id + '/status', { status: 'completed', photos });
+    setFinishing(null);
+    setCheer({ id: task.id, at: Date.now() });
+    if (detail && detail.id === task.id) setDetail(updated);
+    setToast(stockNote(updated) || projectNote(updated.projectChanges) || tr('{no} completed.', { no: updated.number }));
+    await load();
   }
 
   function openNew(project) {
@@ -417,6 +574,8 @@ function WorkshopOrders() {
   }
   async function createWo(e) {
     e.preventDefault();
+    const missing = stockMissing(form);
+    if (missing) { setFormError(missing); return; }
     setSaving(true);
     setFormError(null);
     try {
@@ -476,11 +635,14 @@ function WorkshopOrders() {
       itemCode: d.itemCode || '', quantity: d.quantity || '', specification: d.specification || '', materials: d.materials || '',
       materialQuantity: d.materialQuantity || '', materialSpec: d.materialSpec || '', process: d.process || '',
       projectManagerId: d.projectManagerId || '', pmName: d.projectManagerId ? '' : d.pmName, teamNames: d.teamNames || '',
-      workers: d.workers === null || d.workers === undefined ? '' : String(d.workers), workDays: d.workDays === null || d.workDays === undefined ? '' : String(d.workDays)
+      workers: d.workers === null || d.workers === undefined ? '' : String(d.workers), workDays: d.workDays === null || d.workDays === undefined ? '' : String(d.workDays),
+      forStock: (d.stockItems || []).length > 0, stockItems: (d.stockItems || []).map((x) => ({ ...x }))
     });
   }
   async function saveEdit(e) {
     e.preventDefault();
+    const missing = stockMissing(editing);
+    if (missing) { setDetailError(missing); return; }
     setSaving(true);
     setDetailError(null);
     try {
@@ -1058,6 +1220,10 @@ function WorkshopOrders() {
         </div>
       )}
 
+      {finishing && (
+        <FinishDialog task={finishing} onClose={() => setFinishing(null)} onDone={finish}
+          textNames={(options.stockTextIds || []).map((id) => employees.find((x) => x.id === id)).filter(Boolean).map((x) => x.firstName + ' ' + x.lastName)} />
+      )}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );
@@ -1153,6 +1319,25 @@ function WoSheet({ d, today, myId, canManage, onClose, onStatus, onEdit, onDelet
         <dl className="wo-facts is-wide"><h4>{tr('Dates and timing')}</h4>{timing.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       </div>
       {d.description ? <p className="wo-desc">{d.description}</p> : null}
+      {(d.stockItems || []).length > 0 && (
+        <div className="wo-stock-box is-sheet">
+          <h4>📦 {tr('For the daily stock sheet')}</h4>
+          <ul>
+            {d.stockItems.map((x) => (
+              <li key={x.productId}>
+                <span><b>{qtyText(x.qty)} ×</b> {x.name}{x.sku ? <small> · {x.sku}</small> : null}</span>
+                {x.addedOn ? <Status tone="good">{tr('On the stock sheet, {date}', { date: fmtDate(x.addedOn) })}</Status> : <Status tone="info">{tr('Goes on when completed')}</Status>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {(d.donePhotos || []).length > 0 && !printOnly && (
+        <div className="wo-done-photos">
+          <h4>📷 {tr('Photos of the finished work')}</h4>
+          <DonePhotoStrip paths={d.donePhotos.map((p) => '/tasks/' + d.id + '/photos/' + p.n)} />
+        </div>
+      )}
 
       {!printOnly && (
         <div className="wo-detail-actions">

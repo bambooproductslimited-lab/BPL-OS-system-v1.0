@@ -4,6 +4,7 @@ var { requireAuth } = require('../middleware/auth');
 var { allowlistFilter } = require('../lib/uploadFilters');
 var tasksService = require('../services/tasks.service');
 var woImport = require('../services/workOrderImport.service');
+var fileStore = require('../lib/fileStore');
 
 // Work orders (the tasks table, migration 0136).
 var router = express.Router();
@@ -63,9 +64,14 @@ router.delete('/:id', async function (req, res, next) {
   try { res.json(await tasksService.remove(req.ctx, req.params.id)); } catch (e) { next(e); }
 });
 
-// kernel.js: handlers['tasks.setStatus'] -> POST /api/tasks/:id/status
+// A photo of a WO's finished work (taken when it was completed).
+router.get('/:id/photos/:n', async function (req, res, next) {
+  try { var f = await tasksService.photoOf(req.ctx, req.params.id, req.params.n); await fileStore.send(res, f.key, f.name, req.query.inline === '1'); } catch (e) { next(e); }
+});
+
+// kernel.js: handlers['tasks.setStatus'] -> POST /api/tasks/:id/status { status, photos? }
 router.post('/:id/status', async function (req, res, next) {
-  try { res.json(await tasksService.setStatus(req.ctx, req.params.id, req.body.status)); } catch (e) { next(e); }
+  try { res.json(await tasksService.setStatus(req.ctx, req.params.id, req.body.status, req.body)); } catch (e) { next(e); }
 });
 
 // kernel.js: handlers['tasks.addComment'] -> POST /api/tasks/:id/comments

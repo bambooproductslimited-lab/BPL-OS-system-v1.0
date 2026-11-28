@@ -146,4 +146,4 @@ async function resolveLines(client, items) {
   return items;
 }
 
-module.exports = { takeForInvoice: takeForInvoice, giveBack: giveBack, resolveLines: resolveLines };
+module.exports = { takeForInvoice: takeForInvoice, giveBack: giveBack, resolveLines: resolveLines, dayLine: dayLine };
