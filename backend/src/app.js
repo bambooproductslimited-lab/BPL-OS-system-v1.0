@@ -308,6 +308,10 @@ app.use('/api/mk', require('./routes/mk.routes'));
 app.use('/api/kiosk', kioskRoutes);
 // My Jobs signed in with a kiosk code: its own sign-in, the person's own jobs only.
 app.use('/api/myjobs', myJobsRoutes);
+// The staff page: each employee's own attendance, leave and work, signed in
+// with a code texted to their phone (staffPage.service.js); HR's side inside the OS.
+app.use('/api/staff', require('./routes/staffPage.routes').page);
+app.use('/api/staff-page', require('./routes/staffPage.routes').hr);
 app.use('/api/push', pushRoutes);
 app.use('/api/poki', pokiRoutes);
 app.use('/api/square', squareRoutes);

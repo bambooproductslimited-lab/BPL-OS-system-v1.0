@@ -97,6 +97,7 @@ var ALLOWED = {
   'POST /api/myjobs/team': 'My Jobs on a new phone: is this the team code? Answers yes or no only; IP rate-limited with the kiosk PIN (myJobsAccess.test.js)',
   'POST /api/myjobs/sign-in': 'My Jobs: the team code and a kiosk PIN; IP rate-limited with the kiosk and the tills (myJobsAccess.test.js)',
   'POST /api/myjobs/sign-out': 'My Jobs: ends the sign-in whose token it is given, if any; names nobody',
+  'POST /api/staff/sign-out': 'The staff page: ends the sign-in whose token it is given, if any; names nobody (staffPage.test.js)',
   'GET /api/kiosk/face-enroll/:token': 'self-enrolment link; token is the credential',
   'POST /api/kiosk/face-enroll/:token': 'self-enrolment link; token is the credential',
   'POST /api/kiosk/face-enroll/:token/verify-pin': 'self-enrolment link; token + PIN',

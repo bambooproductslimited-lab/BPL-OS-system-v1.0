@@ -1,0 +1,21 @@
+/* People → the staff page card (components/StaffPageCard.jsx). */
+.spc { margin: 0 0 18px; padding: 16px; border-radius: 16px; background: var(--color-bg); border: 1px solid var(--color-border); }
+.spc-top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.spc-ico { font-size: 28px; }
+.spc-text { flex: 1 1 320px; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.spc-text > small { color: var(--color-text-muted); line-height: 1.45; }
+.spc-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 2px; font-size: 14px; }
+.spc-stats .is-warn { color: var(--color-warning); font-weight: 600; }
+.spc-warn { color: var(--color-danger); font-size: 13px; }
+.spc-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.spc-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.spc-tabs button { min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-bg-subtle); color: var(--color-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.spc-tabs button.is-on { background: var(--color-accent-100); border-color: var(--color-accent); color: var(--color-accent-800); }
+.spc-list { margin-top: 10px; }
+.spc-hint { margin: 0 0 8px; font-size: 13px; color: var(--color-text-muted); }
+.spc-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 12px; }
+.spc-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 12px; border-top: 1px solid var(--color-border); font-size: 14px; }
+.spc-list li:first-child { border-top: 0; }
+.spc-list li > span { flex: 1; min-width: 0; color: var(--color-text-muted); font-size: 13px; }
+.spc-name { padding: 0; border: 0; background: none; color: var(--color-text); font: inherit; font-weight: 600; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: var(--color-border); text-underline-offset: 3px; }
+.spc-out { min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-danger); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }

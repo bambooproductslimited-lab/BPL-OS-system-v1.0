@@ -6,6 +6,7 @@ import { ALL_NAV_ITEMS } from './layout/navModel';
 import LoginPage from './pages/LoginPage';
 import KioskPage from './pages/KioskPage';
 import MyJobsPage from './pages/MyJobsPage';
+import StaffPage from './pages/StaffPage';
 import PurchaseOrdersPage from './pages/PurchaseOrdersPage';
 import DashboardPage from './pages/DashboardPage';
 import LeavePage from './pages/LeavePage';
@@ -195,6 +196,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/kiosk" element={<KioskPage />} />
       <Route path="/myjobs" element={<MyJobsPage />} />
+      <Route path="/staff" element={<StaffPage />} />
       <Route path="/pos" element={<RestaurantPosPage />} />
       <Route path="/kds" element={<KdsPage />} />
       <Route path="/customer-display" element={<CustomerDisplay />} />

@@ -32,6 +32,7 @@ export default defineConfig({
             main: resolve(__dirname, 'index.html'),
             kiosk: resolve(__dirname, 'kiosk.html'),
             myjobs: resolve(__dirname, 'myjobs.html'),
+            staff: resolve(__dirname, 'staff.html'),
             pos: resolve(__dirname, 'pos.html')
           }
         }

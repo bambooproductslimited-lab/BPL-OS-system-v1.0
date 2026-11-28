@@ -8,6 +8,7 @@ import MergeEmployeesDialog from '../components/MergeEmployeesDialog';
 import SetEmployeeIdsDialog from '../components/SetEmployeeIdsDialog';
 import SetHireDatesDialog from '../components/SetHireDatesDialog';
 import StaffRecordsDialog from '../components/StaffRecordsDialog';
+import StaffPageCard from '../components/StaffPageCard';
 import FaceCapture from '../components/FaceCapture';
 import Photo, { forgetBlob } from '../components/Photo';
 import PhotoDialog from '../components/PhotoDialog';
@@ -820,6 +821,8 @@ export default function EmployeesPage() {
         myId={myId} onWish={(p) => navigate('/messages?peer=' + p.id)} onOpen={(p) => setProfileTarget(p.id)} />
 
       <Insights items={insights.slice(0, 6)} />
+
+      {canWrite && <StaffPageCard onOpen={(id) => setProfileTarget(id)} />}
 
       {current.length > 0 && (
         <div className="pf-panels">

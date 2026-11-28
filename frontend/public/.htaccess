@@ -29,10 +29,13 @@
   RewriteRule ^kiosk\.html$ - [L]
   RewriteRule ^pos\.html$ - [L]
   RewriteRule ^myjobs\.html$ - [L]
+  RewriteRule ^staff\.html$ - [L]
   RewriteRule ^kiosk/?$ /kiosk.html [L]
   RewriteRule ^pos/?$ /pos.html [L]
   # My Jobs, the maintenance & IT team's phone app (pages/MyJobsPage.jsx).
   RewriteRule ^myjobs/?$ /myjobs.html [L]
+  # The staff page: each employee's own attendance, leave and work (pages/StaffPage.jsx).
+  RewriteRule ^staff/?$ /staff.html [L]
 
   # A missing app file (a script or style from another build) is a real
   # 404, never the page: a page under a script's name breaks the app, and

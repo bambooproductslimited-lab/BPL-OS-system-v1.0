@@ -137,7 +137,7 @@ function succeeded(r) {
 // request's team, a booking or receipt — except a sign-in code they asked
 // for themselves, or a test sent to that number on purpose. Matched on the
 // number, so every way a text is sent is covered, now and later.
-var ALWAYS_SENT = ['two_step', 'portal_code', 'test'];
+var ALWAYS_SENT = ['two_step', 'portal_code', 'staff_code', 'test'];
 async function quietStaffAt(number) {
   var rows = (await pool.query("SELECT id, first_name, last_name, phone FROM employees WHERE sms_opt_out AND coalesce(phone, '') <> ''")).rows;
   for (var i = 0; i < rows.length; i++) {
